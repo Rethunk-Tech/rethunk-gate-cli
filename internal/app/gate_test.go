@@ -866,6 +866,45 @@ func TestGatesNotStartedWhenInterruptedSayTheRunWasInterrupted(t *testing.T) {
 	}
 }
 
+// The conflict is reported on every invocation until someone acts, so it has
+// to say what acting looks like. Nothing silences it: choosing quietly
+// between two stated intents is the behaviour this exists to prevent.
+func TestAShadowWarningNamesItsFixOnceAndCannotBeSilenced(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "Makefile"),
+		[]byte("test:\n\ttrue\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Written the way biome formats it: a package.json also attracts the
+	// convention lint gate on a machine that has biome, and a fixture that
+	// fails formatting would fail this test for an unrelated reason.
+	if err := os.WriteFile(filepath.Join(root, "package.json"),
+		[]byte("{\n\t\"scripts\": {\n\t\t\"test\": \"vitest run\"\n\t}\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "bun.lock"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TMPDIR", t.TempDir())
+
+	// --quiet governs the pass line, not a disagreement about what to run.
+	_, stderr, code := runGateTest(t, "-C", root, "--quiet")
+	if code != Success {
+		t.Fatalf("gate = %d, stderr = %q", code, stderr)
+	}
+	if !strings.Contains(stderr, "declared twice") {
+		t.Errorf("--quiet silenced a conflict: %q", stderr)
+	}
+	if !strings.Contains(stderr, "remove one of the declarations") {
+		t.Errorf("the warning does not say how to finish: %q", stderr)
+	}
+	// Once per run. The whole point of this tool is that output stays small,
+	// and this one repeats forever until the project changes.
+	if n := strings.Count(stderr, "remove one of the declarations"); n != 1 {
+		t.Errorf("the fix was printed %d times, want once", n)
+	}
+}
+
 // One path cannot hold several gates' logs, and silently sharing it would
 // destroy every gate's output but the last.
 func TestRunLogWithAlsoIsRefused(t *testing.T) {

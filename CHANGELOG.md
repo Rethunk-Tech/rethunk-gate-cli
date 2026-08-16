@@ -15,6 +15,11 @@ Notable changes to `gate`. The format follows
 
 ### Added
 
+- A shadow warning now names its fix — once per run, not once per conflict.
+  It fires on every invocation until a project changes, and a warning that
+  cannot be finished is how output starts being skipped. Nothing silences it:
+  choosing quietly between two stated intents is what it exists to prevent.
+
 - Ctrl-C now stops the gate instead of orphaning it. gate handles SIGINT and
   SIGTERM, kills each running gate with its whole process group, and exits
   128+the signal — 130 for Ctrl-C. Previously gate died and the gate did not:

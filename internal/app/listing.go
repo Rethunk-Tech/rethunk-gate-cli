@@ -80,10 +80,20 @@ func writeNotes(w io.Writer, project detect.Project) {
 // writeShadowWarnings surfaces conflicting declarations at run time, so a
 // disagreement is visible without having to ask for --list first.
 func writeShadowWarnings(w io.Writer, project detect.Project) {
+	conflicts := 0
 	for _, g := range project.Gates {
 		for _, shadowed := range g.Shadowed {
+			conflicts++
 			fmt.Fprintf(w, "gate: %s is declared twice -- running %s (%s), ignoring %s\n",
 				g.Name, g.Display(), g.Source, shadowed)
 		}
 	}
+	if conflicts == 0 {
+		return
+	}
+	// Once per run, not once per conflict. This fires on every invocation
+	// forever until someone acts, and a warning that cannot be finished is
+	// how output starts being skipped -- so it has to say what finishing
+	// looks like, without doubling its own volume to do it.
+	fmt.Fprintln(w, "gate: remove one of the declarations to settle this; gate will not choose between them")
 }
