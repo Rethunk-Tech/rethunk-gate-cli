@@ -16,6 +16,19 @@ import (
 
 // write creates a fixture file, making its parents. Almost every case here
 // starts by planting a Makefile or a manifest.
+// plantBin puts a no-op executable in the fixture's node_modules/.bin and
+// returns its path. Detection resolves there before PATH, so planting the tool
+// a fixture implies is what makes the gate set the same everywhere: a machine
+// that happens to have tsc installed would otherwise get a typecheck gate this
+// fixture never asked for, and a bare `tsc --noEmit` fails with no tsconfig.
+func plantBin(t *testing.T, dir, name string) string {
+	t.Helper()
+	path := filepath.Join(dir, "node_modules", ".bin", name)
+	qt.Assert(t, qt.IsNil(os.MkdirAll(filepath.Dir(path), 0o755)))
+	qt.Assert(t, qt.IsNil(os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o755)))
+	return path
+}
+
 func write(t *testing.T, dir, name, body string) {
 	t.Helper()
 	path := filepath.Join(dir, name)
@@ -465,9 +478,8 @@ func TestRunSerialRunsEveryGateWhenAllPass(t *testing.T) {
 // question -- the log trailer for what ran, --list for what will.
 func TestResolvedPathIsShortenedOnTheVerdictLineOnly(t *testing.T) {
 	root := t.TempDir()
-	bin := filepath.Join(root, "node_modules", ".bin", "biome")
-	qt.Assert(t, qt.IsNil(os.MkdirAll(filepath.Dir(bin), 0o755)))
-	qt.Assert(t, qt.IsNil(os.WriteFile(bin, []byte("#!/bin/sh\nexit 0\n"), 0o755)))
+	bin := plantBin(t, root, "biome")
+	plantBin(t, root, "tsc")
 	write(t, root, "package.json", `{"name":"app"}`)
 	write(t, root, "bun.lock", "")
 	logs := t.TempDir()
@@ -778,6 +790,7 @@ func TestAShadowWarningNamesItsFixOnceAndCannotBeSilenced(t *testing.T) {
 	// fails formatting would fail this test for an unrelated reason.
 	write(t, root, "package.json", "{\n\t\"scripts\": {\n\t\t\"test\": \"vitest run\"\n\t}\n}\n")
 	write(t, root, "bun.lock", "")
+	plantBin(t, root, "tsc")
 	t.Setenv("TMPDIR", t.TempDir())
 
 	// --quiet governs the pass line, not a disagreement about what to run.
@@ -894,6 +907,7 @@ func TestAConfigRunSettlesAShadowConflict(t *testing.T) {
 	write(t, root, "Makefile", "test:\n\ttrue\n")
 	write(t, root, "package.json", "{\n\t\"scripts\": {\n\t\t\"test\": \"vitest run\"\n\t}\n}\n")
 	write(t, root, "bun.lock", "")
+	plantBin(t, root, "tsc")
 
 	// Unresolved, it warns.
 	_, stderr, code := runGateTest(t, "-C", root, "--quiet")
