@@ -83,12 +83,6 @@ type Project struct {
 
 	// Notes explain what was found and what was deliberately skipped.
 	Notes []string
-
-	// HasManifest distinguishes a real project from a directory that merely
-	// had nothing above it. Root is always set -- the working directory when
-	// no manifest was found -- so without this a caller cannot tell "this
-	// project is missing something" from "this is not a project".
-	HasManifest bool
 }
 
 // gateOrder is the order gates run in within one toolchain. Build first
@@ -120,7 +114,6 @@ func Detect(dir string) (Project, error) {
 	proj := Project{Root: abs}
 	if root, ok := findUp(abs, manifestNames); ok {
 		proj.Root = root
-		proj.HasManifest = true
 	}
 	if ws, ok := findUp(proj.Root, workspaceNames); ok {
 		proj.Workspace = ws

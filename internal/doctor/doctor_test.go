@@ -245,6 +245,26 @@ func TestARepositoryWithNoCIIsReported(t *testing.T) {
 	findings, err = Run(loose)
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.IsFalse(reported(findings, "no-ci")), qt.Commentf("a non-repository was reported as having no CI: %v", checkNames(findings)))
+
+	// Nothing to run means nothing to run in CI. A Makefile whose targets are
+	// not gate roles -- a repository that builds documents -- yields no gates,
+	// so advising it to add a workflow would be advice with no content.
+	docs := t.TempDir()
+	write(t, docs, ".git/HEAD", "ref: refs/heads/main\n")
+	write(t, docs, "Makefile", "pdfs:\n\tpandoc x.md -o x.pdf\n")
+	findings, err = Run(docs)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsFalse(reported(findings, "no-ci")),
+		qt.Commentf("a document repository was told to add CI: %v", checkNames(findings)))
+
+	// But one real gate is enough to make the absence worth reporting.
+	oneGate := t.TempDir()
+	write(t, oneGate, ".git/HEAD", "ref: refs/heads/main\n")
+	write(t, oneGate, "Makefile", "lint:\n\tmarkdownlint .\n")
+	findings, err = Run(oneGate)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsTrue(reported(findings, "no-ci")),
+		qt.Commentf("a repository with a lint gate and no CI was not reported: %v", checkNames(findings)))
 }
 
 func checkNames(findings []Finding) []string {

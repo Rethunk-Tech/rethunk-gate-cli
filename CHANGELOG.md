@@ -6,6 +6,17 @@ Notable changes to `gate`. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- `no-ci` now fires only where the project has gates to run. Its first
+  fleet-wide run flagged 11 repositories, three of which build documents from a
+  Makefile — telling them to add CI is advice with no content, and by doctor's
+  own standard a check that fires wrongly teaches people to skip the output.
+  Having no gates is the discriminator rather than having no code manifest: it
+  keeps a repository whose only gate is `make lint`, which is exactly the case
+  worth reporting. Fleet findings 31 to 29, and the two dropped are the two
+  with nothing to run.
+
 ## [0.2.0] — 2026-08-16
 
 Still `0.x`: the per-project configuration file is designed but not built, and

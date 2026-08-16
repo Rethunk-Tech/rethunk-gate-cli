@@ -156,9 +156,13 @@ func checkGoVuln(root string, proj detect.Project, add func(Finding)) {
 // ci-no-final-gate exists to condemn -- absence read as health -- applied to
 // the whole directory rather than one job.
 func checkNoCI(proj detect.Project, add func(Finding)) {
-	// A directory that merely holds a manifest is not a project missing CI:
-	// a scratch checkout, a vendored copy, an extracted tarball.
-	if !proj.HasManifest {
+	// Nothing to run means nothing to run in CI. A repository with no gates
+	// is a document or asset repository as far as gate can tell, and telling
+	// it to add a workflow would be advice with no content. Measured: this is
+	// what separates the briefs and PDF repositories in this fleet from the
+	// ones that really are missing CI -- including one whose only gate is
+	// `make lint`, which is exactly the case worth flagging.
+	if len(proj.Gates) == 0 {
 		return
 	}
 	repo, ok := repoRoot(proj.Root)
@@ -177,7 +181,7 @@ func checkNoCI(proj detect.Project, add func(Finding)) {
 		Check: "no-ci",
 		Where: ".github/workflows",
 		What:  "this repository has no CI workflows at all",
-		Why:   "8 of 40 repository roots in this fleet have a manifest and no workflows, and every other CI check here gives up on the missing directory -- so the repository with the least CI is the one doctor says least about",
+		Why:   "9 of 95 repositories in this fleet have gates to run and no workflow to run them in, and every other CI check here gives up on the missing directory -- so the repository with the least CI is the one doctor says least about",
 		Fix:   "add a workflow; Rethunk-Tech/gh-actions covers Go, Bun and Node setup",
 	})
 }
