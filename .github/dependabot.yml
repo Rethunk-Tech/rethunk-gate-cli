@@ -1,0 +1,27 @@
+version: 2
+
+# Grouped so a week's updates arrive as one PR per ecosystem rather than one
+# per module. This repo currently has no third-party Go dependencies at all --
+# gate is stdlib only -- so the gomod entry exists to catch the first one that
+# ever lands rather than because it has work to do today.
+#
+# Fleet policy: Dependabot PRs are not merged. The equivalent bump is applied
+# by hand on main and the PR closed as superseded.
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      go-dependencies:
+        patterns:
+          - "*"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns:
+          - "*"

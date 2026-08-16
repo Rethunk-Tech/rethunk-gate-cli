@@ -34,6 +34,23 @@ func readLog(t *testing.T, path string) string {
 	return string(data)
 }
 
+// splitLog separates what the command wrote from gate's own trailer, failing
+// if the trailer is missing. Every assertion about log contents goes through
+// here, so a trailer that stopped being written -- or started being written
+// somewhere other than the end -- fails the whole suite rather than one case.
+func splitLog(t *testing.T, path string) (output, trailer string) {
+	t.Helper()
+	body := readLog(t, path)
+	if strings.HasPrefix(body, trailerPrefix) {
+		return "", body
+	}
+	i := strings.LastIndex(body, "\n"+trailerPrefix)
+	if i < 0 {
+		t.Fatalf("log %s has no gate trailer: %q", path, body)
+	}
+	return body[:i+1], body[i+1:]
+}
+
 // A passing gate is the common case -- 40% of real gate invocations finish in
 // under half a second -- so it has to cost one line, and the command's own
 // output must not reach the caller at all. That suppression is the entire
@@ -55,14 +72,20 @@ func TestRunPassEmitsOneLineAndKeepsOutputOffStdout(t *testing.T) {
 	// The verdict names the command, and this command's own text contains
 	// the words it prints -- so the leak to test for is the output body
 	// itself reaching stdout, not the individual words.
-	if body := readLog(t, log); strings.Contains(stdout, body) {
+	output, trailer := splitLog(t, log)
+	if strings.Contains(stdout, output) {
 		t.Errorf("passing verdict leaked command output: %q", stdout)
 	}
 	if !strings.Contains(stdout, log) {
 		t.Errorf("passing verdict = %q, want it to name the log %s", stdout, log)
 	}
-	if want := "hello\nworld\n"; readLog(t, log) != want {
-		t.Errorf("log = %q, want %q", readLog(t, log), want)
+	if want := "hello\nworld\n"; output != want {
+		t.Errorf("log output = %q, want %q", output, want)
+	}
+	// A log that recorded output but not outcome would answer the wrong
+	// question when read later.
+	if !strings.Contains(trailer, "exit 0") {
+		t.Errorf("trailer = %q, want it to record exit 0", trailer)
 	}
 }
 
@@ -84,8 +107,12 @@ func TestRunFailPropagatesExactExitCode(t *testing.T) {
 	if !strings.Contains(stderr, log) {
 		t.Errorf("failure did not name the log %s: %q", log, stderr)
 	}
-	if want := "boom\n"; readLog(t, log) != want {
-		t.Errorf("log = %q, want %q", readLog(t, log), want)
+	output, trailer := splitLog(t, log)
+	if want := "boom\n"; output != want {
+		t.Errorf("log output = %q, want %q", output, want)
+	}
+	if !strings.Contains(trailer, "exit 3") {
+		t.Errorf("trailer = %q, want it to record exit 3", trailer)
 	}
 }
 
@@ -114,7 +141,7 @@ func TestRunLogKeepsEveryByteThatTheSummaryDrops(t *testing.T) {
 		t.Fatalf("gate = %d, stderr = %q", code, stderr)
 	}
 
-	got := readLog(t, log)
+	got, _ := splitLog(t, log)
 	if got != want.String() {
 		t.Fatalf("log lost bytes: got %d bytes, want %d", len(got), want.Len())
 	}
@@ -140,7 +167,8 @@ func TestRunFailureQuotesOnlyTheRequestedTail(t *testing.T) {
 	if strings.Contains(stderr, "line50") {
 		t.Errorf("tail of 3 quoted line50: %q", stderr)
 	}
-	if lines := strings.Count(readLog(t, log), "\n"); lines != 100 {
+	output, _ := splitLog(t, log)
+	if lines := strings.Count(output, "\n"); lines != 100 {
 		t.Errorf("log has %d lines, want 100", lines)
 	}
 }
@@ -342,7 +370,9 @@ func TestRunAlsoGivesEachGateItsOwnLog(t *testing.T) {
 	if logs[0] == logs[1] {
 		t.Fatalf("both gates logged to %s", logs[0])
 	}
-	bodies := []string{readLog(t, logs[0]), readLog(t, logs[1])}
+	first, _ := splitLog(t, logs[0])
+	second, _ := splitLog(t, logs[1])
+	bodies := []string{first, second}
 	if bodies[0] != "aaa\n" || bodies[1] != "bbb\n" {
 		t.Errorf("logs = %q, want [\"aaa\\n\" \"bbb\\n\"]", bodies)
 	}

@@ -20,6 +20,11 @@ Notable changes to `gate`. The format follows
   reported in the order they were named rather than the order they finished.
   When several fail, the exit status is that of the first gate named.
 
+- Every log ends with a `[gate]` trailer line recording the exit status and
+  duration, after the command's own output, so a log answers what happened and
+  not only what was printed. See
+  [`docs/CODES.md`](docs/CODES.md#log-trailer).
+
 - `--serial` runs gates in order and stops at the first failure — for gates
   that depend on each other, and for gates on a shared build cache, which can
   be slower run concurrently. See

@@ -152,24 +152,57 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 	started := time.Now()
 	runErr := cmd.Run()
 	res.elapsed = time.Since(started)
+
+	// Whether the command left a partial last line has to be read before
+	// close finalises it, so the trailer below starts on a line of its own
+	// without inventing a newline the command did not write.
+	danglingLine := res.tracker.pending()
 	res.tracker.close()
+
+	if runErr != nil && isNotFound(runErr) {
+		res.notFound = true
+		res.code = exitcode.NotFound
+	} else {
+		res.code = resolveCode(runErr)
+	}
+
+	// A log that records output but not outcome answers the wrong question
+	// when it is read later. The trailer is the only thing gate writes into
+	// a log, it is one line, and it comes after every byte the command
+	// wrote -- so nothing is displaced and the log still starts with exactly
+	// what the command produced.
+	if err := writeTrailer(logFile, res, danglingLine); err != nil {
+		res.fatalErr = fmt.Errorf("log %s may be incomplete: %w", res.logPath, err)
+	}
 
 	// The complete log is the guarantee this tool rests on, so a failure to
 	// finish writing it is said out loud rather than discarded in a defer.
 	// It does not change the verdict: the command's status is already known,
 	// and calling a passing gate failed because its log was truncated would
 	// be a worse answer than a warning.
-	if err := logFile.Close(); err != nil {
+	if err := logFile.Close(); err != nil && res.fatalErr == nil {
 		res.fatalErr = fmt.Errorf("log %s may be incomplete: %w", res.logPath, err)
 	}
 
-	if runErr != nil && isNotFound(runErr) {
-		res.notFound = true
-		res.code = exitcode.NotFound
-		return res
-	}
-	res.code = resolveCode(runErr)
 	return res
+}
+
+// trailerPrefix marks gate's own line in a log. Distinctive enough that a
+// reader, or a grep, can tell it from anything the command printed.
+const trailerPrefix = "[gate]"
+
+func writeTrailer(w io.Writer, res gateResult, danglingLine bool) error {
+	lead := ""
+	if danglingLine {
+		lead = "\n"
+	}
+	outcome := fmt.Sprintf("exit %d", int(res.code))
+	if res.notFound {
+		outcome = "could not run"
+	}
+	_, err := fmt.Fprintf(w, "%s%s %s in %s -- %s\n",
+		lead, trailerPrefix, outcome, formatDuration(res.elapsed), res.spec.display)
+	return err
 }
 
 // writeFailureRegion quotes the part of the output worth reading. It is a

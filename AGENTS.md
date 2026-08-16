@@ -11,7 +11,10 @@ bind changes that would not otherwise think to consult it.
 
 `gate` never decides whether a gate passed by reading its output. Output is
 summarised for display only. Every byte the command wrote reaches the log,
-whatever the summary drops.
+whatever the summary drops, followed by exactly one trailer line recording the
+outcome — the only thing `gate` itself ever writes into a log, and always
+after the command's last byte, so the log still *starts* with precisely what
+the command produced.
 
 Both halves matter, and they fail in opposite directions. Judging by output
 could invert a verdict — the exact failure mode that makes `some-test | tail`

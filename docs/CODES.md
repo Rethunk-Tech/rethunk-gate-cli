@@ -60,6 +60,20 @@ Everything here is display. The verdict was already decided by the exit
 status, and the complete output is in the log — so quoting too little costs a
 second look, never a wrong answer.
 
+### Log trailer
+
+Every log ends with one line `gate` wrote itself:
+
+```text
+[gate] exit 3 in 1.2s -- go test ./...
+[gate] could not run in 0ms -- gate-test-no-such-command
+```
+
+It comes after every byte the command wrote, so the log still starts with
+exactly the command's own output, and a log read a week later answers what
+happened rather than only what was printed. `[gate]` is distinctive enough to
+grep for, or to strip with `head -n -1`.
+
 ### Could not run
 
 ```text

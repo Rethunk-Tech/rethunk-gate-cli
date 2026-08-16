@@ -94,6 +94,11 @@ func (t *lineTracker) finishLine() {
 	}
 }
 
+// pending reports whether the stream ended mid-line. Callers appending to the
+// log need it to know whether their own line would land on the end of the
+// command's last one.
+func (t *lineTracker) pending() bool { return t.partial.Len() > 0 }
+
 // close finalises a stream that ended without a trailing newline, so the last
 // line of output is not lost from the summary.
 func (t *lineTracker) close() {
