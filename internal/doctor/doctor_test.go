@@ -183,10 +183,16 @@ func TestStaleActionRefIsReportedButNewerIsNot(t *testing.T) {
 	// A pin newer than this build knows about must not be flagged -- the
 	// constant goes stale by design, and reporting the future as a problem
 	// would make every bump look like a regression.
+	// The sha pin in the same file must be left alone too: a ref this cannot
+	// parse is not evidence of anything, and guessing at one would flag the
+	// strictest pin available as a problem.
 	newer := t.TempDir()
 	write(t, newer, "package.json", `{"name":"demo"}`)
 	write(t, newer, ".github/workflows/ci.yml",
-		"jobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-bun@v9.9\n")
+		"jobs:\n  a:\n    steps:\n"+
+			"      - uses: Rethunk-Tech/gh-actions/setup-bun@v9.9\n"+
+			"      - uses: Rethunk-Tech/gh-actions/setup-go@3d3c42e5aac5ba805825da76410c181273ba90b1\n"+
+			"      - uses: Rethunk-Tech/gh-actions/setup-node@v1\n")
 	findings, err = Run(newer)
 	if err != nil {
 		t.Fatal(err)

@@ -710,13 +710,19 @@ func TestListShowsChosenAndShadowedAndRunsNothing(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "bun.lock"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// supabase/ is found and deliberately not turned into a gate, which
+	// --list has to say: silence there reads as "nothing to report" rather
+	// than "a decision was made".
+	if err := os.MkdirAll(filepath.Join(dir, "supabase"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	t.Chdir(dir)
 
 	stdout, stderr, code := runGateTest(t, "--list")
 	if code != Success {
 		t.Fatalf("gate --list = %d, stderr = %q", code, stderr)
 	}
-	for _, want := range []string{"make test", "Makefile target test", "shadows", "vitest run"} {
+	for _, want := range []string{"make test", "Makefile target test", "shadows", "vitest run", "note: supabase"} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("--list output missing %q:\n%s", want, stdout)
 		}

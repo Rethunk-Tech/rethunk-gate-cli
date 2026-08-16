@@ -67,4 +67,9 @@ func TestResolveVersionPrefersLdflagsAndIsNeverEmpty(t *testing.T) {
 	if got := resolveVersion(""); got == "" {
 		t.Error("resolveVersion(\"\") returned empty; a version line with no version is useless")
 	}
+	// The placeholder is not treated as a version, but it is still better than
+	// nothing when the build carries no stamps to fall back on.
+	if got := resolveVersion("dev"); got != "dev" {
+		t.Errorf("resolveVersion(\"dev\") = %q, want the placeholder back", got)
+	}
 }
