@@ -128,3 +128,195 @@ is stdlib only", and `AGENTS.md` § Detection (88–105) and § Concurrency
 - `make test`, `make lint` and `doc-audit` stay clean, and neither
   `.github/dependabot.yml` nor `AGENTS.md` still claims gate has no
   dependencies.
+
+## Ctrl-C leaves the gate running and the log empty
+
+`gate` handles no signals. `cmd/gate/main.go:16` passes
+`context.Background()`, and every child is put in its **own** process group by
+`setProcessGroup` (`internal/app/signal_unix.go:13`) so that a timeout can kill
+the whole tree. Those two facts combine badly: a terminal delivers SIGINT to
+the foreground process group, which is gate's and not the child's, so Ctrl-C
+kills gate and the gate keeps running.
+
+Measured, not inferred. `gate --timeout 0 sh -c 'sleep 47'`, then SIGINT to
+gate: gate exits, the `sh` reparents to pid 1 and its `sleep` runs to
+completion, and the log is **zero bytes** — no output, no trailer. Both
+invariants in `AGENTS.md` break at once. The log is not complete, it is empty;
+and the process-group machinery that exists so nothing is left behind holding
+a port is precisely what strands the process, because the group it isolates is
+the group the terminal cannot reach.
+
+This is worse than an untidy exit. An interrupted `go test` or `bun test` goes
+on writing to a log nobody will read, holding a build cache or a port, with
+its output no longer on anyone's terminal — invisible by construction, because
+gate redirected it in the first place.
+
+The shape is decided, and nearly all of it already exists. `cmd/gate/main.go`
+installs a handler for SIGINT and SIGTERM, cancels the context it passes to
+`app.Run`, and remembers which signal arrived. Cancellation then flows through
+machinery that is already correct and has simply never fired: `runCtx` derives
+from that context (`internal/app/gate.go:240`), `cmd.Cancel` already calls
+`killProcessGroup` (`:251`), and `cmd.WaitDelay` already reaps a child that
+ignores it (`:254`). gate exits **128+signal** — 130 for SIGINT — which is the
+shell's own encoding and the one `Signaled` (`internal/app/code.go:41`)
+already produces. A second signal restores the default disposition, so a gate
+wedged on an unkillable child can still be escaped.
+
+An interrupted gate is reported the way a timed-out one is: killed, not
+failed, with its partial log named. That distinction is already built and
+argued for at `internal/app/gate.go:275-281` and `docs/CODES.md:85`; this is a
+second occasion for it, not a new idea.
+
+### Read
+
+`cmd/gate/main.go` entire — it is 17 lines, and line 16 is the whole defect.
+
+In `internal/app/gate.go`, `runOne` (205–308) is where the change lands:
+`runCtx` and the timeout context (240–245), the exec setup that already wires
+group-killing (247–254), the switch that classifies the outcome (274–287) —
+which needs a third case, since a cancelled run is neither
+`DeadlineExceeded` nor a genuine failure and today would surface as `FAIL exit
+137` from the very SIGKILL gate sent — and the trailer and close at 294–305,
+which is what must still run so the log is not left empty. `report` (163–201)
+holds the timeout's phrasing to mirror, and `runGates` (83–136) decides what
+happens to gates that had not started yet.
+
+`internal/app/signal_unix.go` (13–24) is the group machinery, and
+`internal/app/signal_other.go` (14–21) is what is missing off unix.
+`internal/app/code.go` (17–41) holds `TimedOut` and `Signaled`.
+
+`docs/CODES.md:23-32` documents 124 and 128+*sig*, and `:85-96` is the
+"killed, not failed" wording an interrupt should follow.
+
+### Traps
+
+- **Gates that had not started must not be reported as failures.** With the
+  context already cancelled, `exec` refuses to start the remaining gates and
+  `resolveCode` (`internal/app/gate.go:353`) turns that into `Fatal`. Printing
+  `FAIL exit 128` for a gate that never ran is exactly the lie
+  `docs/CODES.md:96` refuses to tell. This is the same reporting gap tracked
+  separately for gates skipped after a group failure; do them together or the
+  second one will re-open the first.
+- **The trailer is the point.** A log left empty is the failure this tool
+  exists to prevent, so the interrupted path must still reach `writeTrailer`
+  and `Close` (`internal/app/gate.go:294-305`) and say the run was
+  interrupted. Verify it on a real interrupt, not by reading the code — the
+  zero-byte log above is what the code already looked like it would not do.
+- **Do not report the signal gate sent itself.** The child dies of the SIGKILL
+  from `killProcessGroup`, so the honest status is the signal that reached
+  *gate*, not the one gate delivered. Reporting 137 for a Ctrl-C would name
+  gate's own mechanism as the cause.
+- **A second Ctrl-C must work.** A handler that swallows every signal turns a
+  wedged child into an unkillable session. Restore the default disposition
+  after the first.
+- **Off unix this is partly unreachable.** `setProcessGroup` is a no-op and
+  `killProcessGroup` reaches only the immediate child
+  (`internal/app/signal_other.go:14-21`), so the interrupt story there is
+  weaker by construction. Say so rather than implying parity — see the Windows
+  section below.
+- **Test it with a real process and a real cancellation.** `app.Run` takes its
+  context from the caller, so a test can cancel it and assert the child is
+  gone, the log ends with a trailer, and the status is 128+signal — without
+  faking an exec boundary, which `CONTRIBUTING.md` rules out. The one line
+  that remains untested is the handler in `main`; keep it thin enough that
+  this is honest.
+
+### Acceptance
+
+- Interrupting a running gate kills the command and everything it spawned; no
+  process survives gate's exit.
+- The interrupted gate's log ends with a trailer saying it was interrupted,
+  and contains every byte the command wrote before it died.
+- gate exits 128+signal — 130 for SIGINT, 143 for SIGTERM.
+- An interrupted gate is reported as interrupted, never as failed, and never
+  with the 137 gate's own SIGKILL produced.
+- Gates that had not started when the signal arrived are reported as not run.
+- A second signal terminates gate even if a child is ignoring the first.
+- `docs/CODES.md` gains 130/143 alongside the existing 124, and `AGENTS.md`'s
+  capture-path invariants name the interrupt case.
+
+## Windows is shipped but has never been run
+
+`.github/workflows/release.yml:35` cross-builds `windows/amd64` and publishes
+it, and nothing anywhere has executed it. The "Verify artifacts" step
+(`:49-56`) runs only the native linux binary and checks the rest with `file`,
+and CI (`.github/workflows/ci.yml:20`) is `ubuntu-latest` alone. Three
+concrete things are wrong on that artifact today:
+
+1. `logDir` (`internal/app/gate.go:378-384`) reads `TMPDIR` and falls back to
+   `/var/tmp`. Windows sets `TEMP` and `TMP`, so every log lands in
+   `\var\tmp\gate` on the current drive — created successfully, and nowhere
+   anyone would look.
+2. `--also` always execs `sh -c` (`internal/app/app.go:226`). There is no `sh`
+   on a stock Windows, so every `--also` gate exits 127.
+3. `setProcessGroup` is a no-op off unix and `killProcessGroup` reaches only
+   the immediate child (`internal/app/signal_other.go:14-21`), so a timeout
+   leaves the child's own children alive — the failure mode the unix path
+   exists to prevent.
+
+Supporting it is a deliberate choice over the alternative of deleting the
+target, which was the cheaper answer and was considered. `AGENTS.md` should
+record the decision, because "gate runs on Windows" is a claim the test suite
+does not currently support at all.
+
+The shape is decided. `logDir` splits on a build tag: the unix file keeps
+today's rule and its `/tmp`-is-tmpfs reasoning, and the windows file uses
+`os.TempDir`, which honours `TEMP`/`TMP` there. `os.TempDir` is deliberately
+**not** adopted on unix, where it returns `/tmp` — the location this tool
+refuses on purpose. `--also` likewise splits: `sh -c` on unix, `cmd /c` on
+windows. CI gains a `windows-latest` leg.
+
+### Read
+
+`internal/app/gate.go`'s `logDir` (378–384) and `defaultLogPath` (386–389),
+plus `runOne`'s directory creation (211–229) — the 0700/0600 modes there are
+POSIX permissions, and what they mean on NTFS is the question that decides
+whether the privacy claim in `AGENTS.md` § State still holds.
+
+`internal/app/app.go` (221–230) builds the `--also` spec, and is the only
+place gate assumes a shell.
+
+`internal/app/signal_other.go` entire (21 lines), against
+`internal/app/signal_unix.go` for what it stands in for.
+
+`.github/workflows/ci.yml` (19–37) for the matrix a windows leg joins, and
+`.github/workflows/release.yml` (28–56) for the build and verify steps.
+
+`CONTRIBUTING.md` § Tests, which requires real processes rather than doubles —
+the constraint that decides how much of the suite can run there at all.
+
+`docs/USAGE.md:283` states the log location as a fact, and would become wrong.
+
+### Traps
+
+- **The test suite is unix-shaped.** `internal/app/gate_test.go` spawns `sh`
+  and `true` throughout, so most of it cannot run on Windows as written.
+  Rewriting those to a double is ruled out by `CONTRIBUTING.md`; either give
+  the windows leg a real equivalent, or scope the leg honestly to what it does
+  cover and say which tests are unix-only. A green windows job that skipped
+  the capture path would be worse than no job.
+- **`cmd /c` quoting is not `sh -c` quoting.** Go builds the command line for
+  cmd.exe by rules that do not match a POSIX shell's, so an `--also` string
+  that works on both is not a given. Decide what `--also` promises on Windows
+  rather than letting it be whatever `exec` happened to produce.
+- **0600 and 0700 do not mean on NTFS what they mean on ext4.** The logs may
+  hold tokens; that is why the modes exist. If they are advisory there, the
+  privacy claim needs qualifying rather than restating.
+- **A signalled process has no signal off unix.** `terminatingSignal` already
+  returns false there (`internal/app/signal_other.go:10`), so 128+*sig* is
+  simply not produced. `docs/CODES.md:29-32` explains that encoding without
+  saying it is unix-only.
+- **Cross-compiling is not testing.** The release step already proves the
+  binaries link. Only running one proves anything else, and that needs a
+  windows runner.
+
+### Acceptance
+
+- A windows build writes its logs under the directory `TEMP` names, and the
+  unix build still refuses `/tmp` in favour of `/var/tmp`.
+- `--also` runs a command on Windows.
+- CI runs a `windows-latest` leg, and what it does not cover is stated rather
+  than implied.
+- `docs/USAGE.md`'s log-location paragraph and `AGENTS.md` § State are true on
+  both platforms, and the timeout's reach off unix is documented as narrower
+  rather than left to be discovered.
