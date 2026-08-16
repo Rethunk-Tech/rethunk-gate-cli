@@ -160,9 +160,10 @@ The roles live in `gateOrder`, and a role missing from that list never reaches
 `Project.Gates` — silently. Renaming or adding one means editing it in the
 same change, or the gate simply vanishes.
 
-`ci` is deliberately unclaimed. The convention ladder's workflow linter is
-called `workflows`, because that is what it checks, and a project's own `ci`
-target means "run everything" — claiming it would run every gate twice, once
+`ci` is deliberately not a role — a separate question from the words the
+parser claims, above. The convention ladder's workflow linter is called
+`workflows`, because that is what it checks, and a project's own `ci` target
+means "run everything", so making it a gate would run every gate twice, once
 directly and once inside the aggregate. Finding one is recorded as a note, the
 way `supabase/` is: a decision, not silence.
 

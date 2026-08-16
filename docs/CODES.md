@@ -25,7 +25,7 @@ already understands.
 | 128+*sig* | The command was killed by signal *sig* — 143 for SIGTERM, 137 for SIGKILL |
 | 130 / 143 | `gate` itself was interrupted (Ctrl-C) or terminated — 128+the signal that reached *gate*, never the SIGKILL it sent the gate |
 | 128 | `gate` itself could not proceed: the log could not be created, a `-C` directory could not be entered, the command could not be started for a reason other than not being found, or a gate from this project is already running (see below) |
-| 129 | Invalid usage of `gate` itself: no command given, an unrecognized flag, a flag missing its value, a malformed `-C` (no directory, or the glued `-C<path>` spelling), or a role named that this project has no gate for |
+| 129 | Invalid usage of `gate` itself: no command given, an unrecognized flag, a flag missing its value, a malformed `-C` (no directory, or the glued `-C<path>` spelling), or a name given to `run` that this project has no gate for |
 
 A signalled command has no exit status of its own — the operating system
 reports only that a signal ended it, and Go's `exec` surfaces that as -1.

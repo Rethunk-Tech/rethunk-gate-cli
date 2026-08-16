@@ -70,12 +70,12 @@ lefthook install
 ```
 
 One interaction is worth knowing rather than discovering. Gates carry
-`GATE_ACTIVE_ROOTS` to their children, and bare `gate` — or a role name like
-`gate lint` — refuses to detect a project whose gates are already running. So
-a `git commit` issued from inside a gate-run command will have its hook
-refused. That is the recursion guard working, but it blocks the commit; if it
-ever bites, name the command instead (`gate make lint`), which is not
-detection and is never refused.
+`GATE_ACTIVE_ROOTS` to their children, and bare `gate` — or `gate run lint` —
+refuses to detect a project whose gates are already running. So a `git commit`
+issued from inside a gate-run command will have its hook refused. That is the
+recursion guard working, but it blocks the commit; if it ever bites, name the
+command instead (`gate make lint`), which is not detection and is never
+refused.
 
 ## Modernization
 

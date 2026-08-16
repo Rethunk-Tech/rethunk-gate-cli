@@ -246,8 +246,8 @@ where every gate came from:
 `--list`. `serial` is what decides scheduling — see
 [When to use `serial`](#when-to-use-serial).
 
-A gate that only config declares is not selectable by name; the role words are
-fixed. It runs with bare `gate`.
+A gate that only config declares runs with bare `gate`, and is named the same
+way as any other: `gate run e2e`.
 
 ### Which file wins
 
