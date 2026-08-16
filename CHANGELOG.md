@@ -8,6 +8,12 @@ Notable changes to `gate`. The format follows
 
 ### Changed
 
+- Log pruning now sweeps at most once an hour, recorded by a stamp file beside
+  the logs, instead of on every invocation. A week of real use leaves ~12,000
+  logs in one directory, and stat-ing all of them cost 15–20ms against a
+  median gate of 0.14s — around 12% of the common case spent deleting nothing.
+  Retention is unchanged; a log can now outlive it by up to an hour.
+
 - A gate stopped by an earlier failure — the rest of a `--serial` chain, or
   the rest of a group whose gates share a toolchain — is now reported as
   `SKIP` instead of being left out of the output entirely. It carries no

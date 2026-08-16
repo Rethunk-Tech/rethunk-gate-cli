@@ -308,7 +308,10 @@ of logs can be read without opening them.
 
 Logs are created **0600 in a 0700 directory** — they hold whatever the command
 printed, which can include tokens — and gate's own logs older than 7 days are
-removed on each run. `--keep DAYS` changes the retention, and `--keep 0`
+removed. The sweep runs at most once an hour rather than on every invocation,
+because stat-ing a directory of 12,000 logs costs more than a short gate does;
+a log can therefore outlive its retention by up to an hour, which nothing
+depends on. `--keep DAYS` changes the retention, and `--keep 0`
 disables pruning entirely — the same way `--timeout 0` disables the timeout,
 rather than this tool having two spellings for "off". A directory you name with `--log` is yours: the file is still
 created 0600, but that directory is never pruned or re-permissioned.

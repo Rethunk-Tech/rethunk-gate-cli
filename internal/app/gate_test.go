@@ -605,6 +605,52 @@ func TestOldLogsArePrunedAndRecentOnesSurvive(t *testing.T) {
 	}
 }
 
+// The sweep stats every file in the directory, and a week of real use leaves
+// around 12,000 of them -- 15-20ms against a median gate of 0.14s, spent on a
+// run where nothing is usually old enough to delete. A recent sweep therefore
+// suppresses the next one.
+func TestPruningIsSkippedSoonAfterASweep(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("TMPDIR", dir)
+	gateDir := filepath.Join(dir, "gate")
+	if err := os.MkdirAll(gateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	old := filepath.Join(gateDir, "ancient-1-1.log")
+	if err := os.WriteFile(old, []byte("x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	long := time.Now().Add(-30 * 24 * time.Hour)
+	if err := os.Chtimes(old, long, long); err != nil {
+		t.Fatal(err)
+	}
+	// A sweep that just happened.
+	if err := os.WriteFile(filepath.Join(gateDir, stampName), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, stderr, code := runGateTest(t, "true"); code != Success {
+		t.Fatalf("gate = %d, stderr = %q", code, stderr)
+	}
+
+	if _, err := os.Stat(old); err != nil {
+		t.Errorf("the sweep ran despite a fresh stamp: %v", err)
+	}
+
+	// And an old stamp lets it run again, so the interval defers work rather
+	// than dropping it.
+	if err := os.Chtimes(filepath.Join(gateDir, stampName), long, long); err != nil {
+		t.Fatal(err)
+	}
+	if _, stderr, code := runGateTest(t, "true"); code != Success {
+		t.Fatalf("gate = %d, stderr = %q", code, stderr)
+	}
+	if _, err := os.Stat(old); err == nil {
+		t.Error("a stale stamp did not allow the sweep to run")
+	}
+}
+
 func TestKeepZeroKeepsEverything(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("TMPDIR", dir)

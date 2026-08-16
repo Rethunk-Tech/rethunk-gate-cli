@@ -170,8 +170,17 @@ They are created 0600 in a 0700 directory: a log holds whatever the command
 printed, which can include tokens. An existing directory keeps its mode
 through `MkdirAll`, so one made before this rule is tightened on use.
 
-Pruning runs once per invocation, dropping gate's own `*.log` files older than
-the retention. Measured, this is not optional: 12,500 gate invocations in a
-week, and nothing else would ever remove them. Prune errors are swallowed —
-housekeeping must never be able to fail a gate — and a directory given with
-`--log` is the caller's and is never pruned.
+Pruning drops gate's own `*.log` files older than the retention. Measured,
+this is not optional: 12,500 gate invocations in a week, and nothing else
+would ever remove them. Prune errors are swallowed — housekeeping must never
+be able to fail a gate — and a directory given with `--log` is the caller's
+and is never pruned.
+
+It runs **at most hourly**, not once per invocation, recorded by a stamp file
+beside the logs. The sweep stats every file in the directory, which a week of
+use grows to around 12,000: 15–20ms against a median gate of 0.14s, spent on
+runs where nothing is usually old enough to delete. That is the argument for
+Go over a scripting language turned on gate itself. The cost is that a log can
+outlive its retention by up to an hour, and nothing depends on the deletion
+being prompt. The stamp is written *before* the sweep, so several gates
+starting together do not all sweep.
