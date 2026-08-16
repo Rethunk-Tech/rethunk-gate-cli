@@ -28,7 +28,9 @@ type options struct {
 	quiet   bool
 	serial  bool
 	list    bool
-	noPrune bool
+	// keepFor is how long gate's own logs survive. Zero disables pruning
+	// entirely, matching --timeout 0 rather than inventing a second spelling
+	// for "off" in the same tool.
 	keepFor time.Duration
 	gates   []gateSpec
 }
@@ -81,7 +83,7 @@ type gateResult struct {
 func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code {
 	// Once per invocation, not per gate. Logs are the only thing gate leaves
 	// behind, and nothing else ever removes them.
-	if opts.logPath == "" && !opts.noPrune {
+	if opts.logPath == "" {
 		pruneLogs(logDir(), opts.keepFor)
 	}
 

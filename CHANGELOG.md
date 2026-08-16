@@ -42,7 +42,8 @@ Notable changes to `gate`. The format follows
 
 - Logs are created 0600 in a 0700 directory, and an existing directory with a
   looser mode is tightened on use. gate's own logs older than 7 days are
-  pruned on each run; `--keep DAYS` and `--no-prune` control it. A directory
+  pruned on each run; `--keep DAYS` controls it, and `--keep 0` keeps them all,
+  matching `--timeout 0` rather than adding a second spelling for "off". A directory
   named with `--log` is never pruned or re-permissioned.
 
 - Bare `gate` detects the project and runs its gates. The project's own

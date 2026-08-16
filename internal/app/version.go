@@ -71,12 +71,12 @@ func fallbackVersion(ldflags string) string {
 // "why did it do that", and every value on it can be moved by a flag or the
 // environment -- which is exactly what a bug report needs and what nobody
 // thinks to ask for.
-func writeVersion(w io.Writer, ldflags string, timeout, keepFor time.Duration, noPrune bool) {
+func writeVersion(w io.Writer, ldflags string, timeout, keepFor time.Duration) {
 	fmt.Fprintf(w, "gate %s (%s, %s/%s)\n",
 		resolveVersion(ldflags), runtime.Version(), runtime.GOOS, runtime.GOARCH)
 
 	settings := []string{"timeout " + describeTimeout(timeout)}
-	settings = append(settings, "logs "+logDir()+" "+describeRetention(keepFor, noPrune))
+	settings = append(settings, "logs "+logDir()+" "+describeRetention(keepFor))
 	fmt.Fprintf(w, "defaults: %s\n", strings.Join(settings, ", "))
 }
 
@@ -87,8 +87,8 @@ func describeTimeout(timeout time.Duration) string {
 	return timeout.String()
 }
 
-func describeRetention(keepFor time.Duration, noPrune bool) string {
-	if noPrune || keepFor <= 0 {
+func describeRetention(keepFor time.Duration) string {
+	if keepFor <= 0 {
 		return "kept indefinitely"
 	}
 	return fmt.Sprintf("kept %dd", int(keepFor.Hours()/24))

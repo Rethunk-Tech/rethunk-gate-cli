@@ -11,6 +11,16 @@ import (
 	"time"
 )
 
+// runGateTest drives Run directly with buffers.
+//
+// WARNING: never call this without either a command or a -C into a directory
+// with no project. gate with no command detects the *current* project and runs
+// its gates -- and when these tests run, the current project is gate itself,
+// whose test gate is `make test`. That recurses into `go test`, which runs
+// this suite again. It is a fork bomb, and it has already happened once.
+//
+// Tests that legitimately exercise bare detection isolate themselves first,
+// with t.Chdir into a fixture or -C into one.
 func runGateTest(t *testing.T, args ...string) (stdout, stderr string, code Code) {
 	t.Helper()
 	var out, errBuf bytes.Buffer
@@ -558,7 +568,7 @@ func TestOldLogsArePrunedAndRecentOnesSurvive(t *testing.T) {
 	}
 }
 
-func TestNoPruneKeepsEverything(t *testing.T) {
+func TestKeepZeroKeepsEverything(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("TMPDIR", dir)
 	gateDir := filepath.Join(dir, "gate")
@@ -574,11 +584,11 @@ func TestNoPruneKeepsEverything(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, stderr, code := runGateTest(t, "--no-prune", "true"); code != Success {
+	if _, stderr, code := runGateTest(t, "--keep", "0", "true"); code != Success {
 		t.Fatalf("gate = %d, stderr = %q", code, stderr)
 	}
 	if _, err := os.Stat(old); err != nil {
-		t.Errorf("--no-prune still pruned: %v", err)
+		t.Errorf("--keep 0 still pruned: %v", err)
 	}
 }
 
@@ -845,8 +855,7 @@ func TestConcurrentGatesEachRunInTheirOwnDirectory(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 
 	opts := options{
-		tail:    defaultTail,
-		noPrune: true,
+		tail: defaultTail,
 		gates: []gateSpec{
 			{argv: []string{"touch", "from-first"}, display: "touch from-first", dir: first},
 			{argv: []string{"touch", "from-second"}, display: "touch from-second", dir: second},
@@ -862,5 +871,86 @@ func TestConcurrentGatesEachRunInTheirOwnDirectory(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(second, "from-second")); err != nil {
 		t.Errorf("second gate ran elsewhere: %v", err)
+	}
+}
+
+// helpFlags pulls every flag the help text documents out of its own indented
+// flag lines, so the check below cannot drift out of date with the help.
+func helpFlags(help string) []string {
+	var flags []string
+	for line := range strings.SplitSeq(help, "\n") {
+		trimmed := strings.TrimLeft(line, " ")
+		if len(line)-len(trimmed) != 2 || !strings.HasPrefix(trimmed, "-") {
+			continue
+		}
+		flags = append(flags, strings.FieldsFunc(trimmed, func(r rune) bool {
+			return r == ' ' || r == ','
+		})[0])
+	}
+	return flags
+}
+
+// Help that promises a flag the parser rejects is worse than no help. This
+// reads the flags out of the help itself and puts each one through the real
+// parser.
+func TestHelpDocumentsOnlyFlagsTheParserAccepts(t *testing.T) {
+	t.Parallel()
+
+	flags := helpFlags(gateHelp)
+	if len(flags) < 8 {
+		t.Fatalf("only found %d flags in the help; the extractor is broken: %v", len(flags), flags)
+	}
+	// -C into an empty directory is not decoration. A flag given with no
+	// command makes gate detect the *current* project and run its gates --
+	// and the current project here is gate itself, whose test gate is
+	// `make test`. Without this the suite forks itself until the machine
+	// gives up; it did exactly that once.
+	empty := t.TempDir()
+	for _, flag := range flags {
+		_, stderr, _ := runGateTest(t, "-C", empty, flag)
+		if strings.Contains(stderr, "unrecognized flag") {
+			t.Errorf("help documents %s but the parser rejects it", flag)
+		}
+	}
+}
+
+func TestHelpSpellingsAgreeAndDoctorHasItsOwn(t *testing.T) {
+	t.Parallel()
+
+	short, _, shortCode := runGateTest(t, "-h")
+	long, _, longCode := runGateTest(t, "--help")
+	if shortCode != Success || longCode != Success {
+		t.Fatalf("-h = %d, --help = %d", shortCode, longCode)
+	}
+	if short != long {
+		t.Error("-h and --help printed different text")
+	}
+	// A tool with a subcommand should say so where people look first.
+	if !strings.Contains(short, "doctor") {
+		t.Error("top-level help does not mention the doctor command")
+	}
+
+	doctorText, _, code := runGateTest(t, "doctor", "--help")
+	if code != Success {
+		t.Fatalf("gate doctor --help = %d", code)
+	}
+	if !strings.Contains(doctorText, "Read-only") {
+		t.Errorf("doctor help does not state its central guarantee: %q", doctorText)
+	}
+	if doctorText == short {
+		t.Error("gate doctor --help printed the top-level help")
+	}
+}
+
+// `gate doctor` is gate's own, but a real program called doctor must stay
+// reachable -- only the bare word and its help spellings are claimed.
+func TestOnlyBareDoctorIsClaimed(t *testing.T) {
+	t.Parallel()
+	_, stderr, code := runGateTest(t, "--log", tempLog(t), "doctor", "--some-flag-doctor-would-take")
+	if code == Success {
+		t.Fatal("expected the doctor program to be run and fail, not gate's own doctor")
+	}
+	if strings.Contains(stderr, "finding(s)") {
+		t.Error("gate ran its own doctor for `doctor <args>`")
 	}
 }

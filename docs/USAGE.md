@@ -16,9 +16,9 @@ unchanged.
 every argument after gate's first non-flag belongs to the wrapped command.
 
 ```console
-$ gate -C ~/src/api                       # that project's gates
-$ gate -C ~/src/api --list                # what it would run there
-$ gate -C ~/src/api doctor                # what is worth fixing there
+gate -C ~/src/api                       # that project's gates
+gate -C ~/src/api --list                # what it would run there
+gate -C ~/src/api doctor                # what is worth fixing there
 ```
 
 Which is what makes a sweep across checkouts a one-liner:
@@ -80,8 +80,7 @@ on a specific status behaves as it would without `gate`.
 | `--log PATH` | Write the log here instead of the default location |
 | `--quiet` | Print nothing when the command passes; failures still report |
 | `--timeout D` | Kill a gate running longer than `D` (default `1m`, `0` disables) |
-| `--keep DAYS` | How long gate's own logs survive (default 7) |
-| `--no-prune` | Keep every log, however old |
+| `--keep DAYS` | How long gate's own logs survive (default 7; `0` keeps them all) |
 | `--version` | Print the version and exit |
 | `-h`, `--help` | Print usage and exit |
 
@@ -291,8 +290,9 @@ of logs can be read without opening them.
 
 Logs are created **0600 in a 0700 directory** — they hold whatever the command
 printed, which can include tokens — and gate's own logs older than 7 days are
-removed on each run. `--keep DAYS` changes the retention and `--no-prune`
-disables it. A directory you name with `--log` is yours: the file is still
+removed on each run. `--keep DAYS` changes the retention, and `--keep 0`
+disables pruning entirely — the same way `--timeout 0` disables the timeout,
+rather than this tool having two spellings for "off". A directory you name with `--log` is yours: the file is still
 created 0600, but that directory is never pruned or re-permissioned.
 
 `--log PATH` overrides the location entirely, which is what the test suite

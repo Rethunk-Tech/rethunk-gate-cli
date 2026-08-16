@@ -33,39 +33,56 @@ const defaultKeepDays = 7
 // configuration can set it per gate.
 const defaultTimeout = time.Minute
 
-const gateHelp = `usage: gate [-C <path>] [flags] <command> [args...]
-       gate [-C <path>] [flags] -- <command> [args...]
+const gateHelp = `usage: gate [-C <path>] [flags] [<command> [args...]]
        gate [-C <path>] doctor
 
-Run a gate command, capture its complete output to a log file, and report only
-the verdict. The command's own exit status is passed through unchanged, so
-anything reading that status sees exactly what it would have without gate.
+gate runs a project's gates, keeps their complete output in a log, and prints
+one line. The command's exit status is the verdict, passed through unchanged --
+unlike a pipe through tail, which replaces it with its own.
+
+With no command, gate detects the project's gates and runs them.
+
+Commands:
+  <command>     run that command as a gate
+  doctor        report what is cheap to fix here (read-only)
+
+Global flags (before everything else):
+  -C <path>     run as if gate had been started in <path>
 
 Flags:
-  -C <path>     run as if gate had been started in <path> (before all else)
   --also CMD    run CMD as another gate, concurrently (repeatable; shell string)
   --serial      run gates in order and stop at the first failure
   --list        print the gates that would run, and run nothing
+  --timeout D   kill a gate that runs longer than D (default 1m, 0 disables)
   --tail N      trailing lines to quote on failure (default 40)
   --log PATH    write the log here instead of the default location
+  --keep DAYS   how long gate's own logs survive (default 7, 0 keeps them all)
   --quiet       print nothing when the gates pass
-  --timeout D   kill a gate that runs longer than D (default 1m, 0 disables)
-  --keep DAYS   how long gate's own logs survive (default 7)
-  --no-prune    keep every log, however old
-  --version     print the version and exit
+  --version     print the version and the settings in force, then exit
   -h, --help    show this help and exit
-
-gate doctor reports things about the project that are cheap to fix. It reads
-only -- it never edits the repository and never runs a gate.
 
 The first non-flag argument begins the command, and everything after it --
 including its own flags -- belongs to the command. Use -- when the command's
 first token would otherwise look like a flag to gate.
 
-Gates named with --also run at the same time as the main command, because
-independent gates have no reason to wait for each other. Use --serial when one
-gate depends on another, such as a build before the tests that need it: gates
-then run in the order given and stop at the first failure.
+Run 'gate doctor --help' for what doctor checks.
+Full reference: docs/USAGE.md
+`
+
+// doctorHelp is deliberately the same size as the top-level help. A
+// subcommand whose help outgrows the tool's own stops being read.
+const doctorHelp = `usage: gate [-C <path>] doctor
+
+Reports things about this project that are cheap to detect and worth fixing:
+missing vulnerability gates, CI gaps, superseded tooling, lockfile collisions
+and stale action pins.
+
+Read-only. It never edits the repository and never runs a gate, and it exits 0
+whether or not it found anything -- advice that failed the build would stop
+being advice.
+
+Every finding carries what, why and fix. The why is the evidence behind it: a
+check that cannot say why it fires is a preference.
 
 Full reference: docs/USAGE.md
 `
@@ -111,9 +128,6 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 			i++
 		case "--serial":
 			opts.serial = true
-			i++
-		case "--no-prune":
-			opts.noPrune = true
 			i++
 		case "--list":
 			opts.list = true
@@ -179,7 +193,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	// `gate --timeout 5m --version` reports 5m instead of the default it
 	// would have printed had it exited on sight.
 	if showVersion {
-		writeVersion(stdout, version, timeout, opts.keepFor, opts.noPrune)
+		writeVersion(stdout, version, timeout, opts.keepFor)
 		return Success
 	}
 
@@ -188,6 +202,13 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	// `gate -- doctor`, which is what -- is for.
 	if rest := args[i:]; len(rest) == 1 && rest[0] == "doctor" {
 		return runDoctor(dir, stdout, stderr)
+	}
+	// Only these two spellings are gate's; `gate doctor <anything else>` still
+	// means the program named doctor, reachable as `gate -- doctor` too.
+	if rest := args[i:]; len(rest) == 2 && rest[0] == "doctor" &&
+		(rest[1] == "-h" || rest[1] == "--help") {
+		fmt.Fprint(stdout, doctorHelp)
+		return Success
 	}
 
 	if command := args[i:]; len(command) > 0 {

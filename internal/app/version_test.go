@@ -13,7 +13,7 @@ import (
 func TestVersionNamesTheToolAndTheBuild(t *testing.T) {
 	t.Parallel()
 	var out bytes.Buffer
-	writeVersion(&out, "v1.2.3", defaultTimeout, 7*24*time.Hour, false)
+	writeVersion(&out, "v1.2.3", defaultTimeout, 7*24*time.Hour)
 
 	first := strings.SplitN(out.String(), "\n", 2)[0]
 	if !strings.HasPrefix(first, "gate v1.2.3 ") {
@@ -33,19 +33,19 @@ func TestVersionSettingsLineReflectsOverrides(t *testing.T) {
 	t.Parallel()
 
 	var dflt bytes.Buffer
-	writeVersion(&dflt, "v1", defaultTimeout, 7*24*time.Hour, false)
+	writeVersion(&dflt, "v1", defaultTimeout, 7*24*time.Hour)
 	if !strings.Contains(dflt.String(), "timeout 1m") || !strings.Contains(dflt.String(), "kept 7d") {
 		t.Errorf("defaults not reported: %q", dflt.String())
 	}
 
 	var overridden bytes.Buffer
-	writeVersion(&overridden, "v1", 5*time.Minute, 30*24*time.Hour, false)
+	writeVersion(&overridden, "v1", 5*time.Minute, 30*24*time.Hour)
 	if !strings.Contains(overridden.String(), "timeout 5m") || !strings.Contains(overridden.String(), "kept 30d") {
 		t.Errorf("overrides not reported: %q", overridden.String())
 	}
 
 	var off bytes.Buffer
-	writeVersion(&off, "v1", 0, 0, true)
+	writeVersion(&off, "v1", 0, 0)
 	if !strings.Contains(off.String(), "timeout off") || !strings.Contains(off.String(), "indefinitely") {
 		t.Errorf("disabled settings not reported: %q", off.String())
 	}

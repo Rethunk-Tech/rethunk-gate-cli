@@ -23,7 +23,8 @@ Two details are worth stating explicitly:
 - **Logs contain the command's complete output**, so a gate whose output
   includes secrets writes those secrets to disk. They are created mode 0600
   inside a 0700 directory, and a pre-existing directory with a looser mode is
-  tightened on use. Logs older than 7 days are pruned (`--keep`, `--no-prune`).
+  tightened on use. Logs older than 7 days are pruned (`--keep DAYS`, or
+  `--keep 0` to keep them all).
   A path given with `--log` is the caller's: gate still creates the file 0600,
   but neither tightens nor prunes that directory.
 
