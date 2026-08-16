@@ -45,6 +45,8 @@ With no command, gate detects the project's gates and runs them.
 
 Commands:
   <command>     run that command as a gate
+  <role>        run one of this project's gates: build, typecheck, lint,
+                workflows, test, vuln
   doctor        report what is cheap to fix here (read-only)
 
 Global flags (before everything else):
@@ -64,7 +66,8 @@ Flags:
 
 The first non-flag argument begins the command, and everything after it --
 including its own flags -- belongs to the command. Use -- when the command's
-first token would otherwise look like a flag to gate.
+first token would otherwise look like a flag to gate, or when you mean the
+program that shares a name with a role: 'gate -- test' runs /usr/bin/test.
 
 Run 'gate doctor --help' for what doctor checks.
 Full reference: docs/USAGE.md
@@ -104,9 +107,14 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	}
 
 	i := 0
+	explicit := false
 	for i < len(args) {
 		arg := args[i]
 		if arg == "--" {
+			// Everything after this is the caller's, including a word that
+			// would otherwise name a role. That is the escape which makes
+			// claiming those words acceptable at all.
+			explicit = true
 			i++
 			break
 		}
@@ -201,18 +209,30 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	// "doctor" is the one word gate treats as its own rather than as a
 	// command to run. A real program by that name is still reachable as
 	// `gate -- doctor`, which is what -- is for.
-	if rest := args[i:]; len(rest) == 1 && rest[0] == "doctor" {
+	if rest := args[i:]; !explicit && len(rest) == 1 && rest[0] == "doctor" {
 		return runDoctor(dir, stdout, stderr)
 	}
 	// Only these two spellings are gate's; `gate doctor <anything else>` still
 	// means the program named doctor, reachable as `gate -- doctor` too.
-	if rest := args[i:]; len(rest) == 2 && rest[0] == "doctor" &&
+	if rest := args[i:]; !explicit && len(rest) == 2 && rest[0] == "doctor" &&
 		(rest[1] == "-h" || rest[1] == "--help") {
 		fmt.Fprint(stdout, doctorHelp)
 		return Success
 	}
 
-	if command := args[i:]; len(command) > 0 {
+	// A lone bare role word names one of the project's own gates rather than a
+	// program. `test` is the case that forces this: it is a real binary that
+	// evaluates the empty expression and exits 1, so `gate test` could only
+	// ever have been a gate that cannot pass. `gate -- test` still reaches it,
+	// the same escape `doctor` has had.
+	command := args[i:]
+	role := ""
+	if !explicit && len(command) == 1 && detect.IsRole(command[0]) {
+		role = command[0]
+		command = nil
+	}
+
+	if len(command) > 0 {
 		opts.gates = append(opts.gates, gateSpec{
 			argv:    command,
 			display: strings.Join(command, " "),
@@ -234,7 +254,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	// runs anything, and what it chose is printable with --list, because a
 	// detector you cannot inspect is one you end up fighting.
 	var project detect.Project
-	if len(opts.gates) == 0 {
+	if len(opts.gates) == 0 || role != "" {
 		proj, err := detect.Detect(dir)
 		if err != nil {
 			fmt.Fprintf(stderr, "gate: cannot inspect this directory: %v\n", err)
@@ -253,7 +273,12 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		}
 
 		project = proj
+		found := false
 		for _, g := range proj.Gates {
+			if role != "" && g.Name != role {
+				continue
+			}
+			found = true
 			opts.gates = append(opts.gates, gateSpec{
 				argv:      g.Argv,
 				display:   g.Display(),
@@ -262,6 +287,15 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 				// is not necessarily where the caller stood.
 				dir: proj.Root,
 			})
+		}
+		// Never fall through to a program of that name. The caller is least
+		// sure what this project has in exactly the case where the fallback
+		// would fire, which is where running /usr/bin/test would be worst.
+		if role != "" && !found {
+			fmt.Fprintf(stderr, "gate: no %s gate detected in %s\n", role, proj.Root)
+			writeNotes(stderr, project)
+			fmt.Fprintf(stderr, "gate: run `gate --list` for what is here, or `gate -- %s` for a program by that name\n", role)
+			return InvalidUsage
 		}
 	}
 

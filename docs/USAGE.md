@@ -126,6 +126,37 @@ project  /usr/local/src/com.github/Rethunk-Tech/rethunk-git-cli
 before letting it act — a detector you cannot inspect is one you end up
 fighting.
 
+### Running one of them
+
+A bare role name runs that gate and no other:
+
+```console
+$ gate test
+gate: ok  make test  1.7s  /var/tmp/gate/make-test-48211-1.log
+```
+
+`build`, `typecheck`, `lint`, `workflows`, `test` and `vuln` are gate's own
+words, so `gate test` is never `/usr/bin/test` — which exits 1 in every
+project, being the shell's `if` primitive rather than a check of anything.
+Use `--` when you really do mean the program:
+
+```console
+gate -- test        # /usr/bin/test
+gate -- doctor      # a program called doctor
+```
+
+A role the project has no gate for is refused rather than run as a program,
+which is exactly the case where the fallback would be worst:
+
+```console
+$ gate typecheck
+gate: no typecheck gate detected in /usr/local/src/com.github/Rethunk-Tech/rethunk-gate-cli
+gate: run `gate --list` for what is here, or `gate -- typecheck` for a program by that name
+```
+
+Only a lone word is a role. `gate test -f Makefile` is unambiguously your
+command and runs the program.
+
 ### What it looks at, in order
 
 1. **`Makefile` targets** — a target that exists is a deliberate wrapper, and

@@ -15,6 +15,15 @@ Notable changes to `gate`. The format follows
 
 ### Added
 
+- A bare role name runs that one gate: `gate test`, `gate lint`, `gate build`,
+  `gate typecheck`, `gate workflows`, `gate vuln`. Previously `gate test` ran
+  `/usr/bin/test`, which evaluates the empty expression and exits 1 in every
+  project — a gate that could not pass — and there was no way to run a single
+  detected gate without retyping its command. A role the project has no gate
+  for is refused with exit 129 rather than run as a program.
+
+  `--` reaches the program: `gate -- test`, `gate -- doctor`.
+
 - A declared `vuln` target or script is now honoured. It was absent from the
   list of roles read out of manifests, so a project declaring `make vuln` had
   it dropped and the `govulncheck` convention supplied the role instead — a
@@ -61,6 +70,10 @@ Notable changes to `gate`. The format follows
   `gate doctor`'s own `ci-no-final-gate` check exists to condemn.
 
 ### Fixed
+
+- `gate -- doctor` ran gate's own doctor instead of a program called `doctor`.
+  The `--` was consumed while parsing flags and the word was claimed anyway,
+  so the documented escape had never worked.
 
 - `--tail 0` reported a failing gate as having produced no output, when it had
   simply kept none of it. The log was complete throughout; the summary was

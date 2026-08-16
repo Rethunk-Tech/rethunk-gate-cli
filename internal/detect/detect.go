@@ -15,6 +15,7 @@ package detect
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -92,6 +93,15 @@ type Project struct {
 // or renaming one means editing here in the same change -- which is how the
 // workflow linter briefly disappeared when it was still called "ci".
 var gateOrder = []string{"build", "typecheck", "lint", "workflows", "test", "vuln"}
+
+// Roles returns the gate roles, in the order they run. Callers use it to
+// recognise a role named on the command line, so the two can never drift.
+func Roles() []string { return slices.Clone(gateOrder) }
+
+// IsRole reports whether name is one of the gate roles. Role names carry no
+// path separator and no leading dash, so an exact match is enough to tell one
+// from a command.
+func IsRole(name string) bool { return slices.Contains(gateOrder, name) }
 
 // Detect inspects dir and everything above it, and reports the gates it can
 // run. It never executes anything.

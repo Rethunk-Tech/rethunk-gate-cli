@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/detect"
 )
 
 // runGateTest drives Run directly with buffers.
@@ -680,6 +682,105 @@ func TestDoctorRendersFindingsAndNeverFailsTheBuild(t *testing.T) {
 	}
 }
 
+// `test` is a real program that evaluates the empty expression and exits 1,
+// so `gate test` could only ever have been a gate that cannot pass. A lone
+// role word now means the project's gate for that role -- and `--` still
+// reaches the program, which is what makes claiming the word acceptable.
+func TestABareRoleSelectsThatGateAndDashDashStillReachesTheProgram(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "Makefile"),
+		[]byte("test:\n\ttouch "+filepath.Join(root, "test-ran")+"\n"+
+			"lint:\n\ttouch "+filepath.Join(root, "lint-ran")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TMPDIR", t.TempDir())
+
+	stdout, stderr, code := runGateTest(t, "-C", root, "test")
+	if code != Success {
+		t.Fatalf("gate test = %d, stderr = %q", code, stderr)
+	}
+	if _, err := os.Stat(filepath.Join(root, "test-ran")); err != nil {
+		t.Errorf("gate test did not run the project's test gate: %v", err)
+	}
+	// One role selects one gate, not the whole project.
+	if _, err := os.Stat(filepath.Join(root, "lint-ran")); err == nil {
+		t.Error("gate test ran the lint gate too")
+	}
+	if !strings.Contains(stdout, "make test") {
+		t.Errorf("verdict does not name the selected gate: %q", stdout)
+	}
+
+	// The escape hatch, and the reason claiming the word is not a removal.
+	// /usr/bin/test with no arguments is false, so this is exit 1.
+	_, _, code = runGateTest(t, "-C", root, "--log", tempLog(t), "--", "test")
+	if code != Code(1) {
+		t.Errorf("gate -- test = %d, want the program's own 1", code)
+	}
+}
+
+// Only a lone bare word is a role. Anything with arguments is unambiguously
+// the caller's command, and second-guessing that would make one command line
+// mean different things in different repositories.
+func TestARoleWordWithArgumentsIsStillTheCallersCommand(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "Makefile"),
+		[]byte("test:\n\ttouch "+filepath.Join(root, "test-ran")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, stderr, code := runGateTest(t, "-C", root, "--log", tempLog(t), "test", "-f", "Makefile")
+	if code != Success {
+		t.Fatalf("gate test -f Makefile = %d, stderr = %q -- want the program", code, stderr)
+	}
+	if _, err := os.Stat(filepath.Join(root, "test-ran")); err == nil {
+		t.Error("a multi-argument command was diverted to the project's gate")
+	}
+}
+
+// Refusing rather than falling through matters most exactly here: the caller
+// is least sure what the project has, which is where silently running
+// /usr/bin/test would be worst.
+func TestASelectedRoleWithNoGateRefusesRatherThanRunningAProgram(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "Makefile"), []byte("lint:\n\ttrue\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TMPDIR", t.TempDir())
+
+	_, stderr, code := runGateTest(t, "-C", root, "test")
+	if code != InvalidUsage {
+		t.Fatalf("gate test = %d, want InvalidUsage -- stderr = %q", code, stderr)
+	}
+	if !strings.Contains(stderr, root) {
+		t.Errorf("refusal does not name the project: %q", stderr)
+	}
+	if !strings.Contains(stderr, "gate -- test") {
+		t.Errorf("refusal does not name the escape: %q", stderr)
+	}
+}
+
+// The help has to list exactly the words the parser claims, or it documents a
+// vocabulary that does not exist -- in either direction.
+func TestHelpListsExactlyTheRolesThatSelect(t *testing.T) {
+	t.Parallel()
+	stdout, _, code := runGateTest(t, "--help")
+	if code != Success {
+		t.Fatalf("gate --help = %d", code)
+	}
+	for _, role := range detect.Roles() {
+		if !strings.Contains(stdout, role) {
+			t.Errorf("help does not list the selectable role %q", role)
+		}
+		if !detect.IsRole(role) {
+			t.Errorf("%q is listed but not selectable", role)
+		}
+	}
+	// The word gate deliberately does not claim.
+	if detect.IsRole("ci") {
+		t.Error("ci is selectable; it aggregates the gates gate already runs")
+	}
+}
+
 // One path cannot hold several gates' logs, and silently sharing it would
 // destroy every gate's output but the last.
 func TestRunLogWithAlsoIsRefused(t *testing.T) {
@@ -1259,5 +1360,16 @@ func TestOnlyBareDoctorIsClaimed(t *testing.T) {
 	}
 	if strings.Contains(stderr, "finding(s)") {
 		t.Error("gate ran its own doctor for `doctor <args>`")
+	}
+
+	// The escape the comment beside that code has always promised, which did
+	// not actually work: -- was consumed by the flag loop and the word was
+	// then claimed anyway.
+	_, stderr, code = runGateTest(t, "--log", tempLog(t), "--", "doctor")
+	if strings.Contains(stderr, "finding(s)") {
+		t.Error("`gate -- doctor` ran gate's own doctor rather than the program")
+	}
+	if code == Success {
+		t.Error("`gate -- doctor` did not reach a program named doctor")
 	}
 }

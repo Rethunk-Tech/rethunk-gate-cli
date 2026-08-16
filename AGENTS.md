@@ -48,6 +48,23 @@ matching over the output at all: the exit status already answers the only
 question that decides the verdict, and the complete log is one read away when
 the quoted tail is not enough.
 
+### The words gate claims
+
+`doctor` and the roles in `gateOrder` — `build`, `typecheck`, `lint`,
+`workflows`, `test`, `vuln` — are gate's own when they appear as a **lone**
+argument. Anything with arguments beside it is the caller's command, always.
+
+That is a real narrowing of the boundary above, and it is paid for by `--`:
+`gate -- test` runs `/usr/bin/test`, `gate -- doctor` runs a program called
+doctor. The escape has to keep working, and has to be tested, because it is
+the entire argument for taking the words. It did not work for `doctor` at
+first — the flag loop consumed `--` and the word was claimed anyway, so the
+comment promising the escape described something that had never happened.
+
+`test` is why this exists at all: it is a real binary that evaluates the empty
+expression and exits 1, so `gate test` could only ever have been a gate that
+cannot pass.
+
 An earlier version scanned for failure markers (`FAIL`, `panic:`, …) and quoted
 matches from outside the tail. It was removed: 50 lines to save one `less`,
 against a log that was already complete.
