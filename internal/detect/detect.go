@@ -37,7 +37,7 @@ const (
 
 // Gate is one runnable check.
 type Gate struct {
-	// Name is the role: build, lint, typecheck, test, vuln.
+	// Name is the role: build, typecheck, lint, workflows, test, vuln.
 	Name string
 
 	// Argv is the command, executed directly rather than through a shell.
@@ -87,7 +87,11 @@ type Project struct {
 // gateOrder is the order gates run in within one toolchain. Build first
 // because a test that needs its artifact must not run before it exists;
 // vuln last because it is advisory rather than a compile-time answer.
-var gateOrder = []string{"build", "typecheck", "lint", "ci", "test", "vuln"}
+//
+// A role missing from this list never reaches Project.Gates, silently. Adding
+// or renaming one means editing here in the same change -- which is how the
+// workflow linter briefly disappeared when it was still called "ci".
+var gateOrder = []string{"build", "typecheck", "lint", "workflows", "test", "vuln"}
 
 // Detect inspects dir and everything above it, and reports the gates it can
 // run. It never executes anything.
@@ -124,7 +128,7 @@ func Detect(dir string) (Project, error) {
 	// Highest precedence first. A Makefile target is a deliberate wrapper --
 	// it usually adds flags the bare convention would miss -- so it outranks
 	// a package script, and both outrank anything merely inferred.
-	for _, g := range makefileGates(proj.Root) {
+	for _, g := range makefileGates(proj.Root, &proj) {
 		claim(g)
 	}
 	// Turbo outranks the package scripts it orchestrates: where a task graph
@@ -137,7 +141,7 @@ func Detect(dir string) (Project, error) {
 			claim(g)
 		}
 	}
-	for _, g := range packageJSONGates(proj.Root, proj.workspaceOrRoot()) {
+	for _, g := range packageJSONGates(proj.Root, proj.workspaceOrRoot(), &proj) {
 		claim(g)
 	}
 	for _, g := range conventionGates(proj.Root, &proj) {

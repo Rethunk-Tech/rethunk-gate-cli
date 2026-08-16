@@ -258,6 +258,78 @@ func TestTurboWithoutTheBinaryFallsBackToPackageScripts(t *testing.T) {
 	}
 }
 
+// A declared vuln target used to be dropped -- it was absent from
+// declaredNames -- so the govulncheck convention supplied the role instead.
+// That is a convention beating a declaration, the one inversion the
+// precedence rule forbids, and it was invisible: Shadowed only records
+// competing declarations, and this declaration never became a Gate at all.
+func TestADeclaredVulnTargetBeatsTheConvention(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	write(t, dir, "go.mod", "module demo\n\ngo 1.26\n")
+	write(t, dir, "Makefile", "vuln:\n\tgovulncheck -show verbose ./...\n")
+
+	proj, err := Detect(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	vuln := gateNamed(t, proj, "vuln")
+	if want := "make vuln"; vuln.Display() != want {
+		t.Errorf("vuln = %q, want the declaration %q", vuln.Display(), want)
+	}
+	if !vuln.Declared {
+		t.Error("a Makefile target was not marked as declared")
+	}
+	// A Makefile in a Go repository shares the Go build cache, so it has to
+	// land in that group rather than becoming its own.
+	if vuln.Toolchain != ToolchainGo {
+		t.Errorf("toolchain = %q, want go", vuln.Toolchain)
+	}
+}
+
+// "ci" meant two different things: the convention ladder's workflow linter,
+// and a project's own "run everything" target. Claiming the latter would run
+// every gate twice, so it is deliberately not a gate -- and the linter is
+// named for what it actually checks.
+func TestTheWorkflowLinterIsNamedWorkflowsAndCiIsNotAGate(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	write(t, dir, "go.mod", "module demo\n\ngo 1.26\n")
+	write(t, dir, "Makefile", "ci:\n\t$(MAKE) lint test\n")
+	write(t, dir, ".github/workflows/ci.yml", "jobs: {}\n")
+	writeExecutable(t, dir, "node_modules/.bin/actionlint")
+
+	proj, err := Detect(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The role a project declares is not claimed...
+	for _, g := range proj.Gates {
+		if g.Name == "ci" {
+			t.Errorf("a ci gate was claimed: %s", g.Display())
+		}
+	}
+	// ...but the decision is stated rather than left as silence.
+	var explained bool
+	for _, note := range proj.Notes {
+		if strings.Contains(note, "ci") && strings.Contains(note, "aggregates") {
+			explained = true
+		}
+	}
+	if !explained {
+		t.Errorf("notes = %v, want the ci target's omission explained", proj.Notes)
+	}
+
+	// And the linter survived the rename. A role missing from gateOrder is
+	// dropped silently, which is exactly how this gate once disappeared.
+	linter := gateNamed(t, proj, "workflows")
+	if !strings.HasSuffix(linter.Argv[0], "actionlint") {
+		t.Errorf("workflows gate runs %q, want actionlint", linter.Display())
+	}
+}
+
 // Supabase appears often in this fleet but has no unambiguous pass/fail check
 // of the working tree, so the decision not to invent one is recorded rather
 // than left as silence.

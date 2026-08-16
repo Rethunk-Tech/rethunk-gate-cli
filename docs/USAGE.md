@@ -118,7 +118,7 @@ project  /usr/local/src/com.github/Rethunk-Tech/rethunk-git-cli
         from Makefile target test
   then [go] vuln       govulncheck ./...
         from convention: go
-  [other] ci         actionlint
+  [other] workflows  actionlint
         from convention: .github/workflows
 ```
 
@@ -142,6 +142,11 @@ The project's own declaration always wins. Across the fleet this was built for,
 55 of 71 `package.json` files declare a test script and 19 of 29 Makefiles
 declare lint — so inferring a command over a declared one would bypass the
 intended pipeline in the majority case, not an edge case.
+
+The roles are `build`, `typecheck`, `lint`, `workflows`, `test` and `vuln`.
+A declared `ci` target is **not** one of them: it means "run the whole
+pipeline", which is what `gate` is already doing, so claiming it would run
+every gate twice. It is reported as a note rather than silently ignored.
 
 Tools are looked for in `node_modules/.bin` and `.venv/bin` before `PATH`, and
 the resolved path is what runs. Several of the best tools — `turbo`, `pyrefly`

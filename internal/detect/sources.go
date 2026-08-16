@@ -9,7 +9,17 @@ import (
 )
 
 // declaredNames are the roles worth looking for in a project's own manifests.
-var declaredNames = []string{"build", "typecheck", "lint", "test"}
+//
+// "ci" is deliberately absent. A project writing `make ci` means "run the
+// whole pipeline", which is the gates gate is already scheduling -- claiming
+// it would run every one of them twice. The convention ladder's workflow
+// linter is a different thing entirely and is named "workflows" for that
+// reason.
+var declaredNames = []string{"build", "typecheck", "lint", "test", "vuln"}
+
+// aggregateName is the role a project declares to mean "all of the above".
+// Found, deliberately not run, and said out loud rather than dropped.
+const aggregateName = "ci"
 
 // makefileTarget matches a target definition at the start of a line. Targets
 // are read textually rather than by asking make: this must never run anything,
@@ -22,7 +32,7 @@ var makefileTarget = regexp.MustCompile(`(?m)^([a-zA-Z][a-zA-Z0-9_-]*):`)
 // wrapper -- rgit's own `make test` adds coverage flags the bare `go test`
 // convention would miss -- so honouring it is the difference between running
 // the project's pipeline and running one that merely resembles it.
-func makefileGates(root string) []Gate {
+func makefileGates(root string, proj *Project) []Gate {
 	path := filepath.Join(root, "Makefile")
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -32,6 +42,10 @@ func makefileGates(root string) []Gate {
 	declared := map[string]bool{}
 	for _, m := range makefileTarget.FindAllStringSubmatch(string(data), -1) {
 		declared[m[1]] = true
+	}
+	if declared[aggregateName] && proj != nil {
+		proj.Notes = append(proj.Notes, "Makefile target "+aggregateName+
+			" found but not run: it aggregates the gates gate is already scheduling")
 	}
 
 	var gates []Gate
@@ -70,7 +84,7 @@ type packageJSON struct {
 }
 
 // packageJSONGates reads the scripts a project declares.
-func packageJSONGates(root, workspace string) []Gate {
+func packageJSONGates(root, workspace string, proj *Project) []Gate {
 	data, err := os.ReadFile(filepath.Join(root, "package.json"))
 	if err != nil {
 		return nil
@@ -78,6 +92,10 @@ func packageJSONGates(root, workspace string) []Gate {
 	var pkg packageJSON
 	if err := json.Unmarshal(data, &pkg); err != nil {
 		return nil
+	}
+	if _, ok := pkg.Scripts[aggregateName]; ok && proj != nil {
+		proj.Notes = append(proj.Notes, "package.json scripts."+aggregateName+
+			" found but not run: it aggregates the gates gate is already scheduling")
 	}
 
 	runner := packageRunner(workspace)
@@ -180,7 +198,9 @@ func conventionGates(root string, proj *Project) []Gate {
 	if exists(filepath.Join(root, ".github", "workflows")) {
 		if bin := resolve(root, proj, "actionlint"); bin != "" {
 			gates = append(gates, Gate{
-				Name: "ci", Argv: []string{bin},
+				// "workflows", not "ci": this lints the workflow files, which
+				// is not what a project means by a ci target.
+				Name: "workflows", Argv: []string{bin},
 				Source: "convention: .github/workflows", Toolchain: ToolchainOther,
 			})
 		}

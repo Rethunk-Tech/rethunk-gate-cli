@@ -98,6 +98,17 @@ script, then convention. The first three are *declarations* and the last is an
 won over what we would otherwise have guessed" would fire on nearly every
 repository and turn a real signal into noise.
 
+The roles live in `gateOrder`, and a role missing from that list never reaches
+`Project.Gates` — silently. Renaming or adding one means editing it in the
+same change; that is how the workflow linter briefly disappeared while it was
+still called `ci`.
+
+`ci` is deliberately unclaimed. The convention ladder's workflow linter is
+called `workflows`, because that is what it checks, and a project's own `ci`
+target means "run everything" — claiming it would run every gate twice, once
+directly and once inside the aggregate. Finding one is recorded as a note, the
+way `supabase/` is: a decision, not silence.
+
 Binaries resolve from `node_modules/.bin` and `.venv/bin` before `PATH`, and
 the **resolved path** goes into the gate's argv. A bare name would be found by
 detection and then fail to execute, since several of the best tools are not on

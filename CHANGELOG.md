@@ -15,6 +15,13 @@ Notable changes to `gate`. The format follows
 
 ### Added
 
+- A declared `vuln` target or script is now honoured. It was absent from the
+  list of roles read out of manifests, so a project declaring `make vuln` had
+  it dropped and the `govulncheck` convention supplied the role instead — a
+  convention beating a declaration, which the precedence rule forbids, and
+  invisibly, since a declaration that never becomes a gate cannot be reported
+  as shadowed.
+
 - Bare `gate` refuses, with exit 128, to detect gates in a project whose gates
   are already running. A project gate that itself runs `gate` would otherwise
   detect the same project and repeat forever — gate's own test gate is
@@ -24,6 +31,13 @@ Notable changes to `gate`. The format follows
   [`docs/CODES.md`](docs/CODES.md).
 
 ### Changed
+
+- The workflow-linting gate is now called `workflows` rather than `ci`, since
+  that is what it checks. `ci` meant two different things — actionlint over
+  `.github/workflows`, and a project's own "run everything" target — and a
+  declared `ci` is now reported as a note rather than claimed, because running
+  it would run every other gate a second time. Role names appear in `--list`
+  only; no command changed.
 
 - The one-line verdict names the command rather than its resolved path, and
   log filenames are derived from the command's base name. Detection resolves
