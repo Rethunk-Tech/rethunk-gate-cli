@@ -37,6 +37,7 @@ const defaultKeepDays = 7
 const defaultTimeout = time.Minute
 
 const gateHelp = `usage: gate [-C <path>] [flags] [<command> [args...]]
+       gate [-C <path>] [flags] run <name>...
        gate [-C <path>] doctor
 
 gate runs a project's gates, keeps their complete output in a log, and prints
