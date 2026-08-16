@@ -15,6 +15,11 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # Both are for the attestation step below, and neither grants anything
+      # else: id-token mints the short-lived OIDC token that proves the build
+      # ran here, attestations writes the resulting record.
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@v5
 
@@ -61,6 +66,16 @@ jobs:
           cd dist
           sha256sum gate-* > SHA256SUMS
           cat SHA256SUMS
+
+      # A checksum says the file did not change in transit; it says nothing
+      # about where it came from. This records that these exact bytes were
+      # built by this workflow, from this commit, and it is verifiable after
+      # download with `gh attestation verify <file> --repo <owner>/<repo>`.
+      # Run before publishing, so a release is never left unattested.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: dist/gate-*
 
       - name: Publish release
         env:

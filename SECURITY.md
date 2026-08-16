@@ -28,6 +28,19 @@ Two details are worth stating explicitly:
   A path given with `--log` is the caller's: gate still creates the file 0600,
   but neither tightens nor prunes that directory.
 
+## Verifying a release
+
+Release binaries carry build provenance, so a download can be checked against
+the workflow and commit that produced it rather than trusted on the strength
+of the URL it came from:
+
+```bash
+gh attestation verify gate-linux-amd64 --repo Rethunk-Tech/rethunk-gate-cli
+```
+
+`SHA256SUMS` ships alongside and answers a different question — that the file
+did not change in transit, not where it came from.
+
 ## Supported versions
 
 The latest release is supported. Fixes land on `main` and ship in the next tag.

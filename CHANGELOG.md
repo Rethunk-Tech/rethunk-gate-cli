@@ -6,6 +6,13 @@ Notable changes to `gate`. The format follows
 
 ## [Unreleased]
 
+### Security
+
+- Release binaries now carry build provenance, verifiable with
+  `gh attestation verify <file> --repo Rethunk-Tech/rethunk-gate-cli`. The
+  checksums file answers whether a download changed in transit; this answers
+  where it came from. See [`SECURITY.md`](SECURITY.md).
+
 ### Changed
 
 - The one-line verdict names the command rather than its resolved path, and
