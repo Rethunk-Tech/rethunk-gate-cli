@@ -74,6 +74,7 @@ Full reference: docs/USAGE.md
 func Run(ctx context.Context, version string, args []string, stdout, stderr io.Writer) Code {
 	opts := options{tail: defaultTail, keepFor: defaultKeepDays * 24 * time.Hour}
 	timeout := defaultTimeout
+	showVersion := false
 	var also []string
 
 	dir, args, code, ok := parseChdir(args, stderr)
@@ -103,8 +104,8 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 			fmt.Fprint(stdout, gateHelp)
 			return Success
 		case "--version":
-			fmt.Fprintln(stdout, version)
-			return Success
+			showVersion = true
+			i++
 		case "--quiet":
 			opts.quiet = true
 			i++
@@ -172,6 +173,14 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 			fmt.Fprint(stderr, gateHelp)
 			return InvalidUsage
 		}
+	}
+
+	// Resolved after the flag loop rather than inside it, so
+	// `gate --timeout 5m --version` reports 5m instead of the default it
+	// would have printed had it exited on sight.
+	if showVersion {
+		writeVersion(stdout, version, timeout, opts.keepFor, opts.noPrune)
+		return Success
 	}
 
 	// "doctor" is the one word gate treats as its own rather than as a

@@ -254,8 +254,14 @@ func TestRunUsage(t *testing.T) {
 	t.Run("--version before a command is gate's own", func(t *testing.T) {
 		t.Parallel()
 		stdout, _, code := runGateTest(t, "--version")
-		if code != Success || strings.TrimSpace(stdout) != "v0.0.0-test" {
-			t.Errorf("gate --version = %d, stdout %q", code, stdout)
+		if code != Success {
+			t.Fatalf("gate --version = %d", code)
+		}
+		if !strings.HasPrefix(stdout, "gate v0.0.0-test ") {
+			t.Errorf("stdout = %q, want it to name the tool and version", stdout)
+		}
+		if !strings.Contains(stdout, "defaults:") {
+			t.Errorf("stdout = %q, want the settings line", stdout)
 		}
 	})
 }

@@ -24,6 +24,11 @@ Notable changes to `gate`. The format follows
 
 - `--tail`, `--log`, `--quiet`, `--version`, and `--help`.
 
+- `--version` names the tool, resolves its version from `-ldflags` or the
+  build's own VCS stamps rather than reporting `dev`, and prints the settings
+  in force -- timeout, log directory and retention -- since those are what a
+  bug report needs and nobody thinks to ask for.
+
 - `-C <path>` runs as if gate had been started in `<path>`, with git's own
   semantics: leading only, repeats accumulating, an absolute path resetting,
   `-C ""` a no-op, and the glued spelling refused. A relative `--log` resolves
