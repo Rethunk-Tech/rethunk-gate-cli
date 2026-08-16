@@ -631,6 +631,55 @@ func TestTheActiveProjectReachesTheChildEnvironment(t *testing.T) {
 	}
 }
 
+// The doctor package is tested directly, but nothing exercised the command
+// that renders it -- so the output a user actually sees, and the promise that
+// advice never fails the build, were both unverified.
+func TestDoctorRendersFindingsAndNeverFailsTheBuild(t *testing.T) {
+	t.Parallel()
+
+	// A workflow with an aggregating gate but no govulncheck: one finding,
+	// deterministic, and it exercises every field of the rendering.
+	dir := t.TempDir()
+	wf := filepath.Join(dir, ".github", "workflows")
+	if err := os.MkdirAll(wf, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module demo\n\ngo 1.26\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wf, "ci.yml"),
+		[]byte("jobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-go@v1.7\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, code := runGateTest(t, "-C", dir, "doctor")
+
+	// Advice that failed the build would stop being advice.
+	if code != Success {
+		t.Fatalf("doctor = %d, want 0 -- stderr = %q", code, stderr)
+	}
+	if !strings.Contains(stdout, "ci-govulncheck-off") {
+		t.Errorf("doctor did not report the CI gap: %q", stdout)
+	}
+	// Every finding carries what, why and fix; a check that cannot say why it
+	// fired is a preference, and the renderer is what makes that visible.
+	for _, field := range []string{"what", "why", "fix", "[warn]"} {
+		if !strings.Contains(stdout, field) {
+			t.Errorf("rendered finding is missing %q: %q", field, stdout)
+		}
+	}
+
+	// And a project with nothing to say says so, rather than printing nothing.
+	clean := t.TempDir()
+	stdout, _, code = runGateTest(t, "-C", clean, "doctor")
+	if code != Success {
+		t.Fatalf("doctor on a bare directory = %d, want 0", code)
+	}
+	if !strings.Contains(stdout, "nothing to suggest") {
+		t.Errorf("silence instead of an answer: %q", stdout)
+	}
+}
+
 // One path cannot hold several gates' logs, and silently sharing it would
 // destroy every gate's output but the last.
 func TestRunLogWithAlsoIsRefused(t *testing.T) {
