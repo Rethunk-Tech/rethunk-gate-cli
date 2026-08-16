@@ -78,6 +78,13 @@ jobs:
 
       - name: smoke-test the binary
         shell: bash
+        env:
+          # Git Bash rewrites an argument that looks like a unix path before
+          # the child ever sees it, so `cmd /c exit 3` arrives as
+          # `cmd C:/ exit 3` -- which exits 0, and made a failing gate look
+          # like a passing one. The conversion has to be off for a test whose
+          # whole subject is the argv a child receives.
+          MSYS2_ARG_CONV_EXCL: "*"
         run: |
           set -euo pipefail
           go build -o gate.exe ./cmd/gate
@@ -93,6 +100,10 @@ jobs:
             [ "$status" = "3" ] || { echo "gate exited $status, want 3"; exit 1; }
           fi
           grep -q "exit 3" fail.log
+          # The argument reached the child intact. Without this, path
+          # conversion can come back and the status assertion above passes
+          # for the wrong reason -- a different command that also exits 3.
+          grep -q -- "/c" fail.log
 
   # One required check for branch protection to point at. Without it, a
   # matrix leg that never ran reads as "not failing" rather than "not run".
