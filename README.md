@@ -40,6 +40,8 @@ Prerequisites and full install notes: [HUMANS.md](HUMANS.md).
 - **Concurrent when you say so.** `--also` runs independent gates together,
   each with its own log, reported in the order you named them. `--serial` is
   there for gates that depend on each other, or share a build cache.
+- **`gate doctor` tells you what to fix.** Missing vulnerability gates, CI
+  gaps, superseded tooling — each with the evidence behind it. Read-only.
 - **Fast enough to wrap anything.** ~700µs of startup, against a median real
   gate of 1.7s and a most-common gate of 0.14s.
 

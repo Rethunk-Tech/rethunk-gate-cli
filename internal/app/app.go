@@ -20,6 +20,7 @@ const defaultTail = 40
 
 const gateHelp = `usage: gate [flags] <command> [args...]
        gate [flags] -- <command> [args...]
+       gate doctor
 
 Run a gate command, capture its complete output to a log file, and report only
 the verdict. The command's own exit status is passed through unchanged, so
@@ -34,6 +35,9 @@ Flags:
   --quiet       print nothing when the gates pass
   --version     print the version and exit
   -h, --help    show this help and exit
+
+gate doctor reports things about the project that are cheap to fix. It reads
+only -- it never edits the repository and never runs a gate.
 
 The first non-flag argument begins the command, and everything after it --
 including its own flags -- belongs to the command. Use -- when the command's
@@ -113,6 +117,13 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 			fmt.Fprint(stderr, gateHelp)
 			return exitcode.InvalidUsage
 		}
+	}
+
+	// "doctor" is the one word gate treats as its own rather than as a
+	// command to run. A real program by that name is still reachable as
+	// `gate -- doctor`, which is what -- is for.
+	if rest := args[i:]; len(rest) == 1 && rest[0] == "doctor" {
+		return runDoctor(stdout, stderr)
 	}
 
 	if command := args[i:]; len(command) > 0 {

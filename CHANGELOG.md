@@ -32,6 +32,11 @@ Notable changes to `gate`. The format follows
 - Competing declarations for the same role are reported rather than resolved
   silently.
 
+- `gate doctor` reports cheap-to-fix problems: missing vulnerability gates,
+  CI gaps, superseded tooling, lockfile collisions, stale action pins, and
+  gates slower than the measured p90. Read-only, and exits 0 either way. See
+  [`docs/USAGE.md`](docs/USAGE.md#gate-doctor).
+
 - `--also CMD` runs additional gates concurrently, each with its own log,
   reported in the order they were named rather than the order they finished.
   When several fail, the exit status is that of the first gate named.

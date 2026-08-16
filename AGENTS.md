@@ -79,6 +79,22 @@ the **resolved path** goes into the gate's argv. A bare name would be found by
 detection and then fail to execute, since several of the best tools are not on
 `PATH` at all.
 
+## Doctor
+
+`internal/doctor` is read-only and has a test asserting a fixture is
+byte-identical afterwards. Every finding carries evidence, because a check that
+cannot say why it fires becomes a rule people skip.
+
+Two design choices worth keeping:
+
+- **`knownGoodActionsTag` is a constant, not a network lookup.** doctor must
+  work offline, and a project's health must not depend on a remote being
+  reachable. It goes stale by design: a pin newer than the constant is never
+  flagged, so bumping it is safe and forgetting to is merely quiet.
+- **Judgements are repository-wide where that is what matters.** govulncheck is
+  judged across all workflows at once; flagging a release workflow that omits
+  it while CI enables it would be the noise that teaches people to skip output.
+
 ## Concurrency, and when it loses
 
 Gates named with `--also` run concurrently by default. Measured over 7 days of

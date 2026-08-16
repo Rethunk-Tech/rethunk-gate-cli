@@ -160,6 +160,48 @@ Concurrency pays when gates are genuinely independent, such as a linter and a
 type checker from different toolchains. It is never inferred, because nothing
 in the command line says which case you are in.
 
+## `gate doctor`
+
+Reports things about the project that are cheap to detect and worth fixing.
+**It reads only** — it never edits the repository and never runs a gate, and it
+exits 0 whether or not it found anything. An advisory command that failed the
+build would turn every suggestion into a blocker, which is how advice stops
+being read.
+
+```console
+$ gate doctor
+gate doctor: 3 finding(s), most costly first
+
+[warn] ci-govulncheck-off  .github/workflows/ci.yml
+  what  no workflow enables run-govulncheck on setup-go
+  why   that input defaults to false, so CI never checks for known vulnerabilities anywhere in this repo
+  fix   set run-govulncheck: "true" on the setup-go step
+```
+
+Every finding carries a **why**. A check that cannot say what evidence it rests
+on is a preference, and preferences are what people learn to skip.
+
+| Check | Fires when |
+| --- | --- |
+| `go-no-govulncheck` | A Go module with no vulnerability gate available |
+| `ci-govulncheck-off` | `setup-go` used, but no workflow sets `run-govulncheck` |
+| `ci-no-final-gate` | Matrix checks with no single aggregating job to require |
+| `corepack-with-setup-bun` | `corepack enable` beside `setup-bun` |
+| `npx-in-bun-workspace` | `npx` in a workspace with a `bun.lock` |
+| `lockfile-collision` | `package-lock.json` beside `bun.lock` |
+| `actions-floating-ref` | A shared action pinned to `main` |
+| `actions-stale-ref` | A shared action pinned behind the known tag |
+| `superseded-tooling` | eslint, mypy or black where the fleet moved on |
+| `missing-gate-*` | No test or typecheck gate declared or inferable |
+| `slow-gate` | A recorded run exceeded the measured p90 of 6.8s |
+
+Judgements are repository-wide where that is what matters: a release workflow
+omitting `run-govulncheck` while CI enables it is not a gap, and flagging it
+would be noise.
+
+`slow-gate` reads the trailers `gate` wrote to its own logs, so it is evidence
+from real runs rather than a guess. It reports nothing before there are logs.
+
 ## Logs
 
 Logs are written under `$TMPDIR/gate/`, or `/var/tmp/gate/` when `TMPDIR` is
