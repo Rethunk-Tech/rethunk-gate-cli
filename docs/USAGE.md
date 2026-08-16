@@ -196,6 +196,63 @@ gate: test is declared twice -- running make test (Makefile target test),
 A convention losing to a declaration is not a disagreement and is not
 reported — that is the design working.
 
+## Configuration
+
+`gate` needs no configuration, and most projects should not add any: a
+`Makefile` target or a `package.json` script is already the project's config,
+and detection reads it. Two things have no home in either, and that is what
+`.gate.toml` is for — a per-gate timeout, and a check detection could never
+infer.
+
+```toml
+[defaults]
+timeout = "2m"
+
+[gates.test]
+timeout = "10m"
+
+[gates.e2e]
+run = "bun run e2e"
+timeout = "20m"
+toolchain = "node"
+```
+
+Configuration **adds and overrides, never replaces**. Detection always runs, so
+a file mentioning one gate cannot remove the others, and `--list` still names
+where every gate came from:
+
+```console
+  then [other] test       make test
+        from Makefile target test, overridden by /path/.gate.toml
+  [node] e2e        bun run e2e
+        from /path/.gate.toml gates.e2e
+```
+
+`run` takes a shell string, like `--also`. `toolchain` decides scheduling
+rather than labelling: gates sharing one run in sequence, and separate ones run
+concurrently — so a custom gate that shares a build cache with a detected one
+should say which, or the two will contend.
+
+A gate `run` declares but detection could not infer is not selectable by name;
+the role words are fixed. It runs with bare `gate`.
+
+### Which file wins
+
+1. `--timeout` on the command line — the most local statement of intent, so it
+   beats everything below.
+2. `<project root>/.gate.toml`
+3. `$XDG_CONFIG_HOME/gate/config.toml`, or `~/.config/gate/config.toml`
+4. The built-in defaults.
+
+The layers merge **per key, not per file**: a project overriding one gate's
+timeout still inherits your defaults for everything else. The project file is
+found from the *detected project root*, so `gate -C <elsewhere>` picks up that
+project's configuration rather than yours.
+
+A file that cannot be understood is refused, never ignored — including a
+misspelled key, which would otherwise do nothing quietly. Every unknown key in
+a file is reported at once rather than one per run.
+
 ## Several gates at once
 
 ```console

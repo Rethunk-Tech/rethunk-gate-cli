@@ -1,9 +1,9 @@
 version: 2
 
 # Grouped so a week's updates arrive as one PR per ecosystem rather than one
-# per module. The gate BINARY is still stdlib only -- nothing third-party is
-# linked into what ships -- but the test suite uses go-quicktest/qt, so go.mod
-# and go.sum are no longer empty and this entry now has real work to do.
+# per module. gate was stdlib only until 0.2.0; it now links go-toml for the
+# per-project configuration file, and uses go-quicktest/qt in tests, so this
+# entry has real work to do -- and one of the two ships in the binary.
 #
 # Fleet policy: Dependabot PRs are not merged. The equivalent bump is applied
 # by hand on main and the PR closed as superseded.

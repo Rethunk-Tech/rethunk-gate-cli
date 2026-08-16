@@ -2,7 +2,10 @@ module github.com/Rethunk-Tech/rethunk-gate-cli
 
 go 1.26.5
 
-require github.com/go-quicktest/qt v1.102.0
+require (
+	github.com/go-quicktest/qt v1.102.0
+	github.com/pelletier/go-toml/v2 v2.4.3
+)
 
 require (
 	github.com/google/go-cmp v0.6.0 // indirect

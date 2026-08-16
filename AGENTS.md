@@ -180,6 +180,43 @@ the detection path refuses; `gate go test ./...` inside a gate still runs.
 That distinction is also what keeps this suite working, since its tests drive
 bare detection against temporary fixtures rather than against this repository.
 
+## Configuration
+
+`internal/config` is a deliberate reversal of a stated design. gate had no
+configuration file because a project's manifests already are its config — and
+that argument still holds for *what to run*. It stopped holding for two
+things: a timeout has no home in a Makefile or a `package.json`, so every gate
+in a run shared one value against a measured p99 of 65.0s; and a project
+cannot declare a check detection could never infer.
+
+So config **adds and overrides, never replaces**. Detection always runs, and
+`--list` keeps answering why each gate is there — a config file cannot remove
+a gate a project genuinely has, which is what keeps the detector honest rather
+than turning it into a default nobody trusts.
+
+Three rules hold that together:
+
+- **`internal/detect` stays a pure reader of manifests.** The merge happens in
+  `internal/app`, which already assembles the gate list. Detect importing
+  config would put file-format concerns inside the thing that reads projects,
+  and create a cycle.
+- **A gate's source survives the merge.** `gateSpec.source` carries it, and an
+  overridden gate keeps both halves — `Makefile target test, overridden by
+  …/.gate.toml`. A gate that lost its source would silently undo `--list`.
+- **A typo is an error, not a default.** `DisallowUnknownFields` reports every
+  unknown key in one pass, which is why go-toml was chosen over BurntSushi;
+  `timout = "10m"` silently ignored is the classic configuration failure, and
+  it is invisible.
+
+Timeout precedence is nearest-intent-first: the flag, then the gate's own
+entry, then the config default, then the built-in. The flag is applied
+unconditionally rather than only where config was silent — the other way round
+makes the most local statement the weakest.
+
+go-toml is the first dependency the **binary** links; `go-quicktest/qt`
+arrived earlier but is test-only. `.github/dependabot.yml` records which is
+which.
+
 ## Doctor
 
 `internal/doctor` is read-only and has a test asserting a fixture is

@@ -83,9 +83,24 @@ type gateSpec struct {
 	dir string
 
 	// timeout bounds this gate alone. It sits here rather than on options
-	// so per-project configuration can set it per gate later without the
-	// runner changing shape. Zero means no limit.
+	// so per-project configuration can set it per gate without the runner
+	// changing shape. Zero means no limit.
 	timeout time.Duration
+
+	// role is the gate's name -- build, test, and so on -- for detected and
+	// configured gates, and empty for a command the caller named. It is what
+	// configuration is looked up by.
+	role string
+
+	// source says why this gate is here: the manifest it was detected from,
+	// the config file that supplied or overrode it, or both. --list exists to
+	// answer that question, so a gate that loses its source silently undoes
+	// the point of it.
+	source string
+
+	// shadowed lists competing declarations this gate outranks, carried from
+	// detection so listing needs no second lookup.
+	shadowed []string
 }
 
 // short is display with the command's directory removed, for the one-line

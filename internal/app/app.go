@@ -6,12 +6,14 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"maps"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/config"
 	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/detect"
 )
 
@@ -95,6 +97,7 @@ Full reference: docs/USAGE.md
 func Run(ctx context.Context, version string, args []string, stdout, stderr io.Writer) Code {
 	opts := options{tail: defaultTail, keepFor: defaultKeepDays * 24 * time.Hour}
 	timeout := defaultTimeout
+	timeoutGiven := false
 	showVersion := false
 	var also []string
 
@@ -170,7 +173,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 				fmt.Fprintf(stderr, "gate: --timeout wants a duration like 90s or 5m, got %q\n", value)
 				return InvalidUsage
 			}
-			timeout = d
+			timeout, timeoutGiven = d, true
 			i = next
 		case "--keep":
 			value, next, code := flagValue(args, i, name, inlineValue, hasInline, stderr)
@@ -254,6 +257,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	// runs anything, and what it chose is printable with --list, because a
 	// detector you cannot inspect is one you end up fighting.
 	var project detect.Project
+	var configured config.Config
 	if len(opts.gates) == 0 || role != "" {
 		proj, err := detect.Detect(dir)
 		if err != nil {
@@ -272,6 +276,14 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 			return Fatal
 		}
 
+		// Configuration is found from the DETECTED root, which is what makes
+		// `gate -C <elsewhere>` pick up that project's config for free.
+		cfg, err := config.Load(proj.Root)
+		if err != nil {
+			fmt.Fprintf(stderr, "gate: %v\n", err)
+			return InvalidUsage
+		}
+
 		project = proj
 		found := false
 		for _, g := range proj.Gates {
@@ -279,15 +291,59 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 				continue
 			}
 			found = true
-			opts.gates = append(opts.gates, gateSpec{
+			spec := gateSpec{
 				argv:      g.Argv,
 				display:   g.Display(),
 				toolchain: string(g.Toolchain),
+				role:      g.Name,
+				source:    g.Source,
+				shadowed:  g.Shadowed,
 				// The project's own commands only work at its root, which
 				// is not necessarily where the caller stood.
 				dir: proj.Root,
-			})
+			}
+			// Config overrides a detected gate; it never removes one, and the
+			// detected source stays on the line so --list still says where
+			// the gate came from as well as what changed it.
+			if c, ok := cfg.Gates[g.Name]; ok {
+				if c.Run != "" {
+					spec.argv, spec.display = shellArgv(c.Run), c.Run
+					// A config `run` is a third declaration, and the most
+					// local one, so it settles a disagreement between the
+					// other two rather than muting the report of it. The
+					// resolution is visible in --list as this gate's source.
+					spec.shadowed = nil
+				}
+				if c.Toolchain != "" {
+					spec.toolchain = c.Toolchain
+				}
+				spec.source = g.Source + ", overridden by " + c.Source
+			}
+			opts.gates = append(opts.gates, spec)
 		}
+
+		// Gates configuration declares and detection could not infer -- an
+		// e2e suite, a migration check. Added in name order so a run is
+		// reproducible, and only when nothing was selected by role.
+		if role == "" {
+			for _, name := range slices.Sorted(maps.Keys(cfg.Gates)) {
+				c := cfg.Gates[name]
+				if c.Run == "" || detect.IsRole(name) {
+					continue
+				}
+				found = true
+				opts.gates = append(opts.gates, gateSpec{
+					argv:      shellArgv(c.Run),
+					display:   c.Run,
+					toolchain: c.Toolchain,
+					role:      name,
+					source:    c.Source + " gates." + name,
+					dir:       proj.Root,
+				})
+			}
+		}
+
+		configured = cfg
 		// Never fall through to a program of that name. The caller is least
 		// sure what this project has in exactly the case where the fallback
 		// would fire, which is where running /usr/bin/test would be worst.
@@ -299,12 +355,25 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		}
 	}
 
+	// Timeout precedence, nearest statement of intent first: the flag, then
+	// this gate's own config entry, then the config default, then the value
+	// built in. The flag is checked first and unconditionally -- applying it
+	// only where config was silent would make it the weakest, not the
+	// strongest.
 	for i := range opts.gates {
-		opts.gates[i].timeout = timeout
+		d := timeout
+		if !timeoutGiven {
+			if c, ok := configured.Gates[opts.gates[i].role]; ok && c.HasTimeout {
+				d = c.Timeout
+			} else if configured.HasTimeout {
+				d = configured.Timeout
+			}
+		}
+		opts.gates[i].timeout = d
 	}
 
 	if opts.list {
-		writeListing(stdout, project, opts)
+		writeListing(stdout, project, configured.Files, opts)
 		return Success
 	}
 
@@ -321,7 +390,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	// Two manifests declaring the same role differently is reported, never
 	// resolved quietly: choosing silently between two stated intents is the
 	// one behaviour that would make this untrustworthy.
-	writeShadowWarnings(stderr, project)
+	writeShadowWarnings(stderr, opts.gates)
 	if opts.logPath != "" && !filepath.IsAbs(opts.logPath) {
 		opts.logPath = filepath.Join(dir, opts.logPath)
 	}

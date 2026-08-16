@@ -6,6 +6,25 @@ Notable changes to `gate`. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Per-project configuration in `.gate.toml`: a per-gate `timeout`, and `run`
+  for a check detection could never infer — an e2e suite, a migration check.
+  A timeout had no home in a Makefile or a `package.json`, so every gate in a
+  run shared one value against a measured p99 of 65.0s.
+
+  Configuration adds and overrides, never replaces: detection always runs, a
+  file cannot remove a gate, and `--list` names both where a gate came from
+  and what changed it. Layers merge per key — `--timeout`, then
+  `<root>/.gate.toml`, then `$XDG_CONFIG_HOME/gate/config.toml`, then the
+  built-in defaults — and the file is found from the detected project root, so
+  `-C` picks up that project's settings. An unreadable file or an unknown key
+  is refused rather than ignored, with every unknown key reported at once.
+  See [`docs/USAGE.md`](docs/USAGE.md#configuration).
+
+  This is gate's first dependency in the shipped binary
+  (`github.com/pelletier/go-toml/v2`).
+
 ### Changed
 
 - `no-ci` now fires only where the project has gates to run. Its first

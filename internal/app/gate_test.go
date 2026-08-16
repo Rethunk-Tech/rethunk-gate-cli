@@ -731,6 +731,127 @@ func TestAShadowWarningNamesItsFixOnceAndCannotBeSilenced(t *testing.T) {
 	}
 }
 
+// A timeout has no home in a Makefile or a package.json, so before config
+// existed every gate in a run shared one value against a measured p99 of
+// 65.0s. This is the whole point of the feature: one slow gate gets room
+// without raising the limit for everything else.
+func TestConfigSetsTimeoutsPerGate(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("TMPDIR", t.TempDir())
+	write(t, root, "Makefile", "test:\n\tsleep 5\n\nlint:\n\ttrue\n")
+	// The default is generous; only the test gate is held to a short one.
+	write(t, root, ".gate.toml", "[defaults]\ntimeout = \"5m\"\n\n[gates.test]\ntimeout = \"120ms\"\n")
+
+	_, stderr, code := runGateTest(t, "-C", root)
+
+	qt.Assert(t, qt.Equals(code, TimedOut), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.StringContains(stderr, "TIMEOUT"), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.StringContains(stderr, "120ms"),
+		qt.Commentf("the gate was not held to its own timeout: %q", stderr))
+	// lint shares the run and must not have been killed by the test gate's
+	// limit -- a per-gate timeout that leaked would defeat the feature.
+	qt.Check(t, qt.Not(qt.StringContains(stderr, "make lint")),
+		qt.Commentf("a second gate was affected: %q", stderr))
+}
+
+// A flag is the most local statement of intent, so it beats every config
+// layer. Applying it only where config was silent would make it the weakest
+// rather than the strongest, and config would become unreachable the other
+// way round.
+func TestTheTimeoutFlagBeatsEveryConfigLayer(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("TMPDIR", t.TempDir())
+	write(t, root, "Makefile", "test:\n\tsleep 5\n")
+	write(t, root, ".gate.toml", "[gates.test]\ntimeout = \"5m\"\n")
+
+	_, stderr, code := runGateTest(t, "-C", root, "--timeout", "120ms")
+
+	qt.Assert(t, qt.Equals(code, TimedOut),
+		qt.Commentf("the flag did not beat the config timeout: %q", stderr))
+}
+
+// Config adds and overrides; it never replaces. A file that mentions one gate
+// must leave the rest of detection intact, or a single override would quietly
+// become the whole gate list.
+func TestConfigCannotRemoveADetectedGate(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("TMPDIR", t.TempDir())
+	write(t, root, "Makefile", "test:\n\ttouch "+filepath.Join(root, "test-ran")+"\n"+
+		"lint:\n\ttouch "+filepath.Join(root, "lint-ran")+"\n")
+	write(t, root, ".gate.toml", "[gates.test]\ntimeout = \"5m\"\n")
+
+	_, stderr, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.IsTrue(exists(filepath.Join(root, "test-ran"))))
+	qt.Check(t, qt.IsTrue(exists(filepath.Join(root, "lint-ran"))),
+		qt.Commentf("a config entry for one gate removed another"))
+}
+
+// Config is found from the DETECTED project root, which is what makes -C pick
+// up the other project's settings rather than the caller's.
+func TestConfigComesFromTheProjectNotTheCaller(t *testing.T) {
+	other := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("TMPDIR", t.TempDir())
+	write(t, other, "Makefile", "test:\n\ttrue\n")
+	write(t, other, ".gate.toml", "[gates.e2e]\nrun = \"true\"\ntoolchain = \"node\"\n")
+
+	stdout, stderr, code := runGateTest(t, "-C", other, "--list")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.StringContains(stdout, "e2e"),
+		qt.Commentf("the other project's config was not read: %q", stdout))
+	// --list exists to answer "why is this running", so a config-supplied
+	// gate has to name the file that supplied it.
+	qt.Check(t, qt.StringContains(stdout, ".gate.toml"), qt.Commentf("%q", stdout))
+}
+
+// An unparseable file refuses rather than falling back to defaults, and the
+// refusal is a usage error rather than a failing gate.
+func TestABrokenConfigRefusesInsteadOfIgnoringItself(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("TMPDIR", t.TempDir())
+	write(t, root, "Makefile", "test:\n\ttrue\n")
+	write(t, root, ".gate.toml", "[gates.test]\ntimout = \"10m\"\n")
+
+	_, stderr, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, InvalidUsage), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.StringContains(stderr, "timout"), qt.Commentf("stderr = %q", stderr))
+}
+
+// The conflict warning fires on every invocation until someone acts, and the
+// only way to finish it short of editing a manifest is to say which command
+// wins. A config `run` is a third declaration and the most local one, so it
+// settles the disagreement -- and the settlement is visible, not a mute.
+func TestAConfigRunSettlesAShadowConflict(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("TMPDIR", t.TempDir())
+	write(t, root, "Makefile", "test:\n\ttrue\n")
+	write(t, root, "package.json", "{\n\t\"scripts\": {\n\t\t\"test\": \"vitest run\"\n\t}\n}\n")
+	write(t, root, "bun.lock", "")
+
+	// Unresolved, it warns.
+	_, stderr, code := runGateTest(t, "-C", root, "--quiet")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Assert(t, qt.StringContains(stderr, "declared twice"), qt.Commentf("stderr = %q", stderr))
+
+	// Settled, it does not -- and --list names the file that settled it,
+	// rather than the conflict simply disappearing.
+	write(t, root, ".gate.toml", "[gates.test]\nrun = \"true\"\n")
+	_, stderr, code = runGateTest(t, "-C", root, "--quiet")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.Not(qt.StringContains(stderr, "declared twice")),
+		qt.Commentf("the conflict was still reported after being settled: %q", stderr))
+
+	stdout, _, _ := runGateTest(t, "-C", root, "--list")
+	qt.Check(t, qt.StringContains(stdout, ".gate.toml"),
+		qt.Commentf("--list does not name what settled it: %q", stdout))
+}
+
 // One path cannot hold several gates' logs, and silently sharing it would
 // destroy every gate's output but the last.
 func TestRunLogWithAlsoIsRefused(t *testing.T) {

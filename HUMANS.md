@@ -8,8 +8,8 @@ Running and using `gate`.
 make install     # go install ./cmd/gate into your GOBIN
 ```
 
-Requires Go 1.26 or newer. There are no runtime dependencies — `gate` is a
-single static binary that shells out to whatever you tell it to run.
+Requires Go 1.26 or newer. `gate` is a single static binary that shells out to
+whatever you tell it to run; nothing needs installing alongside it.
 
 ## What it is for
 
