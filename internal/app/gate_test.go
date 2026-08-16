@@ -470,6 +470,73 @@ func TestRunSerialRunsEveryGateWhenAllPass(t *testing.T) {
 	}
 }
 
+// Detection puts the resolved path in argv, which execution needs and the
+// one-line verdict does not. Both halves are asserted together: shortening
+// the line is only safe while the full path survives where it answers a
+// question -- the log trailer for what ran, --list for what will.
+func TestResolvedPathIsShortenedOnTheVerdictLineOnly(t *testing.T) {
+	root := t.TempDir()
+	bin := filepath.Join(root, "node_modules", ".bin", "biome")
+	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"name":"app"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "bun.lock"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	logs := t.TempDir()
+	t.Setenv("TMPDIR", logs)
+
+	stdout, stderr, code := runGateTest(t, "-C", root)
+	if code != Success {
+		t.Fatalf("gate = %d, stderr = %q", code, stderr)
+	}
+
+	// The verdict names the command, not the directory it was resolved from.
+	if !strings.Contains(stdout, "biome check .") {
+		t.Errorf("verdict does not name the command: %q", stdout)
+	}
+	if strings.Contains(stdout, filepath.Dir(bin)) {
+		t.Errorf("verdict carries the resolved directory: %q", stdout)
+	}
+
+	// --list still answers "what exactly will run", so it keeps the path.
+	listOut, _, _ := runGateTest(t, "-C", root, "--list")
+	if !strings.Contains(listOut, bin) {
+		t.Errorf("--list dropped the resolved path: %q", listOut)
+	}
+
+	// The log is named for the command, and its trailer keeps the full path.
+	entries, err := os.ReadDir(filepath.Join(logs, "gate"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, e := range entries {
+		if !strings.HasPrefix(e.Name(), "biome-") {
+			continue
+		}
+		found = true
+		if body, err := os.ReadFile(filepath.Join(logs, "gate", e.Name())); err != nil {
+			t.Fatal(err)
+		} else if !strings.Contains(string(body), bin) {
+			t.Errorf("log trailer dropped the resolved path: %q", body)
+		}
+	}
+	if !found {
+		var names []string
+		for _, e := range entries {
+			names = append(names, e.Name())
+		}
+		t.Errorf("no log named for the command; got %v", names)
+	}
+}
+
 // One path cannot hold several gates' logs, and silently sharing it would
 // destroy every gate's output but the last.
 func TestRunLogWithAlsoIsRefused(t *testing.T) {

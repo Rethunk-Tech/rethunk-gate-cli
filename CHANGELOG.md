@@ -8,6 +8,14 @@ Notable changes to `gate`. The format follows
 
 ### Changed
 
+- The one-line verdict names the command rather than its resolved path, and
+  log filenames are derived from the command's base name. Detection resolves
+  project-local tools to absolute paths, which execution needs — but it spent
+  the whole 40-character log-name budget on the parent directory, so `tsc` and
+  `biome` in one project produced two logs distinguishable only by sequence
+  number. `--list` and the log trailer still carry the full path, since those
+  answer what exactly will run and what exactly did.
+
 - Log pruning now sweeps at most once an hour, recorded by a stamp file beside
   the logs, instead of on every invocation. A week of real use leaves ~12,000
   logs in one directory, and stat-ing all of them cost 15–20ms against a

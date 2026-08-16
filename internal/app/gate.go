@@ -59,6 +59,23 @@ type gateSpec struct {
 	timeout time.Duration
 }
 
+// short is display with the command's directory removed, for the one-line
+// verdict. Detection puts the RESOLVED path in argv -- node_modules/.bin/tsc
+// rather than tsc -- which is load-bearing for execution and pure noise on a
+// line whose whole job is to be short: a project-local tool otherwise spends
+// 100+ characters naming a directory the reader already knows.
+//
+// Only an absolute argv[0] is trimmed, which leaves --also gates alone: their
+// argv is `sh -c <string>` while display is the string itself. The full path
+// stays in --list, where the question is what exactly will run, and in the
+// log trailer, where the question is what exactly did.
+func (s gateSpec) short() string {
+	if len(s.argv) == 0 || !filepath.IsAbs(s.argv[0]) {
+		return s.display
+	}
+	return filepath.Base(s.argv[0]) + strings.TrimPrefix(s.display, s.argv[0])
+}
+
 // gateResult is everything one gate produced. Running fills these in; nothing
 // is printed until every gate is done, so concurrent execution still reports
 // in the order the gates were named rather than the order they finished.
@@ -175,7 +192,7 @@ func report(results []gateResult, opts options, stdout, stderr io.Writer) Code {
 			// verdict, and inventing one would be the lie this reports to
 			// avoid. It goes to stderr because it only ever accompanies a
 			// failure.
-			fmt.Fprintf(stderr, "gate: SKIP  %s  (not run: an earlier gate failed)\n", res.spec.display)
+			fmt.Fprintf(stderr, "gate: SKIP  %s  (not run: an earlier gate failed)\n", res.spec.short())
 		case res.fatalErr != nil:
 			fmt.Fprintf(stderr, "gate: %v\n", res.fatalErr)
 			if aggregate == Success {
@@ -183,25 +200,25 @@ func report(results []gateResult, opts options, stdout, stderr io.Writer) Code {
 			}
 		case res.timedOut:
 			fmt.Fprintf(stderr, "gate: TIMEOUT after %s  %s  (killed, not failed)\n",
-				res.spec.timeout, res.spec.display)
+				res.spec.timeout, res.spec.short())
 			writeFailureRegion(stderr, res.tracker)
 			fmt.Fprintf(stderr, "gate: partial log  %s\n", res.logPath)
 			if aggregate == Success {
 				aggregate = TimedOut
 			}
 		case res.notFound:
-			fmt.Fprintf(stderr, "gate: cannot run %q\n", res.spec.display)
+			fmt.Fprintf(stderr, "gate: cannot run %q\n", res.spec.short())
 			if aggregate == Success {
 				aggregate = NotFound
 			}
 		case res.code == Success:
 			if !opts.quiet {
 				fmt.Fprintf(stdout, "gate: ok  %s  %s  %s\n",
-					res.spec.display, res.elapsed.Round(time.Millisecond), res.logPath)
+					res.spec.short(), res.elapsed.Round(time.Millisecond), res.logPath)
 			}
 		default:
 			fmt.Fprintf(stderr, "gate: FAIL exit %d  %s  %s\n",
-				int(res.code), res.spec.display, res.elapsed.Round(time.Millisecond))
+				int(res.code), res.spec.short(), res.elapsed.Round(time.Millisecond))
 			writeFailureRegion(stderr, res.tracker)
 			fmt.Fprintf(stderr, "gate: full log  %s\n", res.logPath)
 			if aggregate == Success {
@@ -455,7 +472,17 @@ func pruneLogs(dir string, keepFor time.Duration) {
 
 // slug reduces a command line to something safe and recognisable in a
 // filename, so a directory of logs can be read without opening them.
+//
+// The command's directory is dropped first. A resolved path eats the whole
+// budget below before reaching the command: tsc and biome in one project
+// produced two logs named after the same 40 characters of parent directory,
+// differing only by sequence number, which is precisely the case this
+// function exists to prevent.
 func slug(argv []string) string {
+	if len(argv) > 0 {
+		argv = append([]string{filepath.Base(argv[0])}, argv[1:]...)
+	}
+
 	var b strings.Builder
 	prevDash := false
 	for _, r := range strings.Join(argv, "-") {
