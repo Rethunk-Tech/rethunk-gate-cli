@@ -266,9 +266,9 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		}
 		// A project gate that runs gate re-enters detection, finds the same
 		// gates, and runs them again. gate's own test gate is `make test`,
-		// which runs a suite that calls Run -- so this is not hypothetical
-		// here, and the fork bomb it produced has happened once already.
-		// Only detection is refused: wrapping a command is not recursion.
+		// which runs a suite that calls Run, so the loop is reachable here and
+		// does not terminate. Only detection is refused: wrapping a command is
+		// not recursion.
 		if slices.Contains(activeRoots(), proj.Root) {
 			fmt.Fprintf(stderr, "gate: refusing to detect gates in %s\n", proj.Root)
 			fmt.Fprintln(stderr, "gate: a gate from that project is already running, so this would not terminate")

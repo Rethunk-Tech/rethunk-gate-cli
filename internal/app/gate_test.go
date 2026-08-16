@@ -633,10 +633,10 @@ func TestHelpListsExactlyTheRolesThatSelect(t *testing.T) {
 	}
 }
 
-// Ctrl-C used to end gate and leave the gate running: a terminal signals the
-// foreground process group, which is gate's, while every child is in its own
-// so a timeout can kill the whole tree. The child outlived gate and the log
-// was left zero bytes -- both invariants broken at once.
+// A terminal signals the foreground process group, which is gate's, while
+// every child sits in its own so a timeout can kill the whole tree. Unhandled,
+// that leaves the child running after gate exits and its log unfinished --
+// both invariants broken at once.
 //
 // Run takes its context from the caller, so cancelling it here exercises
 // everything except the handler in main.
@@ -675,7 +675,7 @@ func TestAnInterruptedGateIsStoppedNotFailedAndKeepsItsLog(t *testing.T) {
 	time.Sleep(700 * time.Millisecond)
 	qt.Check(t, qt.IsFalse(exists(orphan)), qt.Commentf("a process spawned by the gate survived the interrupt"))
 
-	// The log is the guarantee, and it was empty before this worked.
+	// The log is the guarantee: an interrupted run still finishes its file.
 	output, trailer := splitLog(t, log)
 	qt.Check(t, qt.StringContains(output, "before-the-interrupt"), qt.Commentf("log lost what the command wrote: %q", output))
 	qt.Check(t, qt.StringContains(trailer, "interrupted"), qt.Commentf("trailer = %q, want it to record the interrupt", trailer))
@@ -914,8 +914,8 @@ func TestLogsArePrivate(t *testing.T) {
 	}
 }
 
-// An existing directory keeps its mode through MkdirAll, so one created
-// before this rule existed has to be tightened rather than left as it was.
+// MkdirAll leaves an existing directory's mode alone, so a looser one has to
+// be tightened rather than accepted. Logs can hold tokens.
 func TestExistingLooseLogDirectoryIsTightened(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("TMPDIR", dir)
@@ -1104,10 +1104,9 @@ func TestChdirRunsTheCommandThere(t *testing.T) {
 	qt.Check(t, qt.IsTrue(exists(filepath.Join(dir, "marker"))), qt.Commentf("command did not run in the -C directory"))
 }
 
-// The regression that matters most here. gate used to run detected gates in
-// the caller's working directory while detection walked UP to the project
-// root, so it only worked when you stood exactly at the root. A detected gate
-// must run where the project's commands actually work.
+// Detection walks UP to the project root, so a detected gate that ran in the
+// caller's directory would work only when you stood exactly at the root. A
+// detected gate must run where the project's commands actually work.
 func TestDetectedGatesRunAtTheProjectRootNotTheCallerDirectory(t *testing.T) {
 	// t.Setenv below rules out t.Parallel.
 	root := t.TempDir()

@@ -149,8 +149,8 @@ func TestToolchainGroupsFollowTheBuildCache(t *testing.T) {
 			qt.Commentf("gate %s", name))
 	}
 	// actionlint shares no cache with go, so it must not be serialised behind
-	// it. Named by its role, which is "workflows" -- while this asserted on a
-	// role called "ci" it matched nothing and checked nothing.
+	// it. Named by its role rather than matched in a switch: a switch arm for
+	// a role that no longer exists matches nothing and checks nothing.
 	qt.Check(t, qt.Equals(gateNamed(t, proj, "workflows").Toolchain, ToolchainOther))
 }
 
@@ -208,11 +208,11 @@ func TestTurboWithoutTheBinaryFallsBackToPackageScripts(t *testing.T) {
 		qt.Commentf("notes = %v", proj.Notes))
 }
 
-// A declared vuln target used to be dropped -- it was absent from
-// declaredNames -- so the govulncheck convention supplied the role instead.
-// That is a convention beating a declaration, the one inversion the
-// precedence rule forbids, and it was invisible: Shadowed only records
-// competing declarations, and this declaration never became a Gate at all.
+// A declaration must outrank the convention for the same role. If vuln were
+// missing from declaredNames the govulncheck convention would supply it
+// instead -- a convention beating a declaration, the one inversion the
+// precedence rule forbids, and an invisible one: Shadowed records competing
+// declarations, and a declaration that never becomes a Gate cannot appear.
 func TestADeclaredVulnTargetBeatsTheConvention(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -250,8 +250,8 @@ func TestTheWorkflowLinterIsNamedWorkflowsAndCiIsNotAGate(t *testing.T) {
 	qt.Check(t, qt.IsTrue(hasNote(proj, "aggregates")), qt.Commentf("notes = %v", proj.Notes))
 	qt.Check(t, qt.IsTrue(hasNote(proj, aggregateName)), qt.Commentf("notes = %v", proj.Notes))
 
-	// And the linter survived the rename. A role missing from gateOrder is
-	// dropped silently, which is exactly how this gate once disappeared.
+	// A role missing from gateOrder is dropped silently, so the linter has to
+	// be asserted by name.
 	linter := gateNamed(t, proj, "workflows")
 	qt.Check(t, qt.IsTrue(strings.HasSuffix(linter.Argv[0], "actionlint")),
 		qt.Commentf("workflows gate runs %q", linter.Display()))

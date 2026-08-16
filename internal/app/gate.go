@@ -316,8 +316,8 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 	if dir == logDir() {
 		// gate's own directory is private: these logs hold whatever the
 		// command printed, which can include tokens and connection strings.
-		// MkdirAll leaves an existing directory's mode alone, so tighten one
-		// created before this rule existed.
+		// MkdirAll leaves an existing directory's mode alone, so a looser one
+		// is tightened here.
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			res.fatalErr = fmt.Errorf("cannot create log directory: %w", err)
 			return res

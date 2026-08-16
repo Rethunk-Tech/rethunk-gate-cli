@@ -90,13 +90,9 @@ Saying nothing about it would read as though it had passed.
 ## Stopping a run
 
 Ctrl-C stops the gate, not just `gate`. Every running command is killed along
-with anything it spawned, so a test runner does not survive to keep holding a
-port, and each log still ends with a trailer recording that the run was
-interrupted. `gate` exits 130, the shell's own value for a Ctrl-C.
-
-An interrupted gate is reported as stopped, never as failed — it was not
-judged. A second Ctrl-C ends `gate` outright, in case a command is ignoring
-the first.
+with anything it spawned, so a test runner does not survive holding a port,
+and each log still gets its trailer. An interrupted gate reads as stopped, not
+failed — it was not judged.
 
 ## Full reference
 

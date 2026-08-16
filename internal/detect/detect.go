@@ -90,8 +90,7 @@ type Project struct {
 // vuln last because it is advisory rather than a compile-time answer.
 //
 // A role missing from this list never reaches Project.Gates, silently. Adding
-// or renaming one means editing here in the same change -- which is how the
-// workflow linter briefly disappeared when it was still called "ci".
+// or renaming one means editing here in the same change, or the gate vanishes.
 var gateOrder = []string{"build", "typecheck", "lint", "workflows", "test", "vuln"}
 
 // Roles returns the gate roles, in the order they run. Callers use it to

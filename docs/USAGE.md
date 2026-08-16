@@ -136,17 +136,16 @@ gate: ok  make test  1.7s  /var/tmp/gate/make-test-48211-1.log
 ```
 
 `build`, `typecheck`, `lint`, `workflows`, `test` and `vuln` are gate's own
-words, so `gate test` is never `/usr/bin/test` — which exits 1 in every
-project, being the shell's `if` primitive rather than a check of anything.
-Use `--` when you really do mean the program:
+words, so `gate test` is never `/usr/bin/test` — the shell's `if` primitive,
+which exits 1 in every project. Use `--` when you mean the program:
 
 ```console
 gate -- test        # /usr/bin/test
 gate -- doctor      # a program called doctor
 ```
 
-A role the project has no gate for is refused rather than run as a program,
-which is exactly the case where the fallback would be worst:
+A role the project has no gate for is refused rather than run as a program —
+the fallback would fire exactly when you are least sure what the project has:
 
 ```console
 $ gate typecheck
@@ -228,13 +227,12 @@ where every gate came from:
         from /path/.gate.toml gates.e2e
 ```
 
-`run` takes a shell string, like `--also`. `toolchain` decides scheduling
-rather than labelling: gates sharing one run in sequence, and separate ones run
-concurrently — so a custom gate that shares a build cache with a detected one
-should say which, or the two will contend.
+`run` takes a shell string, like `--also`. `toolchain` decides scheduling, not
+labelling: gates sharing one run in sequence — so a custom gate sharing a build
+cache with a detected one should say which, or they contend.
 
-A gate `run` declares but detection could not infer is not selectable by name;
-the role words are fixed. It runs with bare `gate`.
+A gate that only config declares is not selectable by name; the role words are
+fixed. It runs with bare `gate`.
 
 ### Which file wins
 
@@ -381,25 +379,11 @@ forked workers would otherwise leave them holding a port.
 
 ## Interrupting a run
 
-Ctrl-C stops the gates, not only `gate`. Each running command is killed with
-its whole process group, every log still ends with a trailer recording the
-interrupt, and gates that had not started are reported as not run:
+Ctrl-C stops the gates, not only `gate`: each running command is killed with
+its whole process group, so nothing survives holding a port. A second signal
+ends `gate` outright, in case a command is ignoring the first.
 
-```console
-^C
-gate: INTERRUPTED  make test  (stopped, not failed)
-gate: partial log  /var/tmp/gate/make-test-48211-4.log
-gate: SKIP  govulncheck ./...  (not run: the run was interrupted)
-```
-
-`gate` exits **128+the signal** — 130 for Ctrl-C, 143 for SIGTERM. That is the
-signal that reached `gate`, never the SIGKILL `gate` sent the command, which
-would name its own mechanism as the cause. An interrupted gate is reported as
-stopped rather than failed, for the same reason a timeout is: it was not
-judged.
-
-A second signal ends `gate` outright, so a command ignoring the first cannot
-wedge the session.
+Exit status and output shape: [CODES.md](CODES.md#interrupted).
 
 ### The default is aggressive, deliberately
 

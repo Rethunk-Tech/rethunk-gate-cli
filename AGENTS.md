@@ -54,20 +54,17 @@ the quoted tail is not enough.
 `workflows`, `test`, `vuln` — are gate's own when they appear as a **lone**
 argument. Anything with arguments beside it is the caller's command, always.
 
-That is a real narrowing of the boundary above, and it is paid for by `--`:
-`gate -- test` runs `/usr/bin/test`, `gate -- doctor` runs a program called
-doctor. The escape has to keep working, and has to be tested, because it is
-the entire argument for taking the words. It did not work for `doctor` at
-first — the flag loop consumed `--` and the word was claimed anyway, so the
-comment promising the escape described something that had never happened.
+That narrows the boundary above, and `--` is what pays for it: `gate -- test`
+runs `/usr/bin/test`, `gate -- doctor` runs a program called doctor. The
+escape is tested rather than assumed, because it is the entire argument for
+taking the words — the flag loop must not consume `--` and claim the word
+anyway.
 
-`test` is why this exists at all: it is a real binary that evaluates the empty
-expression and exits 1, so `gate test` could only ever have been a gate that
-cannot pass.
+`test` is why this exists: a real binary that evaluates the empty expression
+and exits 1, so `gate test` could only ever be a gate that cannot pass.
 
-An earlier version scanned for failure markers (`FAIL`, `panic:`, …) and quoted
-matches from outside the tail. It was removed: 50 lines to save one `less`,
-against a log that was already complete.
+Scanning output for failure markers (`FAIL`, `panic:`, …) is deliberately not
+done: 50 lines to save one `less`, against a log that is already complete.
 
 ## Invariants in the capture path
 
@@ -81,28 +78,26 @@ Breaking one of these is silent.
 | stdout and stderr share one writer | Splitting them reorders the very lines a failure is read from |
 | A signalled command reports 128+signal | It has no exit status of its own; exec reports -1, which tells the caller nothing |
 | A log close error is reported, not deferred away | The complete log is the guarantee; losing it silently is the one failure nobody would notice |
-| An interrupted gate still reaches `writeTrailer` and `Close` | Ctrl-C used to leave a zero-byte log: gate died and nothing finished the file it had opened |
+| An interrupted gate still reaches `writeTrailer` and `Close` | Nothing else finishes a file gate opened, so an unfinished one is left empty |
 | An interrupt reports the signal that reached *gate* | The child dies of the SIGKILL gate sent it, so reporting 137 would name gate's own mechanism as the cause |
 
 ## Interrupts
 
 A terminal signals the foreground process group, which is gate's. Every child
-is deliberately in its **own** group so a timeout can kill the whole tree —
-and that is precisely what puts the child beyond the terminal's reach. Before
-this was handled, Ctrl-C ended gate and left the gate running: measured, the
-child reparented to pid 1 and ran to completion while the log sat at zero
-bytes.
+sits in its **own** group so a timeout can kill the whole tree — and that
+isolation is exactly what puts the child beyond the terminal's reach. Without
+handling, Ctrl-C ends gate and leaves the gate running, its log unfinished.
 
-`main` catches SIGINT and SIGTERM, cancels the context `app.Run` already
-takes, and the cancellation reaches the child through the same `cmd.Cancel`
-and `killProcessGroup` the timeout uses. It then hands the signal back to the
-operating system, so a second Ctrl-C ends gate even if a child is ignoring
-the first — a handler that swallowed every signal would make a wedged gate
+`main` catches SIGINT and SIGTERM and cancels the context `app.Run` already
+takes; the cancellation reaches the child through the same `cmd.Cancel` and
+`killProcessGroup` the timeout uses. It then hands the signal back to the
+operating system, so a second Ctrl-C ends gate even if a child is ignoring the
+first — a handler that swallowed every signal would make a wedged gate
 unkillable.
 
-An interrupted gate is reported as stopped, never failed, exactly as a
-timeout is. Gates that had not started are reported as not run, and say the
-run was interrupted rather than blaming a gate that failed.
+An interrupted gate is reported as stopped, never failed, exactly as a timeout
+is. Gates that never started say the run was interrupted rather than blaming a
+gate that failed.
 
 ## Working directory
 
@@ -115,10 +110,9 @@ exists to fail the moment someone "simplifies" this into a chdir — a single
 chdir cannot satisfy two gates at once.
 
 **Detected gates run at `proj.Root`, not where the caller stood.** They are
-the project's own commands and only work at its root. Before this rule,
-`cmd.Dir` was never set at all, so detection walked up to the root while
-execution stayed put — `gate` worked only from the root, and said nothing
-about it.
+the project's own commands and only work at its root: detection walks up to
+find that root, so execution that stayed where the caller was would work only
+from the root, and say nothing about it.
 
 A command named explicitly runs in the `-C` directory instead: that command
 belongs to the caller, and `gate -C x <cmd>` should be indistinguishable from
@@ -126,16 +120,16 @@ standing in `x` and typing it.
 
 ### Why the flag loop stays repetitive
 
-`Run`'s flag loop repeats a shape per value-taking flag: read the value,
-parse it, validate it, assign it. A generic `parseFlag[T]` collapses that,
-and it was measured rather than assumed -- the helper plus its three parsers
-costs about what the four `case` blocks cost, so the saving is roughly zero.
+`Run`'s flag loop repeats a shape per value-taking flag: read, parse,
+validate, assign. A generic `parseFlag[T]` collapses it, and measured, the
+helper plus its parsers costs about what the four `case` blocks cost — the
+saving is roughly zero.
 
-What it does cost is the errors. `--timeout wants a duration like 90s or 5m`
-and `--keep wants a non-negative number of days` are written per flag because
-each one names the thing that flag actually takes. Routing them through one
-helper turns them into a format string, and a worse message on the path a
-user only reaches by getting something wrong is a bad trade for no lines.
+The cost is the errors. `--timeout wants a duration like 90s or 5m` and
+`--keep wants a non-negative number of days` are written per flag because each
+names what that flag takes. One helper turns them into a format string: a
+worse message on the path a user only reaches by getting something wrong, for
+no lines.
 
 ## Detection
 
@@ -152,8 +146,7 @@ repository and turn a real signal into noise.
 
 The roles live in `gateOrder`, and a role missing from that list never reaches
 `Project.Gates` — silently. Renaming or adding one means editing it in the
-same change; that is how the workflow linter briefly disappeared while it was
-still called `ci`.
+same change, or the gate simply vanishes.
 
 `ci` is deliberately unclaimed. The convention ladder's workflow linter is
 called `workflows`, because that is what it checks, and a project's own `ci`
@@ -177,22 +170,21 @@ refuses a project already listed there. Roots rather than a depth counter,
 because the loop is specific — a gate detecting the project it is already
 inside. Wrapping a *command* is not recursion and must keep working, so only
 the detection path refuses; `gate go test ./...` inside a gate still runs.
-That distinction is also what keeps this suite working, since its tests drive
-bare detection against temporary fixtures rather than against this repository.
+That distinction is also what keeps this suite working: its tests drive bare
+detection against temporary fixtures, never against this repository.
 
 ## Configuration
 
-`internal/config` is a deliberate reversal of a stated design. gate had no
-configuration file because a project's manifests already are its config — and
-that argument still holds for *what to run*. It stopped holding for two
-things: a timeout has no home in a Makefile or a `package.json`, so every gate
-in a run shared one value against a measured p99 of 65.0s; and a project
-cannot declare a check detection could never infer.
+`internal/config` reverses a stated design, deliberately. A project's
+manifests are its config, and that still holds for *what to run*. It does not
+hold for two things: a timeout has no home in a Makefile or a `package.json`,
+so one value covers every gate in a run against a measured p99 of 65.0s; and a
+project cannot declare a check detection could never infer.
 
 So config **adds and overrides, never replaces**. Detection always runs, and
 `--list` keeps answering why each gate is there — a config file cannot remove
-a gate a project genuinely has, which is what keeps the detector honest rather
-than turning it into a default nobody trusts.
+a gate a project genuinely has, which is what keeps the detector inspectable
+rather than a default nobody trusts.
 
 Three rules hold that together:
 
@@ -204,7 +196,7 @@ Three rules hold that together:
   overridden gate keeps both halves — `Makefile target test, overridden by
   …/.gate.toml`. A gate that lost its source would silently undo `--list`.
 - **A typo is an error, not a default.** `DisallowUnknownFields` reports every
-  unknown key in one pass, which is why go-toml was chosen over BurntSushi;
+  unknown key in one pass — the reason go-toml is used rather than BurntSushi.
   `timout = "10m"` silently ignored is the classic configuration failure, and
   it is invisible.
 
@@ -213,9 +205,8 @@ entry, then the config default, then the built-in. The flag is applied
 unconditionally rather than only where config was silent — the other way round
 makes the most local statement the weakest.
 
-go-toml is the first dependency the **binary** links; `go-quicktest/qt`
-arrived earlier but is test-only. `.github/dependabot.yml` records which is
-which.
+go-toml is the only dependency the **binary** links; `go-quicktest/qt` is
+test-only. `.github/dependabot.yml` records which is which.
 
 ## Doctor
 
@@ -282,14 +273,13 @@ does not belong in RAM.
 
 `logDir` is build-tagged for that reason. Off unix it uses `os.TempDir`, which
 reads `TMP` and `TEMP` — right there, and wrong on unix, where the same call
-returns the `/tmp` this rule exists to avoid. `--also` is split the same way:
-`sh -c` on unix, `cmd /c` off it. Those two were the whole of gate's POSIX
-assumption, and the release had been publishing a windows binary that wrote
-its logs to `\var\tmp\gate` and could not run `--also` at all.
+returns the `/tmp` this rule exists to avoid. `--also` splits the same way:
+`sh -c` on unix, `cmd /c` off it. Those two are the whole of gate's POSIX
+assumption, and the release ships a windows binary.
 
-They are created 0600 in a 0700 directory: a log holds whatever the command
-printed, which can include tokens. An existing directory keeps its mode
-through `MkdirAll`, so one made before this rule is tightened on use.
+Logs are created 0600 in a 0700 directory: a log holds whatever the command
+printed, which can include tokens. `MkdirAll` leaves an existing directory's
+mode alone, so a looser one is tightened on use.
 
 Pruning drops gate's own `*.log` files older than the retention. Measured,
 this is not optional: 12,500 gate invocations in a week, and nothing else
