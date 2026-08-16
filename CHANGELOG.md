@@ -6,6 +6,17 @@ Notable changes to `gate`. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-08-16
+
+Still `0.x`: the per-project configuration file is designed but not built, and
+will likely move some of these defaults.
+
+Mostly defects, and mostly found by using `gate` on the fleet it was written
+for rather than by reading it. Several had been failing silently since 0.1.0 —
+`turbo` projects where every gate exited 127, a Ctrl-C that left the gate
+running and the log empty, and gates that a failure stopped simply vanishing
+from the report.
+
 ### Security
 
 - Release binaries now carry build provenance, verifiable with
