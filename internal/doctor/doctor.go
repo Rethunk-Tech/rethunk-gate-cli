@@ -9,6 +9,7 @@ package doctor
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -132,12 +133,9 @@ func checkGoVuln(root string, proj detect.Project, add func(Finding)) {
 	if !exists(filepath.Join(root, "go.mod")) {
 		return
 	}
-	var hasVuln bool
-	for _, g := range proj.Gates {
-		if g.Name == "vuln" {
-			hasVuln = true
-		}
-	}
+	hasVuln := slices.ContainsFunc(proj.Gates, func(g detect.Gate) bool {
+		return g.Name == "vuln"
+	})
 	if !hasVuln {
 		add(Finding{
 			Warn:  true,
@@ -402,15 +400,11 @@ func checkDeclaredGates(root string, proj detect.Project, add func(Finding)) {
 	if !exists(filepath.Join(root, "package.json")) {
 		return
 	}
-	have := map[string]bool{}
-	for _, g := range proj.Gates {
-		have[g.Name] = true
-	}
 	for _, missing := range []struct{ name, why string }{
 		{"test", "16 of 71 package.json files in the fleet declare no test script"},
 		{"typecheck", "19 of 71 declare no typecheck, and TypeScript errors otherwise surface only at build"},
 	} {
-		if have[missing.name] {
+		if slices.ContainsFunc(proj.Gates, func(g detect.Gate) bool { return g.Name == missing.name }) {
 			continue
 		}
 		add(Finding{

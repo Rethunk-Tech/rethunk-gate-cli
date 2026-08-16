@@ -124,6 +124,19 @@ A command named explicitly runs in the `-C` directory instead: that command
 belongs to the caller, and `gate -C x <cmd>` should be indistinguishable from
 standing in `x` and typing it.
 
+### Why the flag loop stays repetitive
+
+`Run`'s flag loop repeats a shape per value-taking flag: read the value,
+parse it, validate it, assign it. A generic `parseFlag[T]` collapses that,
+and it was measured rather than assumed -- the helper plus its three parsers
+costs about what the four `case` blocks cost, so the saving is roughly zero.
+
+What it does cost is the errors. `--timeout wants a duration like 90s or 5m`
+and `--keep wants a non-negative number of days` are written per flag because
+each one names the thing that flag actually takes. Routing them through one
+helper turns them into a format string, and a worse message on the path a
+user only reaches by getting something wrong is a bad trade for no lines.
+
 ## Detection
 
 `internal/detect` reads manifests and stats files. **It never executes
