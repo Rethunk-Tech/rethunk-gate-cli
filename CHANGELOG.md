@@ -6,6 +6,16 @@ Notable changes to `gate`. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Gates detected from a `turbo.json` task graph ran a bare `turbo`, so on any
+  machine where turbo lives in `node_modules/.bin` rather than on `PATH` —
+  which is the normal arrangement, and the one `resolve` was written for —
+  every gate in the project was listed and then exited 127. They now run the
+  resolved binary, like every other detected tool. Where turbo is not
+  installed at all, detection stands aside with a note instead of claiming the
+  roles, so the `package.json` scripts it would have orchestrated run.
+
 ## [0.1.0] — 2026-08-16
 
 First tagged release. `0.x` because the flag surface is still settling — the

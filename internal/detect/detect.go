@@ -131,7 +131,7 @@ func Detect(dir string) (Project, error) {
 	// is declared, `turbo run test` is the project's real entry point and
 	// already handles caching and cross-package ordering that calling one
 	// package's script directly would skip.
-	if gates := turboGates(proj.workspaceOrRoot()); len(gates) > 0 {
+	if gates := turboGates(proj.workspaceOrRoot(), &proj); len(gates) > 0 {
 		proj.Notes = append(proj.Notes, "turbo.json found; delegating to turbo rather than scheduling its tasks here")
 		for _, g := range gates {
 			claim(g)

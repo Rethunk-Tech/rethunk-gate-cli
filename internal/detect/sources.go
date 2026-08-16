@@ -229,7 +229,7 @@ func resolve(root string, proj *Project, name string) string {
 // turboGates delegates to turbo where a project already declares a task graph.
 // Turbo does orchestration, caching and concurrency itself, so running a
 // second scheduler beside it would duplicate work it already avoids.
-func turboGates(workspace string) []Gate {
+func turboGates(workspace string, proj *Project) []Gate {
 	data, err := os.ReadFile(filepath.Join(workspace, "turbo.json"))
 	if err != nil {
 		return nil
@@ -246,6 +246,22 @@ func turboGates(workspace string) []Gate {
 		tasks = cfg.Pipeline
 	}
 
+	// The same rule the rest of this file follows: the resolved path, not the
+	// bare name. turbo is the example resolve was written for -- it lives in
+	// node_modules/.bin and is normally reached through bunx -- so a bare
+	// "turbo" is detected here and then exits 127 at run time.
+	bin := resolve(workspace, proj, "turbo")
+	if bin == "" {
+		// A task graph nobody can run is worse than no delegation: without
+		// this, turbo outranks the package scripts and every gate fails to
+		// execute. Standing aside lets those scripts claim the roles instead.
+		if proj != nil {
+			proj.Notes = append(proj.Notes,
+				"turbo.json found but turbo is not installed; using the package scripts it would have orchestrated")
+		}
+		return nil
+	}
+
 	var gates []Gate
 	for _, name := range declaredNames {
 		if _, ok := tasks[name]; !ok {
@@ -253,7 +269,7 @@ func turboGates(workspace string) []Gate {
 		}
 		gates = append(gates, Gate{
 			Name:      name,
-			Argv:      []string{"turbo", "run", name},
+			Argv:      []string{bin, "run", name},
 			Source:    "turbo.json task " + name,
 			Toolchain: ToolchainNode,
 			Declared:  true,

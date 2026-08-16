@@ -200,6 +200,64 @@ func TestWorkspaceRootIsFoundAboveThePackage(t *testing.T) {
 	}
 }
 
+// Rule 2 again, for the tool it was written about. turbo shipped with a bare
+// argv while the rule said otherwise, so every gate in a turbo project was
+// detected and then exited 127 -- and both halves have to be asserted,
+// because listing the gate is exactly what made the failure look fine.
+func TestTurboGatesRunTheResolvedBinary(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	write(t, dir, "turbo.json", `{"tasks":{"test":{},"lint":{}}}`)
+	write(t, dir, "package.json", `{"scripts":{"test":"vitest"}}`)
+	write(t, dir, "bun.lock", "")
+	turbo := writeExecutable(t, dir, "node_modules/.bin/turbo")
+
+	proj, err := Detect(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	test := gateNamed(t, proj, "test")
+	if test.Argv[0] != turbo {
+		t.Errorf("test runs %q, want the resolved path %q -- a bare name is not on PATH", test.Argv[0], turbo)
+	}
+	if !strings.Contains(test.Source, "turbo.json") {
+		t.Errorf("source = %q, want the turbo declaration", test.Source)
+	}
+}
+
+// With no turbo to run, delegating to it would hand every role to a command
+// that cannot execute. The package scripts it would have orchestrated are
+// still there, so standing aside leaves a project that works.
+func TestTurboWithoutTheBinaryFallsBackToPackageScripts(t *testing.T) {
+	// Not parallel, and PATH is emptied rather than trusted: a developer with
+	// turbo installed globally would otherwise see this pass or fail by
+	// accident of their machine.
+	dir := t.TempDir()
+	t.Setenv("PATH", filepath.Join(dir, "no-such-bin"))
+	write(t, dir, "turbo.json", `{"tasks":{"test":{}}}`)
+	write(t, dir, "package.json", `{"scripts":{"test":"vitest"}}`)
+	write(t, dir, "bun.lock", "")
+
+	proj, err := Detect(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if want := "bun run test"; gateNamed(t, proj, "test").Display() != want {
+		t.Errorf("test = %q, want the package script %q", gateNamed(t, proj, "test").Display(), want)
+	}
+	var explained bool
+	for _, note := range proj.Notes {
+		if strings.Contains(note, "turbo is not installed") {
+			explained = true
+		}
+	}
+	if !explained {
+		t.Errorf("notes = %v, want turbo's absence explained", proj.Notes)
+	}
+}
+
 // Supabase appears often in this fleet but has no unambiguous pass/fail check
 // of the working tree, so the decision not to invent one is recorded rather
 // than left as silence.
