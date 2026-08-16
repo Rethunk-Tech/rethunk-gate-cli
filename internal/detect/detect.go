@@ -19,14 +19,15 @@ import (
 	"strings"
 )
 
-// Toolchain groups gates that share a build cache.
+// Toolchain says what a gate belongs to, and is reported by --list so a
+// listing can be read at a glance.
 //
-// This is not cosmetic. Measured on real repositories: running go vet, go
-// build and gofmt concurrently took 1.11s against 0.62s in sequence, because
-// they contend for one Go build cache and gain nothing from each other's
-// warmth. Running biome and tsc concurrently took 0.22s against 0.26s in
-// sequence, because they share nothing. So gates run concurrently ACROSS
-// toolchains and in sequence WITHIN one.
+// It does not decide scheduling. Sharing a build cache sounds like a reason to
+// sequence and measured is not: running a repository's gates fully
+// concurrently beat sequencing the ones sharing a toolchain by 24-42%
+// (rethunk-git-cli 1.55s -> 0.97s, Routed 1.22s -> 0.71s). Cache contention
+// costs less than the serialisation used to. Only a project saying one gate
+// depends on another sequences anything -- see gates.<role>.serial.
 type Toolchain string
 
 const (

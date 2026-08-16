@@ -405,15 +405,12 @@ func TestRunSerialStopsAtFirstFailure(t *testing.T) {
 	qt.Check(t, qt.Equals(code, Code(5)), qt.Commentf("gate = %d, want the failing gate's own 5", code))
 }
 
-// The other way a gate is stopped, and the one --serial does not cover: gates
-// sharing a toolchain run in sequence inside one group, so a failure there
-// stops the rest of that group while other groups carry on. Those gates were
-// detected, listed, and then never ran -- reporting nothing about them is the
-// gap this covers.
-func TestGatesStoppedByAFailingGroupAreReportedAsSkipped(t *testing.T) {
+// Gates run concurrently unless something explicitly asked for order, so a
+// failing build does NOT stop a test that never said it depended on one.
+// Sharing a toolchain is not such a statement: measured, sequencing on that
+// basis cost 24-42% of the wall clock and bought nothing.
+func TestGatesRunConcurrentlyUnlessMarkedSerial(t *testing.T) {
 	root := t.TempDir()
-	// Both targets attribute to the same toolchain, so they land in one group
-	// and run in order: build first, per gateOrder.
 	write(t, root, "Makefile", "build:\n\texit 5\n\ntest:\n\ttouch "+filepath.Join(root, "test-ran")+"\n")
 	t.Setenv("TMPDIR", t.TempDir())
 
@@ -421,6 +418,28 @@ func TestGatesStoppedByAFailingGroupAreReportedAsSkipped(t *testing.T) {
 
 	// 2 is make's own status for a failed recipe, not the recipe's 5 -- which
 	// is the point: gate passes through what it ran, not what ran inside it.
+	qt.Assert(t, qt.Equals(code, Code(2)), qt.Commentf("gate = %d, want make's own 2 -- stderr = %q", code, stderr))
+	qt.Check(t, qt.IsTrue(exists(filepath.Join(root, "test-ran"))),
+		qt.Commentf("the test gate was sequenced behind a build it never depended on: %q", stderr))
+	qt.Check(t, qt.Not(qt.StringContains(stderr, "SKIP")),
+		qt.Commentf("a concurrent gate was reported as skipped: %q", stderr))
+}
+
+// The other way a gate is stopped, and the one --serial does not cover: gates
+// a project marked serial run in sequence inside one group, so a failure there
+// stops the rest of that group while other groups carry on. Those gates were
+// detected, listed, and then never ran -- reporting nothing about them is the
+// gap this covers.
+func TestGatesStoppedByAFailingGroupAreReportedAsSkipped(t *testing.T) {
+	root := t.TempDir()
+	// build first, per gateOrder, and the config is what puts them in one
+	// group -- without it these two would run concurrently.
+	write(t, root, "Makefile", "build:\n\texit 5\n\ntest:\n\ttouch "+filepath.Join(root, "test-ran")+"\n")
+	write(t, root, ".gate.toml", "[gates.build]\nserial = true\n\n[gates.test]\nserial = true\n")
+	t.Setenv("TMPDIR", t.TempDir())
+
+	_, stderr, code := runGateTest(t, "-C", root)
+
 	qt.Assert(t, qt.Equals(code, Code(2)), qt.Commentf("gate = %d, want make's own 2 -- stderr = %q", code, stderr))
 	qt.Check(t, qt.IsFalse(exists(filepath.Join(root, "test-ran"))), qt.Commentf("the test gate ran despite the build in its group failing"))
 	qt.Check(t, qt.StringContains(stderr, "SKIP"), qt.Commentf("stderr = %q", stderr))

@@ -8,6 +8,11 @@ Notable changes to `gate`. The format follows
 
 ### Added
 
+- `serial` in `.gate.toml`, at `[defaults]` for a whole run and per gate at
+  `gates.<role>.serial`, which is now the only thing that sequences gates. An
+  absent key and a deliberate `serial = false` are distinguishable, so a
+  project can turn off a user-level default.
+
 - Per-project configuration in `.gate.toml`: a per-gate `timeout`, and `run`
   for a check detection could never infer — an e2e suite, a migration check.
   A timeout had no home in a Makefile or a `package.json`, so every gate in a
@@ -26,6 +31,31 @@ Notable changes to `gate`. The format follows
   (`github.com/pelletier/go-toml/v2`).
 
 ### Changed
+
+- **Gates now run concurrently by default.** Scheduling followed the toolchain:
+  gates sharing one ran in sequence, on the theory that a shared build cache
+  makes contention worse than serialisation. Measured with warm caches — the
+  state gates actually run in — the opposite holds. Running a repository's own
+  gates fully concurrently against sequencing by toolchain: `rethunk-git-cli`
+  1.55s → 0.97s, `citadel-cli` 1.23s → 0.90s, `Routed` 1.22s → 0.71s,
+  `rethunk-gate-cli` 0.82s → 0.62s — 24% to 42% off the wall clock.
+
+  Order is now never inferred. A gate is sequenced only when something says so:
+  `--serial` for a whole run, `[defaults] serial` for a project, or
+  `gates.<role>.serial` for the gates that genuinely chain, which run in order
+  while every other gate overlaps. `build` before `test` is the case that
+  needs it, and it is a property of the project rather than of the toolchain,
+  so the project has to state it.
+
+  A project whose `test` depends on its `build` and never said so will now run
+  them together. Add `serial = true` to both.
+
+- `--serial` and a serial group are now one code path rather than two that had
+  to agree, and `--list` reports the resulting shape (`all concurrent`, or
+  which gates are sequenced).
+
+- `toolchain` no longer decides scheduling. It labels a gate in `--list`, and
+  the `.gate.toml` key of the same name does the same.
 
 - `no-ci` now fires only where the project has gates to run. Its first
   fleet-wide run flagged 11 repositories, three of which build documents from a

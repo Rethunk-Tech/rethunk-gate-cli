@@ -41,9 +41,10 @@ Prerequisites and full install notes: [HUMANS.md](HUMANS.md).
   targets, `package.json` scripts, `turbo.json` tasks — and runs them. A role
   name runs one: `gate test`. `gate --list` shows what it chose and why, and
   `.gate.toml` adjusts it without replacing it.
-- **Concurrent when you say so.** `--also` runs independent gates together,
-  each with its own log, reported in the order you named them. `--serial` is
-  there for gates that depend on each other, or share a build cache.
+- **Concurrent by default.** Every gate runs at once, each with its own log,
+  reported in the order you named them — measured, 24–42% off a real run's
+  wall clock. Order is never inferred: `--serial`, or `serial` in `.gate.toml`,
+  is how a project says one gate needs another's result.
 - **Ctrl-C stops the gate, not just `gate`.** The command and anything it
   spawned are killed together, and the log still gets its trailer. A gate an
   earlier failure stopped is reported as skipped, never omitted.

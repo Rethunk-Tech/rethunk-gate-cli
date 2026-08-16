@@ -70,12 +70,14 @@ type gateSpec struct {
 	argv    []string
 	display string
 
-	// toolchain groups gates that share a build cache. Gates in one group
-	// run in sequence; groups run concurrently with each other. An empty
-	// toolchain means "unknown", and each such gate becomes its own group --
-	// which is what an explicitly named --also gate gets, since nothing
-	// about the command line says what it shares with anything else.
+	// toolchain labels the gate in --list. It says what the gate belongs to,
+	// not when it runs: scheduling follows serial alone.
 	toolchain string
+
+	// serial sequences this gate against the other serial ones. Nothing else
+	// sequences a gate -- gates run concurrently unless --serial, a config
+	// default, or this gate's own config entry asks for order.
+	serial bool
 
 	// dir is where this gate runs. Set per gate rather than by chdir: gates
 	// run concurrently, and the working directory is process-global, so one
@@ -163,47 +165,28 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 
 	results := make([]gateResult, len(opts.gates))
 
-	if opts.serial {
-		for i, spec := range opts.gates {
-			// A cancelled run starts nothing further. Leaving these
-			// zero-valued reports them as skipped below, rather than as
-			// failures from an exec that was never going to happen.
-			if ctx.Err() != nil {
-				break
-			}
-			results[i] = runOne(ctx, spec, opts)
-			// --serial exists for gates that depend on each other -- build
-			// before test being the common one -- so a failure stops the
-			// chain rather than running steps whose premise is already gone.
-			// The gates it stopped are left zero-valued and named below.
-			if results[i].code != Success {
-				break
-			}
-		}
-	} else {
-		var wg sync.WaitGroup
-		for _, group := range groupByToolchain(opts.gates) {
-			wg.Go(func() {
-				// Sequential within a group, because these gates share a
-				// build cache: measured, three Go gates run together cost
-				// 1.11s against 0.62s in sequence, since concurrently they
-				// duplicate and contend for the same compilation instead of
-				// finding it warm. A failure stops the rest of its own
-				// group -- a test whose build just failed has nothing left
-				// to say -- but never touches the other groups.
-				for _, i := range group {
-					if ctx.Err() != nil {
-						break
-					}
-					results[i] = runOne(ctx, opts.gates[i], opts)
-					if results[i].code != Success {
-						break
-					}
+	var wg sync.WaitGroup
+	for _, group := range schedule(opts.gates, opts.serial) {
+		wg.Go(func() {
+			// A group holds gates that were marked serial, so they run in
+			// sequence and a failure stops the rest of it -- a gate whose
+			// build just failed has nothing left to say. It never touches
+			// the other groups, which asked for no such order.
+			for _, i := range group {
+				// A cancelled run starts nothing further. Leaving these
+				// zero-valued reports them as skipped below, rather than
+				// as failures from an exec that was never going to happen.
+				if ctx.Err() != nil {
+					break
 				}
-			})
-		}
-		wg.Wait()
+				results[i] = runOne(ctx, opts.gates[i], opts)
+				if results[i].code != Success {
+					break
+				}
+			}
+		})
 	}
+	wg.Wait()
 
 	// A stopped chain or group leaves zero-valued results behind for the gates
 	// it never reached. They are named as skipped rather than dropped: the
@@ -222,25 +205,38 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 	return report(results, opts, stdout, stderr)
 }
 
-// groupByToolchain returns index groups in first-seen order. Gates with no
-// toolchain each become their own group, so an explicitly named gate is never
-// serialised behind another one on a guess about what they share.
-func groupByToolchain(gates []gateSpec) [][]int {
-	var order []string
-	groups := map[string][]int{}
+// schedule returns index groups: gates within a group run in sequence, and
+// groups run concurrently. Every gate is its own group unless it was
+// explicitly marked serial, and the serial ones share a single group so they
+// run in the order they were declared. A whole-run serial puts every gate in
+// that one group, which is why running a group and running --serial are the
+// same code path rather than two that have to agree.
+//
+// Concurrent by default because measured, it wins. Running a repository's own
+// gates fully concurrently against sequencing the ones that share a toolchain:
+// rethunk-git-cli 1.55s -> 0.97s, citadel-cli 1.23s -> 0.90s, Routed 1.22s ->
+// 0.71s -- 24% to 42% off the wall clock, with warm caches, which is the state
+// gates actually run in.
+//
+// Sharing a build cache is therefore not a reason to sequence: contention
+// costs less than the serialisation does. Depending on another gate's result
+// is a reason, and only the project knows that, so it has to say so.
+//
+// The chain keeps the position of its first gate, so --list reads in the order
+// the gates were declared rather than sorting the serial ones to the end.
+func schedule(gates []gateSpec, serial bool) [][]int {
+	out := make([][]int, 0, len(gates))
+	chain := -1
 	for i, g := range gates {
-		key := g.toolchain
-		if key == "" {
-			key = "\x00solo" + strconv.Itoa(i)
+		if !serial && !g.serial {
+			out = append(out, []int{i})
+			continue
 		}
-		if _, seen := groups[key]; !seen {
-			order = append(order, key)
+		if chain < 0 {
+			chain = len(out)
+			out = append(out, nil)
 		}
-		groups[key] = append(groups[key], i)
-	}
-	out := make([][]int, 0, len(order))
-	for _, key := range order {
-		out = append(out, groups[key])
+		out[chain] = append(out[chain], i)
 	}
 	return out
 }

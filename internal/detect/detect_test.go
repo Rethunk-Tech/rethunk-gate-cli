@@ -133,10 +133,10 @@ func TestDetectRunsNothing(t *testing.T) {
 	qt.Assert(t, qt.IsNotNil(err), qt.Commentf("Detect executed a Makefile target"))
 }
 
-// Gates that share a build cache have to land in one group, and gates that
-// share nothing must not -- that grouping is what the concurrency decision
-// rests on.
-func TestToolchainGroupsFollowTheBuildCache(t *testing.T) {
+// Every gate carries the toolchain it belongs to, which is what --list prints
+// beside it. Detection is where that attribution happens, so a gate that lost
+// it would leave the listing unreadable without saying anything had broken.
+func TestGatesCarryTheToolchainTheyBelongTo(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	write(t, dir, "go.mod", "module demo\n\ngo 1.26\n")
@@ -148,9 +148,9 @@ func TestToolchainGroupsFollowTheBuildCache(t *testing.T) {
 		qt.Check(t, qt.Equals(gateNamed(t, proj, name).Toolchain, ToolchainGo),
 			qt.Commentf("gate %s", name))
 	}
-	// actionlint shares no cache with go, so it must not be serialised behind
-	// it. Named by its role rather than matched in a switch: a switch arm for
-	// a role that no longer exists matches nothing and checks nothing.
+	// actionlint is not a Go tool and must not be attributed as one. Named by
+	// its role rather than matched in a switch: a switch arm for a role that
+	// no longer exists matches nothing and checks nothing.
 	qt.Check(t, qt.Equals(gateNamed(t, proj, "workflows").Toolchain, ToolchainOther))
 }
 

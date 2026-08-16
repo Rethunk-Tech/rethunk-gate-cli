@@ -56,7 +56,8 @@ Global flags (before everything else):
 
 Flags:
   --also CMD    run CMD as another gate, concurrently (repeatable; shell string)
-  --serial      run gates in order and stop at the first failure
+  --serial      run every gate in order and stop at the first failure
+                (gates run concurrently unless this, or .gate.toml, says not to)
   --list        print the gates that would run, and run nothing
   --timeout D   kill a gate that runs longer than D (default 1m, 0 disables)
   --tail N      trailing lines to quote on failure (default 40)
@@ -98,6 +99,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	opts := options{tail: defaultTail, keepFor: defaultKeepDays * 24 * time.Hour}
 	timeout := defaultTimeout
 	timeoutGiven := false
+	serialGiven := false
 	showVersion := false
 	var also []string
 
@@ -139,7 +141,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 			opts.quiet = true
 			i++
 		case "--serial":
-			opts.serial = true
+			opts.serial, serialGiven = true, true
 			i++
 		case "--list":
 			opts.list = true
@@ -317,6 +319,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 				if c.Toolchain != "" {
 					spec.toolchain = c.Toolchain
 				}
+				spec.serial = c.Serial
 				spec.source = g.Source + ", overridden by " + c.Source
 			}
 			opts.gates = append(opts.gates, spec)
@@ -336,6 +339,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 					argv:      shellArgv(c.Run),
 					display:   c.Run,
 					toolchain: c.Toolchain,
+					serial:    c.Serial,
 					role:      name,
 					source:    c.Source + " gates." + name,
 					dir:       proj.Root,
@@ -370,6 +374,13 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 			}
 		}
 		opts.gates[i].timeout = d
+	}
+
+	// A project can ask for the whole run to be sequenced, which --serial
+	// already spells. The flag still wins, on the same precedence as the
+	// timeout: the nearest statement of intent is the strongest.
+	if !serialGiven && configured.HasSerial {
+		opts.serial = configured.Serial
 	}
 
 	if opts.list {

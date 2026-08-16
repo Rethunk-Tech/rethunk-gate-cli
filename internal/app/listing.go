@@ -27,12 +27,15 @@ func writeListing(w io.Writer, project detect.Project, files []string, opts opti
 		return
 	}
 
-	groups := groupByToolchain(opts.gates)
+	groups := schedule(opts.gates, opts.serial)
 	fmt.Fprintf(w, "%d gate(s), %d group(s)", len(opts.gates), len(groups))
-	if opts.serial {
-		fmt.Fprint(w, " -- --serial: one after another, stopping at the first failure")
-	} else {
-		fmt.Fprint(w, " -- groups run concurrently, gates within a group in order")
+	switch {
+	case opts.serial:
+		fmt.Fprint(w, " -- serial: one after another, stopping at the first failure")
+	case len(groups) == len(opts.gates):
+		fmt.Fprint(w, " -- all concurrent")
+	default:
+		fmt.Fprint(w, " -- groups run concurrently, gates marked serial in order")
 	}
 	fmt.Fprintln(w)
 

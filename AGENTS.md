@@ -224,35 +224,40 @@ Two design choices worth keeping:
   judged across all workflows at once; flagging a release workflow that omits
   it while CI enables it would be the noise that teaches people to skip output.
 
-## Concurrency, and when it loses
+## Concurrency, and who asks for order
 
-Gates named with `--also` run concurrently by default. Measured over 7 days of
-real sessions, back-to-back gate chains cost 7.93h run sequentially against
-5.57h if overlapped — but that figure is an **upper bound**, and this repo has
-a counterexample of its own.
+Gates run **concurrently by default**, and nothing infers an order. Measured
+over 7 days of real sessions, back-to-back gate chains cost 7.93h run
+sequentially against 5.57h if overlapped, and running a repository's own gates
+fully concurrently against sequencing the ones that share a toolchain:
 
-Running `go vet`, `go build` and `gofmt` together on `rethunk-git-cli`:
+| Repository | sequenced by toolchain | fully concurrent | Saved |
+| --- | --- | --- | --- |
+| `rethunk-git-cli` | 1.55s | 0.97s | 38% |
+| `citadel-cli` | 1.23s | 0.90s | 27% |
+| `Routed` | 1.22s | 0.71s | 42% |
+| `rethunk-gate-cli` | 0.82s | 0.62s | 24% |
 
-| Mode | Total | `go vet` alone |
-| --- | --- | --- |
-| concurrent | 1.11s | 1.1s |
-| `--serial` | 0.62s | 68ms |
+Sharing a build cache sounds like a reason to sequence, and measured with warm
+caches — the state gates actually run in — it is not: contention costs less
+than the serialisation does.
 
-Serial won. The gates share a Go build cache, so run in sequence the second
-and third find it warm, while run together they duplicate and contend for the
-same compilation. Concurrency pays when gates are genuinely independent —
-different toolchains, such as a linter and a type checker — and costs when
-they share a cache.
+Depending on another gate's *result* is a real reason, and it is not something
+detection can see. `build` before `test` is a property of the project, not of
+the toolchain, so the project has to say it: `--serial` for a whole run,
+`gates.<role>.serial` for the gates that genuinely chain. Everything else
+overlaps.
 
-This is why parallelism is **explicit and never inferred**. It is also why
-`--serial` is not only about ordering: `build` before `test` needs it for
-correctness, and same-toolchain gates may want it for speed.
+That is the whole scheduling rule, and `schedule` is where it lives: a gate
+marked serial joins one group, every other gate becomes a group of its own,
+and groups run concurrently. A whole-run `--serial` puts every gate into that
+one group, which is why running a group and running `--serial` are the same
+code path rather than two that have to agree. A failure stops the rest of its
+own group and never touches another — the gates it stopped are reported as
+skipped, because a gate missing from the output reads as one that passed.
 
-Detected gates therefore carry a toolchain, and scheduling follows it: gates
-sharing a toolchain run in sequence within one group, and groups run
-concurrently with each other. A gate named explicitly with `--also` has no
-known toolchain and becomes its own group, because nothing on the command line
-says what it shares with anything else.
+Detected gates still carry a toolchain, and it is now purely what `--list`
+prints beside each gate.
 
 ## Exit codes
 

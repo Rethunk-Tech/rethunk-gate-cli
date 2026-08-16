@@ -63,6 +63,33 @@ func TestTheProjectFileWinsPerKeyNotPerFile(t *testing.T) {
 	qt.Check(t, qt.HasLen(cfg.Files, 2))
 }
 
+// serial is a bool, and a bool has a zero value that means the same thing as
+// "absent" unless presence is tracked separately. Without HasSerial a project
+// could never turn off a user-level default: writing serial = false would be
+// indistinguishable from not writing it at all.
+func TestSerialFalseIsDistinguishableFromUnset(t *testing.T) {
+	home := isolate(t)
+	write(t, home, "gate/config.toml", "[defaults]\nserial = true\n\n[gates.test]\nserial = true\n")
+
+	root := t.TempDir()
+	write(t, root, ProjectFile, "[gates.test]\nserial = false\n")
+
+	cfg, err := Load(root)
+	qt.Assert(t, qt.IsNil(err))
+
+	// The user's run-wide default survives: the project said nothing about it.
+	qt.Check(t, qt.IsTrue(cfg.HasSerial))
+	qt.Check(t, qt.IsTrue(cfg.Serial))
+
+	// The project turned this one back off, which is a statement, not silence.
+	qt.Check(t, qt.IsTrue(cfg.Gates["test"].HasSerial))
+	qt.Check(t, qt.IsFalse(cfg.Gates["test"].Serial))
+
+	// A gate nobody mentioned is not serial, and does not claim to have said so.
+	qt.Check(t, qt.IsFalse(cfg.Gates["lint"].HasSerial))
+	qt.Check(t, qt.IsFalse(cfg.Gates["lint"].Serial))
+}
+
 // A typo must not degrade to defaults. `timout = "10m"` silently ignored is
 // the classic configuration failure, and reporting only the first unknown key
 // would make fixing a file a game of whack-a-mole -- which is the whole reason

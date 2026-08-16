@@ -74,7 +74,7 @@ on a specific status behaves as it would without `gate`.
 | Flag | Effect |
 | --- | --- |
 | `--also CMD` | Run `CMD` as another gate, concurrently. Repeatable. |
-| `--serial` | Run gates in order, stopping at the first failure |
+| `--serial` | Run every gate in order, stopping at the first failure |
 | `--list` | Print the gates that would run, and run nothing |
 | `--tail N` | Trailing lines to quote on failure (default 40) |
 | `--log PATH` | Write the log here instead of the default location |
@@ -109,14 +109,14 @@ With no command, `gate` reads the project and runs what it finds:
 ```console
 $ gate --list
 project  /usr/local/src/com.github/Rethunk-Tech/rethunk-git-cli
-5 gate(s), 2 group(s) -- groups run concurrently, gates within a group in order
+5 gate(s), 5 group(s) -- all concurrent
   [go] build      make build
         from Makefile target build
-  then [go] lint       make lint
+  [go] lint       make lint
         from Makefile target lint
-  then [go] test       make test
+  [go] test       make test
         from Makefile target test
-  then [go] vuln       govulncheck ./...
+  [go] vuln       govulncheck ./...
         from convention: go
   [other] workflows  actionlint
         from convention: .github/workflows
@@ -221,15 +221,15 @@ a file mentioning one gate cannot remove the others, and `--list` still names
 where every gate came from:
 
 ```console
-  then [other] test       make test
+  [other] test       make test
         from Makefile target test, overridden by /path/.gate.toml
   [node] e2e        bun run e2e
         from /path/.gate.toml gates.e2e
 ```
 
-`run` takes a shell string, like `--also`. `toolchain` decides scheduling, not
-labelling: gates sharing one run in sequence — so a custom gate sharing a build
-cache with a detected one should say which, or they contend.
+`run` takes a shell string, like `--also`. `toolchain` only labels the gate in
+`--list`. `serial` is what decides scheduling — see
+[When to use `serial`](#when-to-use-serial).
 
 A gate that only config declares is not selectable by name; the role words are
 fixed. It runs with bare `gate`.
@@ -276,27 +276,43 @@ argument belongs to the command, so this does not do what it looks like:
 gate go vet ./... --also 'go build ./...'   # --also is passed to go vet
 ```
 
-### When to use `--serial`
+### When to use `serial`
 
-`--serial` runs gates in order and stops at the first failure. Two reasons to
-reach for it, and the second is easy to miss:
+Gates run **concurrently by default**. Nothing infers an order, because the
+only thing that justifies one — a gate needing another's result — is a
+property of the project, not of the commands.
 
-1. **Ordering.** `build` before the `test` that needs it. Running them together
-   tests an artifact that may not exist.
-2. **Shared caches.** Gates on the same toolchain can be *slower* concurrently.
-   Running `go vet`, `go build` and `gofmt` together on one repository took
-   1.11s, against 0.62s with `--serial` — sequentially the later gates find the
-   Go build cache warm, while concurrently they contend for the same
-   compilation.
+Say so, and only then, in either of two places:
 
-Concurrency pays when gates are genuinely independent, such as a linter and a
-type checker from different toolchains. It is never inferred, because nothing
-in the command line says which case you are in.
+```toml
+[defaults]
+serial = true          # the whole run, in order, like --serial
+
+[gates.build]
+serial = true          # just these two, in gateOrder, while the rest overlap
+[gates.test]
+serial = true
+```
+
+The one reason to reach for it is **ordering**: `build` before the `test` that
+needs it. Run together, that tests an artifact which may not exist yet.
+
+Shared build caches are *not* a reason. Sequencing gates because they share a
+toolchain sounds right and measured is not — with warm caches, running a
+repository's gates fully concurrently beat it by 24–42% (`rethunk-git-cli`
+1.55s → 0.97s, `Routed` 1.22s → 0.71s). Contention costs less than the
+serialisation does.
+
+Precedence is the same as the timeout's, nearest intent first: `--serial` beats
+`[defaults] serial`, which applies when the flag is absent. A gate's own
+`serial = false` turns off a user-level default, which is why an absent key and
+a deliberate `false` are distinguishable.
 
 ### Gates that were stopped
 
-A failure stops the rest of its chain under `--serial`, and the rest of its
-group when gates share a toolchain. Those gates are named rather than left out:
+A failure stops the rest of its own group — every gate under `--serial`, or the
+gates marked `serial` — and never touches a group that asked for no order.
+Those gates are named rather than left out:
 
 ```console
 gate: FAIL exit 2  make build  1ms

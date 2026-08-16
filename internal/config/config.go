@@ -40,10 +40,18 @@ type Gate struct {
 	Timeout    time.Duration
 	HasTimeout bool
 
-	// Toolchain decides scheduling, not labelling: gates sharing one run in
-	// sequence, and groups run concurrently. A custom gate that shares a
-	// build cache with a detected one and does not say so will contend.
+	// Toolchain labels this gate in --list. It does not decide scheduling:
+	// only Serial does, because sharing a build cache is not the same claim
+	// as depending on another gate's result.
 	Toolchain string
+
+	// Serial sequences this gate against the other serial ones instead of
+	// running it concurrently. HasSerial distinguishes "not set" from a
+	// deliberate false, so a project can opt back out of a user-level
+	// default. It is the only way a gate is sequenced: gate runs everything
+	// concurrently unless something says otherwise.
+	Serial    bool
+	HasSerial bool
 
 	// Source is the file this gate's settings came from, so --list can name
 	// it. A gate that loses its source silently undoes the point of --list.
@@ -56,6 +64,12 @@ type Config struct {
 	Timeout    time.Duration
 	HasTimeout bool
 
+	// Serial runs every gate one after another, as --serial does. It is the
+	// project-level statement of "these depend on each other"; per-gate
+	// Serial is the narrower one.
+	Serial    bool
+	HasSerial bool
+
 	Gates map[string]Gate
 
 	// Files lists what was read, nearest last, for --list to report.
@@ -64,14 +78,18 @@ type Config struct {
 
 // file is the on-disk shape. Durations are strings so a bad one can name the
 // key it came from rather than failing as a type error.
+// A bool is a pointer so an absent key is distinguishable from a deliberate
+// false, which is what lets a project turn off a user-level default.
 type file struct {
 	Defaults struct {
 		Timeout string `toml:"timeout"`
+		Serial  *bool  `toml:"serial"`
 	} `toml:"defaults"`
 	Gates map[string]struct {
 		Run       string `toml:"run"`
 		Timeout   string `toml:"timeout"`
 		Toolchain string `toml:"toolchain"`
+		Serial    *bool  `toml:"serial"`
 	} `toml:"gates"`
 }
 
@@ -142,6 +160,9 @@ func (c *Config) merge(path string, data []byte) error {
 		}
 		c.Timeout, c.HasTimeout = d, true
 	}
+	if f.Defaults.Serial != nil {
+		c.Serial, c.HasSerial = *f.Defaults.Serial, true
+	}
 
 	for name, g := range f.Gates {
 		merged := c.Gates[name]
@@ -151,6 +172,9 @@ func (c *Config) merge(path string, data []byte) error {
 		}
 		if g.Toolchain != "" {
 			merged.Toolchain = g.Toolchain
+		}
+		if g.Serial != nil {
+			merged.Serial, merged.HasSerial = *g.Serial, true
 		}
 		if g.Timeout != "" {
 			d, err := time.ParseDuration(g.Timeout)
