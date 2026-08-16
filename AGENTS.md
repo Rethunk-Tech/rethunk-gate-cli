@@ -53,15 +53,16 @@ the quoted tail is not enough.
 Exactly two: **`doctor`** and **`run`**. Everything else on the command line
 is the caller's command, always.
 
-Gates are named through `run` and nowhere else. Bare role words used to select
-gates too, and that is gone: a role is a fixed list of six, which is what made
-claiming those words defensible, but a gate's name is not a fixed list.
-`.gate.toml` declares gates detection could never infer, so their names are
-whatever a project chose — and claiming *those* bare would let any project
-silently take over a word that is a program somewhere else. The choice was one
-rule that covers every gate name, or a rule that covers six and cannot be
-extended to the rest. `gate run test` is the gate; `gate test` is
-`/usr/bin/test` again.
+Gates are named through `run` and nowhere else, and a bare word is never a
+gate: `gate run test` is the gate, `gate test` is `/usr/bin/test`.
+
+A bare word cannot name a gate because gate names are not a fixed set. The six
+roles are, which is the whole reason claiming those words would be defensible
+— but `.gate.toml` declares gates detection could never infer, so their names
+are whatever a project chose, and claiming *those* bare would let a project
+silently take over a word that is a program somewhere else. One rule that
+covers every gate name is worth more than a rule that covers six and cannot
+reach the rest.
 
 `run` is therefore the only claimed word that takes arguments, which is what
 `--` pays for: `gate -- doctor` runs a program called doctor, `gate -- run x`

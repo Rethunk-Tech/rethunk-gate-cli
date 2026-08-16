@@ -237,7 +237,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	// and claiming those bare would let a project silently take over a word
 	// that is a program somewhere else. One spelling for every gate beats a
 	// rule that holds for six names and cannot hold for the rest, so `gate
-	// test` is `/usr/bin/test` again and `gate run test` is the gate.
+	// test` is `/usr/bin/test` and `gate run test` is the gate.
 	// `gate -- run x` still reaches a program called run.
 	if !explicit && len(command) > 0 && command[0] == "run" {
 		roles, command = command[1:], nil

@@ -601,10 +601,10 @@ func TestOnlyRunSelectsGatesAndABareRoleIsTheProgram(t *testing.T) {
 	qt.Check(t, qt.IsFalse(exists(filepath.Join(root, "lint-ran"))), qt.Commentf("gate run test ran the lint gate too"))
 	qt.Check(t, qt.StringContains(stdout, "make test"), qt.Commentf("verdict does not name the selected gate: %q", stdout))
 
-	// The word itself is no longer gate's. /usr/bin/test with no arguments
-	// evaluates the empty expression and exits 1, and it must reach it without
-	// needing `--` at all. The sentinel from above has to go first, or the
-	// check below would pass on a file the previous phase wrote.
+	// The word itself is not gate's. /usr/bin/test with no arguments evaluates
+	// the empty expression and exits 1, and it must reach it without needing
+	// `--` at all. The sentinel from above has to go first, or the check below
+	// would pass on a file the earlier phase wrote.
 	qt.Assert(t, qt.IsNil(os.Remove(filepath.Join(root, "test-ran"))))
 	_, _, code = runGateTest(t, "-C", root, "--log", tempLog(t), "test")
 	qt.Check(t, qt.Equals(code, Code(1)), qt.Commentf("gate test = %d, want the program's own 1", code))
