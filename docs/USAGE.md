@@ -313,10 +313,11 @@ The one reason to reach for it is **ordering**: `build` before the `test` that
 needs it. Run together, that tests an artifact which may not exist yet.
 
 Shared build caches are *not* a reason. Sequencing gates because they share a
-toolchain sounds right and measured is not — with warm caches, running a
-repository's gates fully concurrently beat it by 24–42% (`rethunk-git-cli`
-1.55s → 0.97s, `Routed` 1.22s → 0.71s). Contention costs less than the
-serialisation does.
+toolchain sounds right and measured is not: with warm caches — the state gates
+actually run in — contention costs less than the serialisation does. Measured
+against `--serial`, running concurrently saves 48% on `Routed` and 41% on
+`rethunk-git-cli`, and nothing at all where one slow gate already sets the
+pace.
 
 One order gate infers on its own: in a **Next** project, `build` and
 `typecheck` are sequenced against each other, because `next build` and the

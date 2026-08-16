@@ -20,6 +20,16 @@ throw the rest away. That is not a theoretical risk: truncating a gate's output
 can invert its verdict. `gate` keeps the status authoritative and the log
 complete, and quotes from the output only when something failed.
 
+> **Saves up to 94% of input tokens and ~30% of wall clock wasted on
+> LLM-directed project gates.**
+
+A passing gate goes from ~242 tokens to ~16, measured on a real suite. Gates
+that ran back-to-back overlap instead: 7.93h of measured session time became
+5.57h. Both figures have a floor worth knowing — a failing gate still quotes a
+bounded tail, and concurrency wins nothing where one slow gate already sets the
+pace. The per-repository spread, 48% down to 0.3%, is in
+[AGENTS.md](AGENTS.md#concurrency-and-who-asks-for-order).
+
 ## Quick start
 
 ```bash
@@ -35,16 +45,16 @@ Prerequisites and full install notes: [HUMANS.md](HUMANS.md).
 - **The log is complete.** The on-screen summary is bounded on purpose; the log
   never is. A trailer line records the outcome, so an old log answers "what
   happened", not just "what was printed".
-- **A passing gate costs one line.** Measured on a real suite, output dropped
-  94% — from ~242 tokens to ~16.
+- **A passing gate costs one line.** A failure quotes a bounded tail — enough
+  to act on without opening anything — and names the log holding the rest.
 - **It already knows your gates.** Bare `gate` reads the project — `Makefile`
   targets, `package.json` scripts, `turbo.json` tasks — and runs them. `gate
   run test` runs one, `gate run lint test` runs two. `gate --list` shows what
   it chose and why, and `.gate.toml` adjusts it without replacing it.
 - **Concurrent by default.** Every gate runs at once, each with its own log,
-  reported in the order you named them — measured, 24–42% off a real run's
-  wall clock. Order is never inferred: `--serial`, or `serial` in `.gate.toml`,
-  is how a project says one gate needs another's result.
+  reported in the order you named them, so a run costs its slowest gate rather
+  than the sum of all of them. Order is never inferred: `--serial`, or `serial`
+  in `.gate.toml`, is how a project says one gate needs another's result.
 - **Ctrl-C stops the gate, not just `gate`.** The command and anything it
   spawned are killed together, and the log still gets its trailer. A gate an
   earlier failure stopped is reported as skipped, never omitted.
