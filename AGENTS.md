@@ -241,15 +241,25 @@ Two design choices worth keeping:
 
 Gates run **concurrently by default**, and nothing infers an order. Measured
 over 7 days of real sessions, back-to-back gate chains cost 7.93h run
-sequentially against 5.57h if overlapped, and running a repository's own gates
-fully concurrently against sequencing the ones that share a toolchain:
+sequentially against 5.57h if overlapped. Measured per repository, default
+against `--serial` — both reproducible with `scripts/bench.sh sched <label>`,
+best-of-N on warm caches:
 
-| Repository | sequenced by toolchain | fully concurrent | Saved |
-| --- | --- | --- | --- |
-| `rethunk-git-cli` | 1.55s | 0.97s | 38% |
-| `citadel-cli` | 1.23s | 0.90s | 27% |
-| `Routed` | 1.22s | 0.71s | 42% |
-| `rethunk-gate-cli` | 0.82s | 0.62s | 24% |
+| Repository | gates | `--serial` | default | Saved |
+| --- | --- | --- | --- | --- |
+| `Routed` | 5 | 1.44s | 0.75s | 48% |
+| `rethunk-git-cli` | 5 | 1.69s | 1.00s | 41% |
+| `gravewell` | 6 | 4.59s | 3.08s | 33% |
+| `sagaforge-ts` | 4 | 39.16s | 26.63s | 32% |
+| `rethunk-gate-cli` | 5 | 0.89s | 0.65s | 27% |
+| `claude-plugins` | 5 | 0.96s | 0.90s | 7% |
+| `cyber-defense-game` | 5 | 53.62s | 51.40s | 4% |
+| `paper-trail` | 6 | 49.02s | 48.85s | 0.3% |
+
+The saving is bounded by the slowest gate, so the spread is the point rather
+than the average: where the gates are balanced there is a third to a half to
+win, and where one gate already sets the pace — `paper-trail`'s 49s pytest —
+there is nothing to win and concurrency costs nothing to leave on.
 
 Sharing a build cache sounds like a reason to sequence, and measured with warm
 caches — the state gates actually run in — it is not: contention costs less
