@@ -20,10 +20,12 @@ Two details are worth stating explicitly:
   carry pipes and globs, which means they are shell-interpreted. The main
   command is an argv and is not. Do not build `--also` values from untrusted
   input.
-- **Logs are world-readable by default** (mode 0644 in a 0755 directory) and
-  contain the command's complete output. A gate whose output includes secrets
-  writes those secrets to `$TMPDIR/gate/` or `/var/tmp/gate/`. Nothing prunes
-  them. Point `--log` somewhere with tighter permissions when that matters.
+- **Logs contain the command's complete output**, so a gate whose output
+  includes secrets writes those secrets to disk. They are created mode 0600
+  inside a 0700 directory, and a pre-existing directory with a looser mode is
+  tightened on use. Logs older than 7 days are pruned (`--keep`, `--no-prune`).
+  A path given with `--log` is the caller's: gate still creates the file 0600,
+  but neither tightens nor prunes that directory.
 
 ## Supported versions
 

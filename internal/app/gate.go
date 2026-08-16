@@ -28,6 +28,8 @@ type options struct {
 	quiet   bool
 	serial  bool
 	list    bool
+	noPrune bool
+	keepFor time.Duration
 	gates   []gateSpec
 }
 
@@ -66,6 +68,12 @@ type gateResult struct {
 // deterministic and explainable in a way "whichever failed first in wall
 // clock" would not be.
 func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code {
+	// Once per invocation, not per gate. Logs are the only thing gate leaves
+	// behind, and nothing else ever removes them.
+	if opts.logPath == "" && !opts.noPrune {
+		pruneLogs(logDir(), opts.keepFor)
+	}
+
 	results := make([]gateResult, len(opts.gates))
 
 	if opts.serial {
@@ -179,11 +187,28 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 		res.logPath = defaultLogPath(spec.argv)
 	}
 
-	if err := os.MkdirAll(filepath.Dir(res.logPath), 0o755); err != nil {
+	dir := filepath.Dir(res.logPath)
+	if dir == logDir() {
+		// gate's own directory is private: these logs hold whatever the
+		// command printed, which can include tokens and connection strings.
+		// MkdirAll leaves an existing directory's mode alone, so tighten one
+		// created before this rule existed.
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			res.fatalErr = fmt.Errorf("cannot create log directory: %w", err)
+			return res
+		}
+		if info, err := os.Stat(dir); err == nil && info.Mode().Perm() != 0o700 {
+			_ = os.Chmod(dir, 0o700)
+		}
+	} else if err := os.MkdirAll(dir, 0o755); err != nil {
+		// A path the caller chose with --log: create it, but do not impose
+		// gate's own privacy on a location it does not own.
 		res.fatalErr = fmt.Errorf("cannot create log directory: %w", err)
 		return res
 	}
-	logFile, err := os.Create(res.logPath)
+
+	// 0600 rather than os.Create's 0666-minus-umask, wherever the log lives.
+	logFile, err := os.OpenFile(res.logPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		res.fatalErr = fmt.Errorf("cannot create log %s: %w", res.logPath, err)
 		return res
@@ -299,16 +324,47 @@ func isNotFound(err error) bool {
 	return errors.Is(err, exec.ErrNotFound) || errors.Is(err, os.ErrNotExist)
 }
 
-// defaultLogPath honours TMPDIR and otherwise writes to /var/tmp rather than
-// /tmp: /tmp is a tmpfs on the machines this runs on, and a verbose build log
-// is exactly the kind of large, disposable file that does not belong in RAM.
-func defaultLogPath(argv []string) string {
+// logDir is where gate keeps its own logs. It honours TMPDIR and otherwise
+// writes to /var/tmp rather than /tmp: /tmp is a tmpfs on the machines this
+// runs on, and a verbose build log is exactly the kind of large, disposable
+// file that does not belong in RAM.
+func logDir() string {
 	base := os.Getenv("TMPDIR")
 	if base == "" {
 		base = "/var/tmp"
 	}
+	return filepath.Join(base, "gate")
+}
+
+func defaultLogPath(argv []string) string {
 	name := slug(argv) + "-" + strconv.Itoa(os.Getpid()) + "-" + strconv.FormatInt(logSeq.Add(1), 10) + ".log"
-	return filepath.Join(base, "gate", name)
+	return filepath.Join(logDir(), name)
+}
+
+// pruneLogs removes gate's own logs older than keepFor.
+//
+// Errors are swallowed on purpose: housekeeping must never be able to fail a
+// gate. Only *.log files directly inside gate's own directory are considered,
+// so a path handed in with --log -- which the caller owns -- is never touched.
+func pruneLogs(dir string, keepFor time.Duration) {
+	if keepFor <= 0 {
+		return
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	cutoff := time.Now().Add(-keepFor)
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".log") {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil || !info.ModTime().Before(cutoff) {
+			continue
+		}
+		_ = os.Remove(filepath.Join(dir, entry.Name()))
+	}
 }
 
 // slug reduces a command line to something safe and recognisable in a

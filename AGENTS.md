@@ -144,4 +144,14 @@ The full table is [docs/CODES.md](docs/CODES.md).
 `gate` holds no state beyond the log files it writes. Logs go to `$TMPDIR`, or
 `/var/tmp` when unset — never `/tmp`, which is a tmpfs on the machines this
 runs on, and a verbose build log is exactly the large disposable file that
-does not belong in RAM. Nothing prunes them; they are ordinary temp files.
+does not belong in RAM.
+
+They are created 0600 in a 0700 directory: a log holds whatever the command
+printed, which can include tokens. An existing directory keeps its mode
+through `MkdirAll`, so one made before this rule is tightened on use.
+
+Pruning runs once per invocation, dropping gate's own `*.log` files older than
+the retention. Measured, this is not optional: 12,500 gate invocations in a
+week, and nothing else would ever remove them. Prune errors are swallowed —
+housekeeping must never be able to fail a gate — and a directory given with
+`--log` is the caller's and is never pruned.

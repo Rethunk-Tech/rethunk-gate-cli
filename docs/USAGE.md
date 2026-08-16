@@ -41,6 +41,8 @@ on a specific status behaves as it would without `gate`.
 | `--tail N` | Trailing lines to quote on failure (default 40) |
 | `--log PATH` | Write the log here instead of the default location |
 | `--quiet` | Print nothing when the command passes; failures still report |
+| `--keep DAYS` | How long gate's own logs survive (default 7) |
+| `--no-prune` | Keep every log, however old |
 | `--version` | Print the version and exit |
 | `-h`, `--help` | Print usage and exit |
 
@@ -210,8 +212,13 @@ this runs on, and a verbose build log is exactly the kind of large, disposable
 file that should not sit in RAM.
 
 The filename is derived from the command plus the process id, so a directory
-of logs can be read without opening them. Nothing prunes them — they are
-ordinary temp files.
+of logs can be read without opening them.
+
+Logs are created **0600 in a 0700 directory** — they hold whatever the command
+printed, which can include tokens — and gate's own logs older than 7 days are
+removed on each run. `--keep DAYS` changes the retention and `--no-prune`
+disables it. A directory you name with `--log` is yours: the file is still
+created 0600, but that directory is never pruned or re-permissioned.
 
 `--log PATH` overrides the location entirely, which is what the test suite
 uses.

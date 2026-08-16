@@ -8,6 +8,7 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/detect"
 )
@@ -16,6 +17,11 @@ import (
 // test runner's summary and the assertion above it, short enough that reading
 // it is not the thing this tool exists to avoid.
 const defaultTail = 40
+
+// defaultKeepDays is how long gate's own logs survive. They are the only
+// thing it leaves behind, and at real usage rates -- 12,500 gate invocations
+// in a measured week -- nothing else would ever remove them.
+const defaultKeepDays = 7
 
 const gateHelp = `usage: gate [flags] <command> [args...]
        gate [flags] -- <command> [args...]
@@ -32,6 +38,8 @@ Flags:
   --tail N      trailing lines to quote on failure (default 40)
   --log PATH    write the log here instead of the default location
   --quiet       print nothing when the gates pass
+  --keep DAYS   how long gate's own logs survive (default 7)
+  --no-prune    keep every log, however old
   --version     print the version and exit
   -h, --help    show this help and exit
 
@@ -52,7 +60,7 @@ Full reference: docs/USAGE.md
 
 // Run parses gate's own arguments and runs the gates that follow them.
 func Run(ctx context.Context, version string, args []string, stdout, stderr io.Writer) Code {
-	opts := options{tail: defaultTail}
+	opts := options{tail: defaultTail, keepFor: defaultKeepDays * 24 * time.Hour}
 	var also []string
 
 	i := 0
@@ -82,6 +90,9 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		case "--serial":
 			opts.serial = true
 			i++
+		case "--no-prune":
+			opts.noPrune = true
+			i++
 		case "--list":
 			opts.list = true
 			i++
@@ -103,6 +114,18 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 				return InvalidUsage
 			}
 			opts.tail = n
+			i = next
+		case "--keep":
+			value, next, code := flagValue(args, i, name, inlineValue, hasInline, stderr)
+			if code != Success {
+				return code
+			}
+			days, err := strconv.Atoi(value)
+			if err != nil || days < 0 {
+				fmt.Fprintf(stderr, "gate: --keep wants a non-negative number of days, got %q\n", value)
+				return InvalidUsage
+			}
+			opts.keepFor = time.Duration(days) * 24 * time.Hour
 			i = next
 		case "--log":
 			value, next, code := flagValue(args, i, name, inlineValue, hasInline, stderr)

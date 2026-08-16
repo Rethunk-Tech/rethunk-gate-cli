@@ -462,3 +462,148 @@ func TestListShowsChosenAndShadowedAndRunsNothing(t *testing.T) {
 		t.Fatal("--list executed a gate")
 	}
 }
+
+// Logs hold whatever the command printed, which can include tokens and
+// connection strings. They were world-readable until this was fixed, so the
+// modes are asserted rather than assumed.
+func TestLogsArePrivate(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("TMPDIR", dir)
+
+	stdout, stderr, code := runGateTest(t, "echo", "secret-ish")
+	if code != Success {
+		t.Fatalf("gate = %d, stderr = %q", code, stderr)
+	}
+
+	gateDir := filepath.Join(dir, "gate")
+	info, err := os.Stat(gateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o700 {
+		t.Errorf("log directory mode = %o, want 700", perm)
+	}
+
+	fields := strings.Fields(strings.TrimSpace(stdout))
+	logPath := fields[len(fields)-1]
+	logInfo, err := os.Stat(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := logInfo.Mode().Perm(); perm != 0o600 {
+		t.Errorf("log mode = %o, want 600", perm)
+	}
+}
+
+// An existing directory keeps its mode through MkdirAll, so one created
+// before this rule existed has to be tightened rather than left as it was.
+func TestExistingLooseLogDirectoryIsTightened(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("TMPDIR", dir)
+	gateDir := filepath.Join(dir, "gate")
+	if err := os.MkdirAll(gateDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, stderr, code := runGateTest(t, "true"); code != Success {
+		t.Fatalf("gate = %d, stderr = %q", code, stderr)
+	}
+
+	info, err := os.Stat(gateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o700 {
+		t.Errorf("pre-existing log directory left at %o, want 700", perm)
+	}
+}
+
+// Nothing else ever removes these. At the measured rate -- 12,500 gate
+// invocations in a week -- unbounded is not a temp file, it is a leak.
+func TestOldLogsArePrunedAndRecentOnesSurvive(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("TMPDIR", dir)
+	gateDir := filepath.Join(dir, "gate")
+	if err := os.MkdirAll(gateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	old := filepath.Join(gateDir, "ancient-1-1.log")
+	recent := filepath.Join(gateDir, "recent-1-1.log")
+	for _, path := range []string{old, recent} {
+		if err := os.WriteFile(path, []byte("x\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	long := time.Now().Add(-30 * 24 * time.Hour)
+	if err := os.Chtimes(old, long, long); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, stderr, code := runGateTest(t, "true"); code != Success {
+		t.Fatalf("gate = %d, stderr = %q", code, stderr)
+	}
+
+	if _, err := os.Stat(old); err == nil {
+		t.Error("a 30-day-old log survived the default 7-day retention")
+	}
+	if _, err := os.Stat(recent); err != nil {
+		t.Errorf("a fresh log was pruned: %v", err)
+	}
+}
+
+func TestNoPruneKeepsEverything(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("TMPDIR", dir)
+	gateDir := filepath.Join(dir, "gate")
+	if err := os.MkdirAll(gateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	old := filepath.Join(gateDir, "ancient-1-1.log")
+	if err := os.WriteFile(old, []byte("x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	long := time.Now().Add(-30 * 24 * time.Hour)
+	if err := os.Chtimes(old, long, long); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, stderr, code := runGateTest(t, "--no-prune", "true"); code != Success {
+		t.Fatalf("gate = %d, stderr = %q", code, stderr)
+	}
+	if _, err := os.Stat(old); err != nil {
+		t.Errorf("--no-prune still pruned: %v", err)
+	}
+}
+
+// A path given with --log belongs to the caller. Pruning it would delete
+// files gate never created.
+func TestPruningNeverTouchesACallerChosenLogDirectory(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("TMPDIR", tmp)
+
+	owned := t.TempDir()
+	stranger := filepath.Join(owned, "someone-elses-1-1.log")
+	if err := os.WriteFile(stranger, []byte("x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	long := time.Now().Add(-30 * 24 * time.Hour)
+	if err := os.Chtimes(stranger, long, long); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, stderr, code := runGateTest(t, "--log", filepath.Join(owned, "mine.log"), "true"); code != Success {
+		t.Fatalf("gate = %d, stderr = %q", code, stderr)
+	}
+	if _, err := os.Stat(stranger); err != nil {
+		t.Errorf("pruned a file in a caller-owned directory: %v", err)
+	}
+}
+
+// Housekeeping must never be able to fail a gate.
+func TestPruningAMissingDirectoryIsHarmless(t *testing.T) {
+	t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "does", "not", "exist", "yet"))
+	if _, stderr, code := runGateTest(t, "true"); code != Success {
+		t.Fatalf("gate = %d, stderr = %q", code, stderr)
+	}
+}
