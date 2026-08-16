@@ -230,6 +230,13 @@ The full table is [docs/CODES.md](docs/CODES.md).
 runs on, and a verbose build log is exactly the large disposable file that
 does not belong in RAM.
 
+`logDir` is build-tagged for that reason. Off unix it uses `os.TempDir`, which
+reads `TMP` and `TEMP` — right there, and wrong on unix, where the same call
+returns the `/tmp` this rule exists to avoid. `--also` is split the same way:
+`sh -c` on unix, `cmd /c` off it. Those two were the whole of gate's POSIX
+assumption, and the release had been publishing a windows binary that wrote
+its logs to `\var\tmp\gate` and could not run `--also` at all.
+
 They are created 0600 in a 0700 directory: a log holds whatever the command
 printed, which can include tokens. An existing directory keeps its mode
 through `MkdirAll`, so one made before this rule is tightened on use.

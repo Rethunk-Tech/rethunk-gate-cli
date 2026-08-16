@@ -16,10 +16,10 @@ its own.
 
 Two details are worth stating explicitly:
 
-- **`--also` values are shell strings.** They are passed to `sh -c` so they can
-  carry pipes and globs, which means they are shell-interpreted. The main
-  command is an argv and is not. Do not build `--also` values from untrusted
-  input.
+- **`--also` values are shell strings.** They are passed to `sh -c` — `cmd /c`
+  on Windows — so they can carry pipes and globs, which means they are
+  shell-interpreted. The main command is an argv and is not. Do not build
+  `--also` values from untrusted input.
 - **Logs contain the command's complete output**, so a gate whose output
   includes secrets writes those secrets to disk. They are created mode 0600
   inside a 0700 directory, and a pre-existing directory with a looser mode is

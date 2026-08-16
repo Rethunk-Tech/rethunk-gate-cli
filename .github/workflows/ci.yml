@@ -49,17 +49,64 @@ jobs:
           run-lint: "true"
           run-govulncheck: "true"
 
+  # The release publishes a windows binary, so something has to run one.
+  #
+  # This leg covers what it honestly can: the build, vet, the two packages
+  # that execute nothing -- detect only reads manifests, doctor is read-only
+  # -- and a real invocation of the binary itself.
+  #
+  # It does NOT run internal/app. Those tests spawn sh, true and touch by
+  # design, because the tool's whole contract is what a real process's status
+  # and output do, and faking that boundary is ruled out by CONTRIBUTING. The
+  # capture path is therefore verified on unix only, and saying so is better
+  # than a green job that quietly skipped it.
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: Rethunk-Tech/gh-actions/setup-go@v1.7
+        with:
+          go-version-file: go.mod
+
+      - name: build and vet
+        run: |
+          go build ./...
+          go vet ./...
+
+      - name: test the packages that execute nothing
+        run: go test ./internal/detect/ ./internal/doctor/
+
+      - name: smoke-test the binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          go build -o gate.exe ./cmd/gate
+          ./gate.exe --version
+          ./gate.exe --log pass.log cmd /c exit 0
+          # The exit status is the verdict, so the interesting case is a
+          # failing gate passing its own status through unchanged.
+          if ./gate.exe --log fail.log cmd /c exit 3; then
+            echo "a failing gate reported success"
+            exit 1
+          else
+            status=$?
+            [ "$status" = "3" ] || { echo "gate exited $status, want 3"; exit 1; }
+          fi
+          grep -q "exit 3" fail.log
+
   # One required check for branch protection to point at. Without it, a
   # matrix leg that never ran reads as "not failing" rather than "not run".
   gate:
     if: always()
-    needs: [check, lint]
+    needs: [check, lint, windows]
     runs-on: ubuntu-latest
     steps:
       - name: Fail if any check did not succeed
         run: |
-          if [ "${{ needs.check.result }}" != "success" ] || [ "${{ needs.lint.result }}" != "success" ]; then
-            echo "check=${{ needs.check.result }} lint=${{ needs.lint.result }}"
+          if [ "${{ needs.check.result }}" != "success" ] \
+            || [ "${{ needs.lint.result }}" != "success" ] \
+            || [ "${{ needs.windows.result }}" != "success" ]; then
+            echo "check=${{ needs.check.result }} lint=${{ needs.lint.result }} windows=${{ needs.windows.result }}"
             exit 1
           fi
           echo "all checks passed"

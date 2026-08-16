@@ -210,7 +210,9 @@ named, never the order they finished, so the same run always reads the same
 way. When several gates fail, the exit status is that of the first one named.
 
 `--also` takes a single shell string, so it can carry pipes and globs. The main
-command is an argv and is not shell-interpreted.
+command is an argv and is not shell-interpreted. The shell is `sh` on unix and
+`cmd` on Windows, which split their command lines by different rules — so a
+single `--also` string that works on both is not something `gate` can promise.
 
 **`--also` must come before the command.** Everything after the first non-flag
 argument belongs to the command, so this does not do what it looks like:
@@ -338,7 +340,8 @@ change the runner's shape.
 Logs are written under `$TMPDIR/gate/`, or `/var/tmp/gate/` when `TMPDIR` is
 unset. `/tmp` is deliberately not the default: it is a tmpfs on the machines
 this runs on, and a verbose build log is exactly the kind of large, disposable
-file that should not sit in RAM.
+file that should not sit in RAM. On Windows they go under the directory `TMP`
+or `TEMP` names.
 
 The filename is derived from the command plus the process id, so a directory
 of logs can be read without opening them.

@@ -477,18 +477,6 @@ func isNotFound(err error) bool {
 	return errors.Is(err, exec.ErrNotFound) || errors.Is(err, os.ErrNotExist)
 }
 
-// logDir is where gate keeps its own logs. It honours TMPDIR and otherwise
-// writes to /var/tmp rather than /tmp: /tmp is a tmpfs on the machines this
-// runs on, and a verbose build log is exactly the kind of large, disposable
-// file that does not belong in RAM.
-func logDir() string {
-	base := os.Getenv("TMPDIR")
-	if base == "" {
-		base = "/var/tmp"
-	}
-	return filepath.Join(base, "gate")
-}
-
 func defaultLogPath(argv []string) string {
 	name := slug(argv) + "-" + strconv.Itoa(os.Getpid()) + "-" + strconv.FormatInt(logSeq.Add(1), 10) + ".log"
 	return filepath.Join(logDir(), name)

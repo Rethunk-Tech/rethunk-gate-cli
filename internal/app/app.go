@@ -244,7 +244,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		// shell to be split -- which also means it can carry pipes and
 		// globs, the way anyone writing a second gate would expect.
 		opts.gates = append(opts.gates, gateSpec{
-			argv:    []string{"sh", "-c", shellCommand},
+			argv:    shellArgv(shellCommand),
 			display: shellCommand,
 			dir:     dir,
 		})

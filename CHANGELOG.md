@@ -15,6 +15,14 @@ Notable changes to `gate`. The format follows
 
 ### Added
 
+- The published Windows binary now works. `logDir` is build-tagged, so logs go
+  where `TMP`/`TEMP` name rather than to `\var\tmp\gate`, and `--also` runs
+  through `cmd /c` instead of an `sh` that is not there. CI gained a
+  `windows-latest` leg covering the build, `go vet`, the two packages that
+  execute nothing, and a real invocation of the binary; the capture-path suite
+  spawns `sh` by design and is still verified on unix only, which the workflow
+  says rather than implies.
+
 - A shadow warning now names its fix — once per run, not once per conflict.
   It fires on every invocation until a project changes, and a warning that
   cannot be finished is how output starts being skipped. Nothing silences it:
