@@ -920,17 +920,25 @@ func TestTimeoutZeroDisablesTheLimit(t *testing.T) {
 func TestTimeoutKillsTheWholeProcessGroup(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
+	started := filepath.Join(dir, "child-started")
 	orphan := filepath.Join(dir, "orphan-survived")
 
 	// The background child outlives its parent's kill unless the whole group
-	// is signalled.
-	script := "(sleep 1; touch " + orphan + ") & sleep 10"
-	_, _, code := runGateTest(t, "--timeout", "200ms", "--log", tempLog(t), "sh", "-c", script)
+	// is signalled. It marks its own start immediately, so a subshell that
+	// never ran cannot be mistaken for one that was killed -- without that,
+	// this test passes whether or not the kill works.
+	script := "(touch " + started + "; sleep 0.4; touch " + orphan + ") & sleep 10"
+	_, _, code := runGateTest(t, "--timeout", "150ms", "--log", tempLog(t), "sh", "-c", script)
 	if code != TimedOut {
 		t.Fatalf("gate = %d, want %d", code, TimedOut)
 	}
+	if _, err := os.Stat(started); err != nil {
+		t.Fatalf("the background child never ran, so nothing here is proven: %v", err)
+	}
 
-	time.Sleep(1500 * time.Millisecond)
+	// Long enough that a survivor would have fired -- it was due 400ms after
+	// a start that preceded the 150ms kill.
+	time.Sleep(700 * time.Millisecond)
 	if _, err := os.Stat(orphan); err == nil {
 		t.Error("a process spawned by the gate survived the timeout kill")
 	}
