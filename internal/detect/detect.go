@@ -40,9 +40,8 @@ type Gate struct {
 	// Name is the role: build, lint, typecheck, test, vuln.
 	Name string
 
-	// Argv is the command. When Shell is true it is {"sh", "-c", script}.
-	Argv  []string
-	Shell bool
+	// Argv is the command, executed directly rather than through a shell.
+	Argv []string
 
 	// Source says where this came from, so --list can be inspected rather
 	// than trusted.
@@ -66,12 +65,7 @@ type Gate struct {
 }
 
 // Display is the command as a reader would type it.
-func (g Gate) Display() string {
-	if g.Shell {
-		return g.Argv[len(g.Argv)-1]
-	}
-	return strings.Join(g.Argv, " ")
-}
+func (g Gate) Display() string { return strings.Join(g.Argv, " ") }
 
 // Project is what a directory turned out to be.
 type Project struct {
@@ -137,7 +131,7 @@ func Detect(dir string) (Project, error) {
 	// is declared, `turbo run test` is the project's real entry point and
 	// already handles caching and cross-package ordering that calling one
 	// package's script directly would skip.
-	if gates, ok := turboGates(proj.workspaceOrRoot()); ok {
+	if gates := turboGates(proj.workspaceOrRoot()); len(gates) > 0 {
 		proj.Notes = append(proj.Notes, "turbo.json found; delegating to turbo rather than scheduling its tasks here")
 		for _, g := range gates {
 			claim(g)

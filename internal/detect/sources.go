@@ -229,17 +229,17 @@ func resolve(root string, proj *Project, name string) string {
 // turboGates delegates to turbo where a project already declares a task graph.
 // Turbo does orchestration, caching and concurrency itself, so running a
 // second scheduler beside it would duplicate work it already avoids.
-func turboGates(workspace string) ([]Gate, bool) {
+func turboGates(workspace string) []Gate {
 	data, err := os.ReadFile(filepath.Join(workspace, "turbo.json"))
 	if err != nil {
-		return nil, false
+		return nil
 	}
 	var cfg struct {
 		Tasks    map[string]any `json:"tasks"`
 		Pipeline map[string]any `json:"pipeline"`
 	}
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		return nil, false
+		return nil
 	}
 	tasks := cfg.Tasks
 	if tasks == nil {
@@ -259,5 +259,5 @@ func turboGates(workspace string) ([]Gate, bool) {
 			Declared:  true,
 		})
 	}
-	return gates, len(gates) > 0
+	return gates
 }

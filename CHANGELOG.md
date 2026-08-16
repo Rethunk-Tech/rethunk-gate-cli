@@ -33,8 +33,8 @@ Notable changes to `gate`. The format follows
   silently.
 
 - `gate doctor` reports cheap-to-fix problems: missing vulnerability gates,
-  CI gaps, superseded tooling, lockfile collisions, stale action pins, and
-  gates slower than the measured p90. Read-only, and exits 0 either way. See
+  CI gaps, superseded tooling, lockfile collisions and stale action pins.
+  Read-only, and exits 0 either way. See
   [`docs/USAGE.md`](docs/USAGE.md#gate-doctor).
 
 - `--also CMD` runs additional gates concurrently, each with its own log,

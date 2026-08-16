@@ -45,16 +45,14 @@ output does not appear — it is in the log.
 
 ```text
 gate: FAIL exit <code>  <command>  <duration>
---- matched <n> failure line(s) earlier in the output ---
-<lines>
 --- last <n> line(s) ---
 <lines>
 gate: full log  <log path>
 ```
 
-On stderr. The matched-lines section appears only when marker-bearing lines
-were found outside the quoted tail; lines already in the tail are not repeated
-under both headings. `--tail N` sets how many trailing lines are quoted.
+On stderr. `--tail N` sets how many trailing lines are quoted. Nothing else in
+the output is searched or matched — the complete log is on disk for anything
+the tail does not show.
 
 Everything here is display. The verdict was already decided by the exit
 status, and the complete output is in the log — so quoting too little costs a

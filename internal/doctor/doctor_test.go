@@ -53,8 +53,8 @@ func TestGoModuleWithoutGovulncheckIsReported(t *testing.T) {
 	if !ok {
 		t.Fatalf("findings = %v, want go-no-govulncheck", findings)
 	}
-	if f.Severity != Warn {
-		t.Errorf("severity = %v, want warn", f.Severity)
+	if !f.Warn {
+		t.Error("severity = advice, want warn")
 	}
 	// A finding without evidence is a preference, so every one carries its
 	// reasoning and its next action.

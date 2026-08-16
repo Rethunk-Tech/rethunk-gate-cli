@@ -1,4 +1,6 @@
-// Package exitcode names the statuses gate returns to its own caller.
+package app
+
+// Code is a process exit status.
 //
 // gate is a wrapper, so most of the time it returns nothing of its own: the
 // wrapped command's status is passed through byte for byte, including the
@@ -6,9 +8,6 @@
 // does not relabel it. The codes below apply only when gate itself could not
 // get as far as running the command, or could not run it at all -- the same
 // property a shell has, and for the same reason.
-package exitcode
-
-// Code is a process exit status.
 type Code int
 
 const (

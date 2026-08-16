@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/detect"
-	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/exitcode"
 )
 
 // defaultTail is how many trailing lines a failure quotes. Enough to carry a
@@ -52,7 +51,7 @@ Full reference: docs/USAGE.md
 `
 
 // Run parses gate's own arguments and runs the gates that follow them.
-func Run(ctx context.Context, version string, args []string, stdout, stderr io.Writer) exitcode.Code {
+func Run(ctx context.Context, version string, args []string, stdout, stderr io.Writer) Code {
 	opts := options{tail: defaultTail}
 	var also []string
 
@@ -73,10 +72,10 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		switch name {
 		case "-h", "--help":
 			fmt.Fprint(stdout, gateHelp)
-			return exitcode.Success
+			return Success
 		case "--version":
 			fmt.Fprintln(stdout, version)
-			return exitcode.Success
+			return Success
 		case "--quiet":
 			opts.quiet = true
 			i++
@@ -88,26 +87,26 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 			i++
 		case "--also":
 			value, next, code := flagValue(args, i, name, inlineValue, hasInline, stderr)
-			if code != exitcode.Success {
+			if code != Success {
 				return code
 			}
 			also = append(also, value)
 			i = next
 		case "--tail":
 			value, next, code := flagValue(args, i, name, inlineValue, hasInline, stderr)
-			if code != exitcode.Success {
+			if code != Success {
 				return code
 			}
 			n, err := strconv.Atoi(value)
 			if err != nil || n < 0 {
 				fmt.Fprintf(stderr, "gate: --tail wants a non-negative number, got %q\n", value)
-				return exitcode.InvalidUsage
+				return InvalidUsage
 			}
 			opts.tail = n
 			i = next
 		case "--log":
 			value, next, code := flagValue(args, i, name, inlineValue, hasInline, stderr)
-			if code != exitcode.Success {
+			if code != Success {
 				return code
 			}
 			opts.logPath = value
@@ -115,7 +114,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		default:
 			fmt.Fprintf(stderr, "gate: unrecognized flag %q\n", arg)
 			fmt.Fprint(stderr, gateHelp)
-			return exitcode.InvalidUsage
+			return InvalidUsage
 		}
 	}
 
@@ -150,7 +149,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		proj, err := detect.Detect(".")
 		if err != nil {
 			fmt.Fprintf(stderr, "gate: cannot inspect this directory: %v\n", err)
-			return exitcode.Fatal
+			return Fatal
 		}
 		project = proj
 		for _, g := range proj.Gates {
@@ -164,7 +163,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 
 	if opts.list {
 		writeListing(stdout, project, opts)
-		return exitcode.Success
+		return Success
 	}
 
 	if len(opts.gates) == 0 {
@@ -174,7 +173,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		fmt.Fprintf(stderr, "gate: no gates detected in %s\n", project.Root)
 		writeNotes(stderr, project)
 		fmt.Fprintln(stderr, "gate: name a command to run one anyway, or --help for the flags")
-		return exitcode.InvalidUsage
+		return InvalidUsage
 	}
 
 	// Two manifests declaring the same role differently is reported, never
@@ -185,7 +184,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		// One path cannot hold several gates' logs, and silently sharing it
 		// would destroy the output of every gate but the last.
 		fmt.Fprintln(stderr, "gate: --log names a single file; with --also, set TMPDIR to choose where logs go")
-		return exitcode.InvalidUsage
+		return InvalidUsage
 	}
 
 	return runGates(ctx, opts, stdout, stderr)
@@ -193,13 +192,13 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 
 // flagValue reads a flag's value from either --flag=value or --flag value,
 // and reports the index to resume parsing from.
-func flagValue(args []string, i int, name, inline string, hasInline bool, stderr io.Writer) (string, int, exitcode.Code) {
+func flagValue(args []string, i int, name, inline string, hasInline bool, stderr io.Writer) (string, int, Code) {
 	if hasInline {
-		return inline, i + 1, exitcode.Success
+		return inline, i + 1, Success
 	}
 	if i+1 >= len(args) {
 		fmt.Fprintf(stderr, "gate: %s wants a value\n", name)
-		return "", 0, exitcode.InvalidUsage
+		return "", 0, InvalidUsage
 	}
-	return args[i+1], i + 2, exitcode.Success
+	return args[i+1], i + 2, Success
 }

@@ -193,14 +193,14 @@ on is a preference, and preferences are what people learn to skip.
 | `actions-stale-ref` | A shared action pinned behind the known tag |
 | `superseded-tooling` | eslint, mypy or black where the fleet moved on |
 | `missing-gate-*` | No test or typecheck gate declared or inferable |
-| `slow-gate` | A recorded run exceeded the measured p90 of 6.8s |
 
 Judgements are repository-wide where that is what matters: a release workflow
 omitting `run-govulncheck` while CI enables it is not a gap, and flagging it
 would be noise.
 
-`slow-gate` reads the trailers `gate` wrote to its own logs, so it is evidence
-from real runs rather than a guess. It reports nothing before there are logs.
+Every check reads the repository itself, so the same repository gives the same
+findings on any machine. A check that depended on leftover state elsewhere on
+the box was removed for that reason.
 
 ## Logs
 

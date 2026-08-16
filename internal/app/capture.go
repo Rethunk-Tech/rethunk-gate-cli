@@ -12,43 +12,21 @@ import (
 // gate can quote back.
 const maxTrackedLine = 8 << 10
 
-// failureMarkers are the substrings worth surfacing from anywhere in the
-// output, not just its tail. They are deliberately generic: a per-runner
-// parser for bun, go, biome, tsc and ruff would be five parsers to keep
-// current, and the exit code -- not this list -- is what decides the verdict.
-// Missing a marker costs a quoted line, never a wrong answer.
-var failureMarkers = []string{
-	"FAIL",
-	"FAILED",
-	"error:",
-	"Error:",
-	"ERROR",
-	"panic:",
-	"undefined:",
-	"✗",
-	"✘",
-	"assertion",
-	"Assertion",
-}
-
 // lineTracker watches a byte stream going past on its way to the log and
-// keeps two bounded summaries of it: the last tailN lines, and up to
-// maxMatches lines carrying a failure marker.
+// keeps one bounded summary of it: the last tailN lines.
 //
 // It is an io.Writer so it can sit in a MultiWriter beside the log file.
 // Whatever it decides to keep, the log has already received in full: the
 // tracker never sits between the command and the log, only alongside it.
 type lineTracker struct {
-	tailN      int
-	maxMatches int
+	tailN int
 
 	partial bytes.Buffer
 	tail    []string
-	matches []string
 }
 
-func newLineTracker(tailN, maxMatches int) *lineTracker {
-	return &lineTracker{tailN: tailN, maxMatches: maxMatches}
+func newLineTracker(tailN int) *lineTracker {
+	return &lineTracker{tailN: tailN}
 }
 
 // Write never reports an error: a tracker that failed would abort the
@@ -88,10 +66,6 @@ func (t *lineTracker) finishLine() {
 	if len(t.tail) > t.tailN {
 		t.tail = t.tail[len(t.tail)-t.tailN:]
 	}
-
-	if len(t.matches) < t.maxMatches && containsMarker(line) {
-		t.matches = append(t.matches, line)
-	}
 }
 
 // pending reports whether the stream ended mid-line. Callers appending to the
@@ -107,34 +81,5 @@ func (t *lineTracker) close() {
 	}
 }
 
-func containsMarker(line string) bool {
-	for _, marker := range failureMarkers {
-		if strings.Contains(line, marker) {
-			return true
-		}
-	}
-	return false
-}
-
 // Tail returns the last lines seen, oldest first.
 func (t *lineTracker) Tail() []string { return t.tail }
-
-// Matches returns the marker-bearing lines, in the order they appeared.
-// Lines already inside Tail are dropped, so a short failure is not printed
-// twice under two headings.
-func (t *lineTracker) Matches() []string {
-	if len(t.matches) == 0 {
-		return nil
-	}
-	inTail := make(map[string]struct{}, len(t.tail))
-	for _, line := range t.tail {
-		inTail[line] = struct{}{}
-	}
-	out := make([]string, 0, len(t.matches))
-	for _, line := range t.matches {
-		if _, dup := inTail[line]; !dup {
-			out = append(out, line)
-		}
-	}
-	return out
-}

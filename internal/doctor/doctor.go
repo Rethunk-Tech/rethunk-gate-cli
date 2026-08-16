@@ -16,27 +16,11 @@ import (
 	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/detect"
 )
 
-// Severity orders findings by how much they cost, so the output reads as a
-// work list rather than a wall.
-type Severity int
-
-const (
-	// Advice is a real improvement with no failure attached.
-	Advice Severity = iota
-	// Warn is something that will bite, or already is.
-	Warn
-)
-
-func (s Severity) String() string {
-	if s == Warn {
-		return "warn"
-	}
-	return "advice"
-}
-
 // Finding is one thing worth doing.
 type Finding struct {
-	Severity Severity
+	// Warn marks something that will bite, or already is, as against advice
+	// that merely improves things. Two states, so a bool says it.
+	Warn bool
 
 	// Check is a stable slug, so a finding can be talked about.
 	Check string
@@ -62,11 +46,6 @@ type Finding struct {
 // tag, and until then a newer pin than this simply does not get flagged.
 const knownGoodActionsTag = "v1.7"
 
-// slowGateSeconds is the threshold for calling a gate slow. Measured over 7
-// days of real invocations, p90 was 6.8s, so this flags roughly the slowest
-// tenth rather than complaining about ordinary work.
-const slowGateSeconds = 7.0
-
 // Run inspects dir and returns findings, most costly first. It executes
 // nothing.
 func Run(dir string) ([]Finding, error) {
@@ -84,12 +63,11 @@ func Run(dir string) ([]Finding, error) {
 	checkWorkflows(root, add)
 	checkLockfiles(root, add)
 	checkDeclaredGates(root, proj, add)
-	checkSlowGates(proj, add)
 
 	// Stable order: worse first, then by check name so two runs agree.
 	sort.SliceStable(findings, func(i, j int) bool {
-		if findings[i].Severity != findings[j].Severity {
-			return findings[i].Severity > findings[j].Severity
+		if findings[i].Warn != findings[j].Warn {
+			return findings[i].Warn
 		}
 		return findings[i].Check < findings[j].Check
 	})
@@ -138,12 +116,11 @@ func checkSupersededTooling(root string, add func(Finding)) {
 			continue // already migrated; the mention is likely a leftover
 		}
 		add(Finding{
-			Severity: Advice,
-			Check:    "superseded-tooling",
-			Where:    r.where,
-			What:     r.old + " is still in use here",
-			Why:      r.why + ", so this project is the straggler rather than the norm",
-			Fix:      "move to " + r.new,
+			Check: "superseded-tooling",
+			Where: r.where,
+			What:  r.old + " is still in use here",
+			Why:   r.why + ", so this project is the straggler rather than the norm",
+			Fix:   "move to " + r.new,
 		})
 	}
 }
@@ -162,12 +139,12 @@ func checkGoVuln(root string, proj detect.Project, add func(Finding)) {
 	}
 	if !hasVuln {
 		add(Finding{
-			Severity: Warn,
-			Check:    "go-no-govulncheck",
-			Where:    "go.mod",
-			What:     "no govulncheck gate runs for this Go module",
-			Why:      "the shared setup-go action ships govulncheck opt-in and OFF, so nothing else is checking",
-			Fix:      "go install golang.org/x/vuln/cmd/govulncheck@latest",
+			Warn:  true,
+			Check: "go-no-govulncheck",
+			Where: "go.mod",
+			What:  "no govulncheck gate runs for this Go module",
+			Why:   "the shared setup-go action ships govulncheck opt-in and OFF, so nothing else is checking",
+			Fix:   "go install golang.org/x/vuln/cmd/govulncheck@latest",
 		})
 	}
 }
@@ -209,70 +186,68 @@ func checkWorkflows(root string, add func(Finding)) {
 
 		if strings.Contains(body, "setup-bun") && strings.Contains(body, "corepack enable") {
 			add(Finding{
-				Severity: Warn,
-				Check:    "corepack-with-setup-bun",
-				Where:    rel,
-				What:     "corepack enable runs alongside setup-bun",
-				Why:      "corepack manages npm/yarn/pnpm shims and fights the bun toolchain this workflow already installed",
-				Fix:      "drop the corepack enable step",
+				Warn:  true,
+				Check: "corepack-with-setup-bun",
+				Where: rel,
+				What:  "corepack enable runs alongside setup-bun",
+				Why:   "corepack manages npm/yarn/pnpm shims and fights the bun toolchain this workflow already installed",
+				Fix:   "drop the corepack enable step",
 			})
 		}
 
 		for _, ref := range actionRefs(body) {
 			if floatingRef(ref) {
 				add(Finding{
-					Severity: Advice,
-					Check:    "actions-floating-ref",
-					Where:    rel,
-					What:     "shared action pinned to a moving ref (" + ref + ")",
-					Why:      "a moving ref changes what CI runs without any commit here recording it",
-					Fix:      "pin to a tag, currently " + knownGoodActionsTag,
+					Check: "actions-floating-ref",
+					Where: rel,
+					What:  "shared action pinned to a moving ref (" + ref + ")",
+					Why:   "a moving ref changes what CI runs without any commit here recording it",
+					Fix:   "pin to a tag, currently " + knownGoodActionsTag,
 				})
 				continue
 			}
 			if olderThanKnownGood(ref) {
 				add(Finding{
-					Severity: Advice,
-					Check:    "actions-stale-ref",
-					Where:    rel,
-					What:     "shared action pinned to " + ref,
-					Why:      "this build knows of " + knownGoodActionsTag + "; newer tags are not flagged, so this really is behind",
-					Fix:      "bump to " + knownGoodActionsTag + " or newer",
+					Check: "actions-stale-ref",
+					Where: rel,
+					What:  "shared action pinned to " + ref,
+					Why:   "this build knows of " + knownGoodActionsTag + "; newer tags are not flagged, so this really is behind",
+					Fix:   "bump to " + knownGoodActionsTag + " or newer",
 				})
 			}
 		}
 
 		if usesMatrix(body) && !hasAggregatingGate(body) {
 			add(Finding{
-				Severity: Warn,
-				Check:    "ci-no-final-gate",
-				Where:    rel,
-				What:     "independent checks with no single aggregating job",
-				Why:      "branch protection can only require named jobs, so a matrix leg that never ran reads as 'not failing' rather than 'not run'",
-				Fix:      "add one job with `if: always()` that needs the others and fails unless every result is success",
+				Warn:  true,
+				Check: "ci-no-final-gate",
+				Where: rel,
+				What:  "independent checks with no single aggregating job",
+				Why:   "branch protection can only require named jobs, so a matrix leg that never ran reads as 'not failing' rather than 'not run'",
+				Fix:   "add one job with `if: always()` that needs the others and fails unless every result is success",
 			})
 		}
 
 		if strings.Contains(body, "npx ") && exists(filepath.Join(root, "bun.lock")) {
 			add(Finding{
-				Severity: Warn,
-				Check:    "npx-in-bun-workspace",
-				Where:    rel,
-				What:     "npx runs inside a bun workspace",
-				Why:      "npx can strand a package-lock.json, which Next then takes as the Turbopack root",
-				Fix:      "use bunx",
+				Warn:  true,
+				Check: "npx-in-bun-workspace",
+				Where: rel,
+				What:  "npx runs inside a bun workspace",
+				Why:   "npx can strand a package-lock.json, which Next then takes as the Turbopack root",
+				Fix:   "use bunx",
 			})
 		}
 	}
 
 	if usesSetupGo && !enablesVuln {
 		add(Finding{
-			Severity: Warn,
-			Check:    "ci-govulncheck-off",
-			Where:    setupGoWhere,
-			What:     "no workflow enables run-govulncheck on setup-go",
-			Why:      "that input defaults to false, so CI never checks for known vulnerabilities anywhere in this repo",
-			Fix:      `set run-govulncheck: "true" on the setup-go step`,
+			Warn:  true,
+			Check: "ci-govulncheck-off",
+			Where: setupGoWhere,
+			What:  "no workflow enables run-govulncheck on setup-go",
+			Why:   "that input defaults to false, so CI never checks for known vulnerabilities anywhere in this repo",
+			Fix:   `set run-govulncheck: "true" on the setup-go step`,
 		})
 	}
 }
@@ -361,12 +336,12 @@ func hasAggregatingGate(body string) bool {
 func checkLockfiles(root string, add func(Finding)) {
 	if exists(filepath.Join(root, "bun.lock")) && exists(filepath.Join(root, "package-lock.json")) {
 		add(Finding{
-			Severity: Warn,
-			Check:    "lockfile-collision",
-			Where:    "package-lock.json",
-			What:     "package-lock.json sits beside bun.lock",
-			Why:      "Next takes the stranded lockfile as its Turbopack root, which moves the build out from under you",
-			Fix:      "delete package-lock.json and use bunx rather than npx",
+			Warn:  true,
+			Check: "lockfile-collision",
+			Where: "package-lock.json",
+			What:  "package-lock.json sits beside bun.lock",
+			Why:   "Next takes the stranded lockfile as its Turbopack root, which moves the build out from under you",
+			Fix:   "delete package-lock.json and use bunx rather than npx",
 		})
 	}
 }
@@ -388,86 +363,11 @@ func checkDeclaredGates(root string, proj detect.Project, add func(Finding)) {
 			continue
 		}
 		add(Finding{
-			Severity: Advice,
-			Check:    "missing-gate-" + missing.name,
-			Where:    "package.json",
-			What:     "no " + missing.name + " gate is declared or inferable",
-			Why:      missing.why,
-			Fix:      "add a " + missing.name + " script",
+			Check: "missing-gate-" + missing.name,
+			Where: "package.json",
+			What:  "no " + missing.name + " gate is declared or inferable",
+			Why:   missing.why,
+			Fix:   "add a " + missing.name + " script",
 		})
 	}
-}
-
-// checkSlowGates reads the trailers gate itself writes, so "this gate is slow"
-// is evidence from real runs rather than a guess. Nothing is reported when
-// there are no logs yet.
-func checkSlowGates(proj detect.Project, add func(Finding)) {
-	base := os.Getenv("TMPDIR")
-	if base == "" {
-		base = "/var/tmp"
-	}
-	entries, err := os.ReadDir(filepath.Join(base, "gate"))
-	if err != nil {
-		return
-	}
-
-	slowest := map[string]float64{}
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		body := readFile(filepath.Join(base, "gate", entry.Name()))
-		command, seconds, ok := parseTrailer(body)
-		if !ok || seconds < slowGateSeconds {
-			continue
-		}
-		if seconds > slowest[command] {
-			slowest[command] = seconds
-		}
-	}
-
-	for command, seconds := range slowest {
-		add(Finding{
-			Severity: Advice,
-			Check:    "slow-gate",
-			Where:    command,
-			What:     "took " + strconv.FormatFloat(seconds, 'f', 1, 64) + "s in a recorded run",
-			Why:      "p90 across 7 days of real gate invocations was 6.8s, so this is in the slowest tenth",
-			Fix:      "narrow the gate, or split it so the fast part can fail early",
-		})
-	}
-}
-
-// parseTrailer reads the "[gate] exit N in Ds -- command" line gate appends to
-// every log.
-func parseTrailer(body string) (command string, seconds float64, ok bool) {
-	i := strings.LastIndex(body, "[gate] ")
-	if i < 0 {
-		return "", 0, false
-	}
-	line := strings.TrimSpace(body[i:])
-	parts := strings.SplitN(line, " -- ", 2)
-	if len(parts) != 2 {
-		return "", 0, false
-	}
-	fields := strings.Fields(parts[0])
-	if len(fields) < 4 {
-		return "", 0, false
-	}
-	value := fields[len(fields)-1]
-	switch {
-	case strings.HasSuffix(value, "ms"):
-		ms, err := strconv.ParseFloat(strings.TrimSuffix(value, "ms"), 64)
-		if err != nil {
-			return "", 0, false
-		}
-		return parts[1], ms / 1000, true
-	case strings.HasSuffix(value, "s"):
-		s, err := strconv.ParseFloat(strings.TrimSuffix(value, "s"), 64)
-		if err != nil {
-			return "", 0, false
-		}
-		return parts[1], s, true
-	}
-	return "", 0, false
 }

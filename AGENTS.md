@@ -39,14 +39,18 @@ common case.
 `gate` owns exactly three things:
 
 1. **Capture** — running the command with both streams merged into one log.
-2. **Summary** — a bounded tail plus marker-bearing lines, for display only.
+2. **Summary** — a bounded tail of the output, for display only.
 3. **Status** — passing the command's own exit status through unchanged.
 
 Everything else belongs to the command: what to run, how to run it, what its
-output means. There are deliberately **no per-runner parsers**. A parser for
-bun, go, biome, tsc and ruff would be five things to keep current, and the
-exit code already answers the only question that decides the verdict. Missing
-a marker costs a quoted line, never a wrong answer.
+output means. There are deliberately **no per-runner parsers**, and no pattern
+matching over the output at all: the exit status already answers the only
+question that decides the verdict, and the complete log is one read away when
+the quoted tail is not enough.
+
+An earlier version scanned for failure markers (`FAIL`, `panic:`, …) and quoted
+matches from outside the tail. It was removed: 50 lines to save one `less`,
+against a log that was already complete.
 
 ## Invariants in the capture path
 

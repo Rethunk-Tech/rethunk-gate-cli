@@ -9,11 +9,9 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/exitcode"
 )
 
-func runGateTest(t *testing.T, args ...string) (stdout, stderr string, code exitcode.Code) {
+func runGateTest(t *testing.T, args ...string) (stdout, stderr string, code Code) {
 	t.Helper()
 	var out, errBuf bytes.Buffer
 	code = Run(context.Background(), "v0.0.0-test", args, &out, &errBuf)
@@ -60,7 +58,7 @@ func TestRunPassEmitsOneLineAndKeepsOutputOffStdout(t *testing.T) {
 	log := tempLog(t)
 
 	stdout, stderr, code := runGateTest(t, "--log", log, "sh", "-c", "echo hello; echo world")
-	if code != exitcode.Success {
+	if code != Success {
 		t.Fatalf("gate = %d, stderr = %q", code, stderr)
 	}
 	if stderr != "" {
@@ -98,7 +96,7 @@ func TestRunFailPropagatesExactExitCode(t *testing.T) {
 	log := tempLog(t)
 
 	_, stderr, code := runGateTest(t, "--log", log, "sh", "-c", "echo boom >&2; exit 3")
-	if code != exitcode.Code(3) {
+	if code != Code(3) {
 		t.Fatalf("gate = %d, want 3", code)
 	}
 	if !strings.Contains(stderr, "boom") {
@@ -137,7 +135,7 @@ func TestRunLogKeepsEveryByteThatTheSummaryDrops(t *testing.T) {
 
 	script := fmt.Sprintf(`printf '%%s\n' "$0"; i=1; while [ $i -le %d ]; do echo "line$i"; i=$((i+1)); done`, lineCount)
 	_, stderr, code := runGateTest(t, "--tail", "5", "--log", log, "sh", "-c", script, long)
-	if code != exitcode.Success {
+	if code != Success {
 		t.Fatalf("gate = %d, stderr = %q", code, stderr)
 	}
 
@@ -158,7 +156,7 @@ func TestRunFailureQuotesOnlyTheRequestedTail(t *testing.T) {
 
 	script := `i=1; while [ $i -le 100 ]; do echo "line$i"; i=$((i+1)); done; exit 1`
 	_, stderr, code := runGateTest(t, "--tail", "3", "--log", log, "sh", "-c", script)
-	if code != exitcode.Code(1) {
+	if code != Code(1) {
 		t.Fatalf("gate = %d, want 1", code)
 	}
 	if !strings.Contains(stderr, "line100") {
@@ -181,8 +179,8 @@ func TestRunReportsNotFoundAndSignalDistinctly(t *testing.T) {
 	t.Run("command that cannot be executed", func(t *testing.T) {
 		t.Parallel()
 		_, stderr, code := runGateTest(t, "--log", tempLog(t), "gate-test-no-such-command")
-		if code != exitcode.NotFound {
-			t.Fatalf("gate = %d, want %d", code, exitcode.NotFound)
+		if code != NotFound {
+			t.Fatalf("gate = %d, want %d", code, NotFound)
 		}
 		if !strings.Contains(stderr, "gate-test-no-such-command") {
 			t.Errorf("stderr = %q, want it to name the command", stderr)
@@ -192,7 +190,7 @@ func TestRunReportsNotFoundAndSignalDistinctly(t *testing.T) {
 	t.Run("command killed by a signal", func(t *testing.T) {
 		t.Parallel()
 		_, _, code := runGateTest(t, "--log", tempLog(t), "sh", "-c", "kill -TERM $$")
-		if want := exitcode.Signaled(15); code != want {
+		if want := Signaled(15); code != want {
 			t.Fatalf("gate = %d, want %d for SIGTERM", code, want)
 		}
 	})
@@ -204,7 +202,7 @@ func TestRunUsage(t *testing.T) {
 		t.Parallel()
 		for _, arg := range []string{"-h", "--help"} {
 			stdout, stderr, code := runGateTest(t, arg)
-			if code != exitcode.Success || stdout != gateHelp || stderr != "" {
+			if code != Success || stdout != gateHelp || stderr != "" {
 				t.Errorf("gate %s = %d, stdout %q, stderr %q", arg, code, stdout, stderr)
 			}
 		}
@@ -216,8 +214,8 @@ func TestRunUsage(t *testing.T) {
 	t.Run("no command and nothing detectable", func(t *testing.T) {
 		t.Chdir(t.TempDir())
 		_, stderr, code := runGateTest(t)
-		if code != exitcode.InvalidUsage {
-			t.Fatalf("gate = %d, want %d", code, exitcode.InvalidUsage)
+		if code != InvalidUsage {
+			t.Fatalf("gate = %d, want %d", code, InvalidUsage)
 		}
 		if !strings.Contains(stderr, "no gates detected") {
 			t.Errorf("stderr = %q", stderr)
@@ -227,16 +225,16 @@ func TestRunUsage(t *testing.T) {
 	t.Run("unrecognized gate flag", func(t *testing.T) {
 		t.Parallel()
 		_, _, code := runGateTest(t, "--nope", "true")
-		if code != exitcode.InvalidUsage {
-			t.Fatalf("gate = %d, want %d", code, exitcode.InvalidUsage)
+		if code != InvalidUsage {
+			t.Fatalf("gate = %d, want %d", code, InvalidUsage)
 		}
 	})
 
 	t.Run("--tail wants a number", func(t *testing.T) {
 		t.Parallel()
 		_, _, code := runGateTest(t, "--tail", "many", "true")
-		if code != exitcode.InvalidUsage {
-			t.Fatalf("gate = %d, want %d", code, exitcode.InvalidUsage)
+		if code != InvalidUsage {
+			t.Fatalf("gate = %d, want %d", code, InvalidUsage)
 		}
 	})
 
@@ -245,8 +243,8 @@ func TestRunUsage(t *testing.T) {
 	t.Run("-- ends gate's flags", func(t *testing.T) {
 		t.Parallel()
 		stdout, _, code := runGateTest(t, "--log", tempLog(t), "--", "--version")
-		if code != exitcode.NotFound {
-			t.Fatalf("gate -- --version = %d, want %d (it is a command, not gate's flag)", code, exitcode.NotFound)
+		if code != NotFound {
+			t.Fatalf("gate -- --version = %d, want %d (it is a command, not gate's flag)", code, NotFound)
 		}
 		if strings.Contains(stdout, "v0.0.0-test") {
 			t.Errorf("gate answered --version itself after --: %q", stdout)
@@ -256,7 +254,7 @@ func TestRunUsage(t *testing.T) {
 	t.Run("--version before a command is gate's own", func(t *testing.T) {
 		t.Parallel()
 		stdout, _, code := runGateTest(t, "--version")
-		if code != exitcode.Success || strings.TrimSpace(stdout) != "v0.0.0-test" {
+		if code != Success || strings.TrimSpace(stdout) != "v0.0.0-test" {
 			t.Errorf("gate --version = %d, stdout %q", code, stdout)
 		}
 	})
@@ -268,12 +266,12 @@ func TestRunQuietSuppressesOnlyThePassLine(t *testing.T) {
 	t.Parallel()
 
 	stdout, stderr, code := runGateTest(t, "--quiet", "--log", tempLog(t), "true")
-	if code != exitcode.Success || stdout != "" || stderr != "" {
+	if code != Success || stdout != "" || stderr != "" {
 		t.Fatalf("quiet pass = %d, stdout %q, stderr %q", code, stdout, stderr)
 	}
 
 	_, stderr, code = runGateTest(t, "--quiet", "--log", tempLog(t), "sh", "-c", "echo bad >&2; exit 2")
-	if code != exitcode.Code(2) {
+	if code != Code(2) {
 		t.Fatalf("quiet failure = %d, want 2", code)
 	}
 	if !strings.Contains(stderr, "bad") {
@@ -300,7 +298,7 @@ func TestRunAlsoOverlapsIndependentGates(t *testing.T) {
 	_, stderr, code := runGateTest(t, "--also", "sleep "+sleep, "sleep", sleep)
 	elapsed := time.Since(started)
 
-	if code != exitcode.Success {
+	if code != Success {
 		t.Fatalf("gate = %d, stderr = %q", code, stderr)
 	}
 	// Two 0.4s gates: overlapped they finish near 0.4s, serialised near 0.8s.
@@ -320,7 +318,7 @@ func TestRunAlsoReportsEveryGateAndPicksFirstFailure(t *testing.T) {
 		"--also", "echo second-problem >&2; exit 4",
 		"sh", "-c", "echo first-problem >&2; exit 3")
 
-	if code != exitcode.Code(3) {
+	if code != Code(3) {
 		t.Fatalf("aggregate = %d, want 3 (the first gate named)", code)
 	}
 	for _, want := range []string{"first-problem", "second-problem", "exit 3", "exit 4"} {
@@ -337,7 +335,7 @@ func TestRunAlsoReportsInDeclarationOrderNotFinishOrder(t *testing.T) {
 	setLogDir(t)
 
 	stdout, stderr, code := runGateTest(t, "--also", "true", "sleep", "0.3")
-	if code != exitcode.Success {
+	if code != Success {
 		t.Fatalf("gate = %d, stderr = %q", code, stderr)
 	}
 	slow := strings.Index(stdout, "sleep 0.3")
@@ -357,7 +355,7 @@ func TestRunAlsoGivesEachGateItsOwnLog(t *testing.T) {
 	setLogDir(t)
 
 	stdout, stderr, code := runGateTest(t, "--also", "echo bbb", "sh", "-c", "echo aaa")
-	if code != exitcode.Success {
+	if code != Success {
 		t.Fatalf("gate = %d, stderr = %q", code, stderr)
 	}
 
@@ -392,7 +390,7 @@ func TestRunSerialStopsAtFirstFailure(t *testing.T) {
 		"--also", "touch "+marker,
 		"sh", "-c", "exit 5")
 
-	if code != exitcode.Code(5) {
+	if code != Code(5) {
 		t.Fatalf("gate = %d, want 5", code)
 	}
 	if _, err := os.Stat(marker); err == nil {
@@ -408,7 +406,7 @@ func TestRunSerialRunsEveryGateWhenAllPass(t *testing.T) {
 
 	marker := filepath.Join(t.TempDir(), "second-ran")
 	stdout, stderr, code := runGateTest(t, "--serial", "--also", "touch "+marker, "true")
-	if code != exitcode.Success {
+	if code != Success {
 		t.Fatalf("gate = %d, stderr = %q", code, stderr)
 	}
 	if _, err := os.Stat(marker); err != nil {
@@ -423,8 +421,8 @@ func TestRunSerialRunsEveryGateWhenAllPass(t *testing.T) {
 // destroy every gate's output but the last.
 func TestRunLogWithAlsoIsRefused(t *testing.T) {
 	_, stderr, code := runGateTest(t, "--log", tempLog(t), "--also", "true", "true")
-	if code != exitcode.InvalidUsage {
-		t.Fatalf("gate = %d, want %d", code, exitcode.InvalidUsage)
+	if code != InvalidUsage {
+		t.Fatalf("gate = %d, want %d", code, InvalidUsage)
 	}
 	if !strings.Contains(stderr, "--log names a single file") {
 		t.Errorf("stderr = %q", stderr)
@@ -452,7 +450,7 @@ func TestListShowsChosenAndShadowedAndRunsNothing(t *testing.T) {
 	t.Chdir(dir)
 
 	stdout, stderr, code := runGateTest(t, "--list")
-	if code != exitcode.Success {
+	if code != Success {
 		t.Fatalf("gate --list = %d, stderr = %q", code, stderr)
 	}
 	for _, want := range []string{"make test", "Makefile target test", "shadows", "vitest run"} {

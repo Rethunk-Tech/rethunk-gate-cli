@@ -39,9 +39,8 @@ fix:
 	go fix ./...
 	go fix ./...
 
-# -coverpkg is not optional: most of this suite drives internal/app from its
-# own package but exercises internal/exitcode across the boundary, which
-# reports 0.0% without it.
+# -coverpkg is not optional: much of this suite drives internal/detect and
+# internal/doctor from internal/app, which report 0.0% without it.
 cover:
 	go test -coverpkg=./... -coverprofile=coverage.out ./...
 	go tool cover -func=coverage.out | tail -1

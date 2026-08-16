@@ -13,8 +13,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/exitcode"
 )
 
 // logSeq disambiguates log filenames when several gates run in one process.
@@ -52,7 +50,7 @@ type gateSpec struct {
 // in the order the gates were named rather than the order they finished.
 type gateResult struct {
 	spec     gateSpec
-	code     exitcode.Code
+	code     Code
 	elapsed  time.Duration
 	logPath  string
 	tracker  *lineTracker
@@ -67,7 +65,7 @@ type gateResult struct {
 // several, the first failure in the order they were named wins, which is
 // deterministic and explainable in a way "whichever failed first in wall
 // clock" would not be.
-func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) exitcode.Code {
+func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code {
 	results := make([]gateResult, len(opts.gates))
 
 	if opts.serial {
@@ -76,7 +74,7 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) exitc
 			// --serial exists for gates that depend on each other -- build
 			// before test being the common one -- so a failure stops the
 			// chain rather than running steps whose premise is already gone.
-			if results[i].code != exitcode.Success {
+			if results[i].code != Success {
 				results = results[:i+1]
 				break
 			}
@@ -94,7 +92,7 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) exitc
 				// to say -- but never touches the other groups.
 				for _, i := range group {
 					results[i] = runOne(ctx, opts.gates[i], opts)
-					if results[i].code != exitcode.Success {
+					if results[i].code != Success {
 						break
 					}
 				}
@@ -141,31 +139,31 @@ func groupByToolchain(gates []gateSpec) [][]int {
 
 // report prints every gate's outcome in declaration order and returns the
 // aggregate status.
-func report(results []gateResult, opts options, stdout, stderr io.Writer) exitcode.Code {
-	aggregate := exitcode.Success
+func report(results []gateResult, opts options, stdout, stderr io.Writer) Code {
+	aggregate := Success
 	for _, res := range results {
 		switch {
 		case res.fatalErr != nil:
 			fmt.Fprintf(stderr, "gate: %v\n", res.fatalErr)
-			if aggregate == exitcode.Success {
-				aggregate = exitcode.Fatal
+			if aggregate == Success {
+				aggregate = Fatal
 			}
 		case res.notFound:
 			fmt.Fprintf(stderr, "gate: cannot run %q\n", res.spec.display)
-			if aggregate == exitcode.Success {
-				aggregate = exitcode.NotFound
+			if aggregate == Success {
+				aggregate = NotFound
 			}
-		case res.code == exitcode.Success:
+		case res.code == Success:
 			if !opts.quiet {
 				fmt.Fprintf(stdout, "gate: ok  %s  %s  %s\n",
-					res.spec.display, formatDuration(res.elapsed), res.logPath)
+					res.spec.display, res.elapsed.Round(time.Millisecond), res.logPath)
 			}
 		default:
 			fmt.Fprintf(stderr, "gate: FAIL exit %d  %s  %s\n",
-				int(res.code), res.spec.display, formatDuration(res.elapsed))
+				int(res.code), res.spec.display, res.elapsed.Round(time.Millisecond))
 			writeFailureRegion(stderr, res.tracker)
 			fmt.Fprintf(stderr, "gate: full log  %s\n", res.logPath)
-			if aggregate == exitcode.Success {
+			if aggregate == Success {
 				aggregate = res.code
 			}
 		}
@@ -191,7 +189,7 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 		return res
 	}
 
-	res.tracker = newLineTracker(opts.tail, opts.tail)
+	res.tracker = newLineTracker(opts.tail)
 
 	cmd := exec.CommandContext(ctx, spec.argv[0], spec.argv[1:]...)
 	cmd.Stdin = nil
@@ -214,7 +212,7 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 
 	if runErr != nil && isNotFound(runErr) {
 		res.notFound = true
-		res.code = exitcode.NotFound
+		res.code = NotFound
 	} else {
 		res.code = resolveCode(runErr)
 	}
@@ -254,7 +252,7 @@ func writeTrailer(w io.Writer, res gateResult, danglingLine bool) error {
 		outcome = "could not run"
 	}
 	_, err := fmt.Fprintf(w, "%s%s %s in %s -- %s\n",
-		lead, trailerPrefix, outcome, formatDuration(res.elapsed), res.spec.display)
+		lead, trailerPrefix, outcome, res.elapsed.Round(time.Millisecond), res.spec.display)
 	return err
 }
 
@@ -265,12 +263,6 @@ func writeTrailer(w io.Writer, res gateResult, danglingLine bool) error {
 func writeFailureRegion(w io.Writer, tracker *lineTracker) {
 	if tracker == nil {
 		return
-	}
-	if matches := tracker.Matches(); len(matches) > 0 {
-		fmt.Fprintf(w, "--- matched %d failure line(s) earlier in the output ---\n", len(matches))
-		for _, line := range matches {
-			fmt.Fprintln(w, line)
-		}
 	}
 	tail := tracker.Tail()
 	if len(tail) == 0 {
@@ -286,21 +278,21 @@ func writeFailureRegion(w io.Writer, tracker *lineTracker) {
 // resolveCode turns exec's error into the status the caller should see. A
 // command that ran and failed reports its own code; one killed by a signal
 // has no code of its own, so it reports the shell's 128+signal.
-func resolveCode(err error) exitcode.Code {
+func resolveCode(err error) Code {
 	if err == nil {
-		return exitcode.Success
+		return Success
 	}
 	var exitErr *exec.ExitError
 	if errors.As(err, &exitErr) {
 		if signal, ok := terminatingSignal(exitErr); ok {
-			return exitcode.Signaled(signal)
+			return Signaled(signal)
 		}
-		return exitcode.Code(exitErr.ExitCode())
+		return Code(exitErr.ExitCode())
 	}
 	if isNotFound(err) {
-		return exitcode.NotFound
+		return NotFound
 	}
-	return exitcode.Fatal
+	return Fatal
 }
 
 func isNotFound(err error) bool {
@@ -344,11 +336,4 @@ func slug(argv []string) string {
 		return "gate"
 	}
 	return out
-}
-
-func formatDuration(d time.Duration) string {
-	if d < time.Second {
-		return fmt.Sprintf("%dms", d.Milliseconds())
-	}
-	return fmt.Sprintf("%.1fs", d.Seconds())
 }

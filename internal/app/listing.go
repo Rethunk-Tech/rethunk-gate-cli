@@ -44,31 +44,28 @@ func writeListing(w io.Writer, project detect.Project, opts options) {
 	for _, group := range groups {
 		for n, i := range group {
 			spec := opts.gates[i]
+			toolchain := spec.toolchain
+			if toolchain == "" {
+				toolchain = "given"
+			}
 			lead := "  "
 			if n > 0 {
 				lead = "  then "
 			}
 			detected, known := sourceOf[spec.display]
 			if known {
-				fmt.Fprintf(w, "%s[%s] %-10s %s\n", lead, orUnknown(spec.toolchain), detected.Name, spec.display)
+				fmt.Fprintf(w, "%s[%s] %-10s %s\n", lead, toolchain, detected.Name, spec.display)
 				fmt.Fprintf(w, "        from %s\n", detected.Source)
 				for _, shadowed := range detected.Shadowed {
 					fmt.Fprintf(w, "        shadows %s\n", shadowed)
 				}
 				continue
 			}
-			fmt.Fprintf(w, "%s[%s] %s\n", lead, orUnknown(spec.toolchain), spec.display)
+			fmt.Fprintf(w, "%s[%s] %s\n", lead, toolchain, spec.display)
 		}
 	}
 
 	writeNotes(w, project)
-}
-
-func orUnknown(toolchain string) string {
-	if toolchain == "" {
-		return "given"
-	}
-	return toolchain
 }
 
 // writeNotes prints what detection found but deliberately did not turn into a
