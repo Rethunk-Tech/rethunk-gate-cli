@@ -48,6 +48,11 @@ Notable changes to `gate`. The format follows
 
 ### Fixed
 
+- `--tail 0` reported a failing gate as having produced no output, when it had
+  simply kept none of it. The log was complete throughout; the summary was
+  stating something false about it. A command that really wrote nothing still
+  reads `--- no output ---`.
+
 - Gates detected from a `turbo.json` task graph ran a bare `turbo`, so on any
   machine where turbo lives in `node_modules/.bin` rather than on `PATH` —
   which is the normal arrangement, and the one `resolve` was written for —
