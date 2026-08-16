@@ -6,6 +6,12 @@ Notable changes to `gate`. The format follows
 
 ## [Unreleased]
 
+## [0.1.0] — 2026-08-16
+
+First tagged release. `0.x` because the flag surface is still settling — the
+per-project configuration file is designed but not built, and it will likely
+move some of these defaults.
+
 ### Fixed
 
 - Gates ran in the caller's working directory while detection walked up to the
