@@ -13,6 +13,16 @@ Notable changes to `gate`. The format follows
   checksums file answers whether a download changed in transit; this answers
   where it came from. See [`SECURITY.md`](SECURITY.md).
 
+### Added
+
+- Bare `gate` refuses, with exit 128, to detect gates in a project whose gates
+  are already running. A project gate that itself runs `gate` would otherwise
+  detect the same project and repeat forever — gate's own test gate is
+  `make test`, which runs a suite that calls `Run`, so this loop is reachable
+  here. Gates carry `GATE_ACTIVE_ROOTS` to their children; only detection is
+  refused, so `gate <command>` inside a gate still runs. See
+  [`docs/CODES.md`](docs/CODES.md).
+
 ### Changed
 
 - The one-line verdict names the command rather than its resolved path, and

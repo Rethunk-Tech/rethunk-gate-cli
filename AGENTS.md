@@ -103,6 +103,20 @@ the **resolved path** goes into the gate's argv. A bare name would be found by
 detection and then fail to execute, since several of the best tools are not on
 `PATH` at all.
 
+### Recursion
+
+A project gate that runs `gate` re-enters detection, finds the same gates, and
+runs them again. This is not hypothetical here: gate's own test gate is
+`make test`, which runs a suite that calls `app.Run`.
+
+Each gate's child environment carries `GATE_ACTIVE_ROOTS`, and detection
+refuses a project already listed there. Roots rather than a depth counter,
+because the loop is specific — a gate detecting the project it is already
+inside. Wrapping a *command* is not recursion and must keep working, so only
+the detection path refuses; `gate go test ./...` inside a gate still runs.
+That distinction is also what keeps this suite working, since its tests drive
+bare detection against temporary fixtures rather than against this repository.
+
 ## Doctor
 
 `internal/doctor` is read-only and has a test asserting a fixture is

@@ -23,7 +23,7 @@ already understands.
 | 124 | The gate exceeded its timeout and was killed — `timeout(1)`'s status, and never one the command produced |
 | 127 | The command could not be executed (not found, not executable) |
 | 128+*sig* | The command was killed by signal *sig* — 143 for SIGTERM, 137 for SIGKILL |
-| 128 | `gate` itself could not proceed: the log could not be created, a `-C` directory could not be entered, or the command could not be started for a reason other than not being found |
+| 128 | `gate` itself could not proceed: the log could not be created, a `-C` directory could not be entered, the command could not be started for a reason other than not being found, or a gate from this project is already running (see below) |
 | 129 | Invalid usage of `gate` itself: no command given, an unrecognized flag, a flag missing its value, or a malformed `-C` (no directory, or the glued `-C<path>` spelling) |
 
 A signalled command has no exit status of its own — the operating system
@@ -94,3 +94,16 @@ gate: cannot run "<command>": <error>
 
 On stderr, with exit 127. Distinct from a command that ran and failed:
 reporting "the gate failed" for something that never ran would be false.
+
+### Already running this project's gates
+
+```text
+gate: refusing to detect gates in <project root>
+gate: a gate from that project is already running, so this would not terminate
+gate: name the command instead, e.g. `gate go test ./...`
+```
+
+On stderr, with exit 128. A project gate that itself runs bare `gate` would
+detect the same project, run the same gates, and do it again — so detection
+refuses when the project is already in flight. Only detection is refused:
+`gate <command>` inside a gate is not recursion and still runs.

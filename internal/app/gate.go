@@ -15,6 +15,35 @@ import (
 	"time"
 )
 
+// activeRootsVar names the project roots gate is already running gates for,
+// so a project gate that itself runs gate is caught instead of looping.
+//
+// Roots rather than a depth counter, because the loop is specific: a gate
+// detecting the project it is already inside. A gate that wraps a command in
+// another project is not recursion and must keep working. Newline-separated,
+// which cannot appear in a Windows path and is far rarer than the list
+// separator in a POSIX one.
+const activeRootsVar = "GATE_ACTIVE_ROOTS"
+
+// activeRoots reports the projects an enclosing gate is already running.
+func activeRoots() []string {
+	value := os.Getenv(activeRootsVar)
+	if value == "" {
+		return nil
+	}
+	return strings.Split(value, "\n")
+}
+
+// markRoot returns the child environment with dir added to the active roots.
+// os/exec keeps the last of duplicate keys, so appending is enough.
+func markRoot(dir string) []string {
+	root, err := filepath.Abs(dir)
+	if err != nil {
+		root = dir
+	}
+	return append(os.Environ(), activeRootsVar+"="+strings.Join(append(activeRoots(), root), "\n"))
+}
+
 // logSeq disambiguates log filenames when several gates run in one process.
 // They share a pid, and two gates in the same project can easily reduce to
 // the same slug -- without this, concurrent gates would overwrite each
@@ -282,6 +311,7 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 	// run it was supposed to bound.
 	cmd.WaitDelay = 5 * time.Second
 	cmd.Dir = spec.dir
+	cmd.Env = markRoot(spec.dir)
 	cmd.Stdin = nil
 	// One writer for both streams, so interleaving in the log matches what a
 	// terminal would have shown. Splitting them would reorder the very lines

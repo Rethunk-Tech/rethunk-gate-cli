@@ -17,10 +17,13 @@ import (
 // with no project. gate with no command detects the *current* project and runs
 // its gates -- and when these tests run, the current project is gate itself,
 // whose test gate is `make test`. That recurses into `go test`, which runs
-// this suite again. It is a fork bomb, and it has already happened once.
+// this suite again.
 //
-// Tests that legitimately exercise bare detection isolate themselves first,
-// with t.Chdir into a fixture or -C into one.
+// GATE_ACTIVE_ROOTS now stops that loop at the second level rather than
+// letting it fork-bomb, but a test that relied on it would still be running
+// the whole suite inside itself to reach a refusal. Tests that legitimately
+// exercise bare detection isolate themselves first, with t.Chdir into a
+// fixture or -C into one.
 func runGateTest(t *testing.T, args ...string) (stdout, stderr string, code Code) {
 	t.Helper()
 	var out, errBuf bytes.Buffer
@@ -534,6 +537,66 @@ func TestResolvedPathIsShortenedOnTheVerdictLineOnly(t *testing.T) {
 			names = append(names, e.Name())
 		}
 		t.Errorf("no log named for the command; got %v", names)
+	}
+}
+
+// The fork bomb the header of this file warns about, made structurally
+// impossible rather than documented. gate's own test gate is `make test`,
+// which runs this suite, which calls Run -- so a bare Run that detected this
+// project would run `make test` again, forever.
+func TestGateRefusesToDetectAProjectItIsAlreadyRunning(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "Makefile"),
+		[]byte("test:\n\ttouch ran\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TMPDIR", t.TempDir())
+	t.Setenv(activeRootsVar, root)
+
+	_, stderr, code := runGateTest(t, "-C", root)
+
+	if code != Fatal {
+		t.Fatalf("gate = %d, want Fatal -- stderr = %q", code, stderr)
+	}
+	if _, err := os.Stat(filepath.Join(root, "ran")); err == nil {
+		t.Error("the gate ran despite the project already being in flight")
+	}
+	// Refusing without saying what to do instead is just a broken tool.
+	if !strings.Contains(stderr, "name the command instead") {
+		t.Errorf("refusal does not name the way out: %q", stderr)
+	}
+}
+
+// Only detection is refused. A gate that wraps a command -- including one in
+// another project -- is not recursion, and breaking that would break the
+// ordinary case of a project gate that calls gate.
+func TestAnExplicitCommandStillRunsInsideAnActiveProject(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv(activeRootsVar, root)
+
+	log := tempLog(t)
+	_, stderr, code := runGateTest(t, "-C", root, "--log", log, "touch", "marker")
+	if code != Success {
+		t.Fatalf("gate = %d, stderr = %q", code, stderr)
+	}
+	if _, err := os.Stat(filepath.Join(root, "marker")); err != nil {
+		t.Errorf("a named command was refused inside an active project: %v", err)
+	}
+}
+
+// The mark has to reach the child, or nothing downstream can detect the loop.
+func TestTheActiveProjectReachesTheChildEnvironment(t *testing.T) {
+	root := t.TempDir()
+	log := tempLog(t)
+
+	_, stderr, code := runGateTest(t, "-C", root, "--log", log,
+		"sh", "-c", "printf '%s' \"$"+activeRootsVar+"\"")
+	if code != Success {
+		t.Fatalf("gate = %d, stderr = %q", code, stderr)
+	}
+	output, _ := splitLog(t, log)
+	if !strings.Contains(output, root) {
+		t.Errorf("child did not see its project root in %s: %q", activeRootsVar, output)
 	}
 }
 
