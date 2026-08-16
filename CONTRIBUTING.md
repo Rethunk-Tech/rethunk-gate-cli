@@ -61,7 +61,7 @@ Two cases carry more weight than the rest, and must not be weakened:
 
 ## Hooks
 
-`lefthook.yml` runs `gate` on the commit path — `gate lint` before a commit
+`lefthook.yml` runs `gate` on the commit path — `gate run lint` before a commit
 (0.14s) and every gate before a push (2.88s). Hooks are not committed by git,
 so enabling them is a per-clone step:
 

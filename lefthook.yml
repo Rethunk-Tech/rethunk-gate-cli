@@ -9,7 +9,7 @@
 # small by policy, so pre-commit carries only what is imperceptible; the rest
 # waits for the push, which happens rarely and once.
 #
-#   gate lint   0.14s
+#   gate run lint   0.14s
 #   gate        2.88s   (build, lint, workflows, test, vuln)
 #
 # Enable with `lefthook install`. Hooks are not committed by git, so this file
@@ -20,7 +20,7 @@ pre-commit:
     # golangci-lint, via the project's own Makefile target. It subsumes go vet
     # and staticcheck, which is a lot of coverage for a seventh of a second.
     - name: lint
-      run: gate lint
+      run: gate run lint
 
 pre-push:
   jobs:
