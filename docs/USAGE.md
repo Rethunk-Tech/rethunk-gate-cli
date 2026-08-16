@@ -156,6 +156,38 @@ gate: run `gate --list` for what is here, or `gate -- typecheck` for a program b
 Only a lone word is a role. `gate test -f Makefile` is unambiguously your
 command and runs the program.
 
+### Running several, or one that is not a role
+
+`gate run` names gates explicitly, and takes as many as you like:
+
+```console
+$ gate run lint test
+gate: ok  make lint  0.1s  /var/tmp/gate/make-lint-48211-2.log
+gate: ok  make test  1.7s  /var/tmp/gate/make-test-48211-1.log
+```
+
+It is the only way to reach a gate that is not a role. `.gate.toml` can
+declare gates detection could never infer, and their names are whatever the
+project chose — so they are not claimed bare, the way `test` is:
+
+```console
+$ gate run e2e
+gate: ok  bun run test:e2e  12.4s  /var/tmp/gate/bun-run-test-e2e-48211-1.log
+```
+
+Every name has to resolve. One that does not fails the whole run without
+running anything, because running the subset that matched would report a pass
+covering a gate that never ran:
+
+```console
+$ gate run lint nosuch
+gate: no nosuch gate detected in /usr/local/src/com.github/Rethunk-Tech/rethunk-gate-cli
+gate: run `gate --list` for what is here, or `gate -- nosuch` for a program by that name
+```
+
+`run` claims the names after it, unlike every other word gate takes, so `--`
+matters here too: `gate -- run x` runs a program called `run`.
+
 ### What it looks at, in order
 
 1. **`Makefile` targets** — a target that exists is a deliberate wrapper, and

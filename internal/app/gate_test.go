@@ -608,6 +608,56 @@ func TestABareRoleSelectsThatGateAndDashDashStillReachesTheProgram(t *testing.T)
 	qt.Check(t, qt.Equals(code, Code(1)), qt.Commentf("gate -- test = %d, want the program's own 1", code))
 }
 
+// A gate's name is not always a role: config declares gates detection could
+// never infer, and those had no spelling that ran them -- naming one ran a
+// program of that name instead, so the only way to reach it was to run the
+// whole project. `run` names gates explicitly, which is also why it can take
+// names that would be ambiguous bare.
+func TestRunNamesGatesIncludingTheOnesOnlyConfigKnows(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("TMPDIR", t.TempDir())
+	ran := func(name string) string { return filepath.Join(root, name+"-ran") }
+	write(t, root, "Makefile", "test:\n\ttouch "+ran("test")+"\n")
+	write(t, root, ".gate.toml", "[gates.e2e]\nrun = \"touch "+ran("e2e")+"\"\n")
+	// A sentinel left over from the previous phase would make the next check
+	// pass without the gate having run at all.
+	reset := func(names ...string) {
+		t.Helper()
+		for _, n := range names {
+			qt.Assert(t, qt.IsNil(os.Remove(ran(n))))
+		}
+	}
+
+	// The bug: e2e is a real gate of this project and nothing could run it.
+	_, stderr, code := runGateTest(t, "-C", root, "run", "e2e")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("gate run e2e = %d, stderr = %q", code, stderr))
+	qt.Check(t, qt.IsTrue(exists(ran("e2e"))), qt.Commentf("the config-declared gate did not run"))
+	qt.Check(t, qt.IsFalse(exists(ran("test"))), qt.Commentf("naming one gate ran another"))
+
+	// Several names select several gates.
+	reset("e2e")
+	_, stderr, code = runGateTest(t, "-C", root, "run", "test", "e2e")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("gate run test e2e = %d, stderr = %q", code, stderr))
+	qt.Check(t, qt.IsTrue(exists(ran("test")) && exists(ran("e2e"))),
+		qt.Commentf("two names did not select two gates"))
+
+	// One unknown name fails the whole run and leaves nothing run. Running the
+	// subset that matched would report a pass covering a gate that never ran.
+	reset("test", "e2e")
+	_, stderr, code = runGateTest(t, "-C", root, "run", "test", "nosuch")
+	qt.Assert(t, qt.Equals(code, InvalidUsage), qt.Commentf("gate run test nosuch = %d", code))
+	qt.Check(t, qt.StringContains(stderr, "nosuch"), qt.Commentf("stderr does not name what was missing: %q", stderr))
+	qt.Check(t, qt.IsFalse(exists(ran("test"))), qt.Commentf("a partly-resolvable selection still ran a gate"))
+
+	// `run` takes arguments, unlike every other word gate claims, so the escape
+	// matters more here rather than less: this must reach a program, not gate's
+	// own usage error.
+	_, stderr, code = runGateTest(t, "-C", root, "--log", tempLog(t), "--", "run")
+	qt.Check(t, qt.Not(qt.Equals(code, InvalidUsage)),
+		qt.Commentf("`gate -- run` was still treated as gate's own word: %q", stderr))
+}
+
 // Only a lone bare word is a role. Anything with arguments is unambiguously
 // the caller's command, and second-guessing that would make one command line
 // mean different things in different repositories.

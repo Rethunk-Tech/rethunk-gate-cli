@@ -52,16 +52,30 @@ the quoted tail is not enough.
 
 `doctor` and the roles in `gateOrder` — `build`, `typecheck`, `lint`,
 `workflows`, `test`, `vuln` — are gate's own when they appear as a **lone**
-argument. Anything with arguments beside it is the caller's command, always.
+argument. Anything with arguments beside it is the caller's command.
+
+`run` is the one exception, and it is deliberate: it claims the word *and*
+the names after it. Every other claimed word is safe bare because it names a
+role, and a role is a fixed list. A gate's name is not — `.gate.toml` declares
+gates detection could never infer, so their names are whatever a project chose.
+Claiming those bare would mean any project could silently take over a word that
+is a program somewhere else, which is exactly the guess this boundary exists
+not to make. `gate run e2e` says which reading is meant, so the ambiguity never
+arises, and `--list` still answers where each name came from.
 
 That narrows the boundary above, and `--` is what pays for it: `gate -- test`
-runs `/usr/bin/test`, `gate -- doctor` runs a program called doctor. The
-escape is tested rather than assumed, because it is the entire argument for
-taking the words — the flag loop must not consume `--` and claim the word
-anyway.
+runs `/usr/bin/test`, `gate -- doctor` runs a program called doctor, and
+`gate -- run x` runs a program called run. The escape is tested rather than
+assumed, because it is the entire argument for taking the words — the flag
+loop must not consume `--` and claim the word anyway. It matters most for
+`run`, which is the only one that would otherwise swallow its arguments too.
 
 `test` is why this exists: a real binary that evaluates the empty expression
 and exits 1, so `gate test` could only ever be a gate that cannot pass.
+
+A name that resolves to no gate fails the whole run rather than the one name:
+running the subset that matched would report a pass covering a gate that never
+ran, which is the one answer this tool must never give.
 
 Scanning output for failure markers (`FAIL`, `panic:`, …) is deliberately not
 done: 50 lines to save one `less`, against a log that is already complete.

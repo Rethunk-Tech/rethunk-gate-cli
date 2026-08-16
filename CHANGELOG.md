@@ -8,6 +8,23 @@ Notable changes to `gate`. The format follows
 
 ### Added
 
+- `gate run <names...>`, which runs the named gates. It is the only way to
+  reach a gate that is not one of the roles: a `.gate.toml` `run` entry could
+  declare a gate detection could never infer, and then nothing could run it on
+  its own — naming it found a program of that name instead, so the only way to
+  reach it was to run every gate in the project.
+
+  Those names are not claimed bare the way `test` is. A role is a fixed list;
+  a config-declared gate's name is whatever the project chose, so claiming it
+  bare would let any project silently take over a word that is a program
+  somewhere else. `run` says which reading is meant. It is the one claimed
+  word that takes arguments, so `gate -- run x` still runs a program called
+  `run`.
+
+  Every name must resolve: one that does not fails the run without running
+  anything, rather than running the subset that matched and reporting a pass
+  that covers a gate which never ran.
+
 - A `vuln` gate for Python projects, `uv audit`, where a `uv.lock` exists.
   Go had one and Python did not, so a Python project's known advisories were
   nobody's job. It audits the lockfile rather than the installed environment,

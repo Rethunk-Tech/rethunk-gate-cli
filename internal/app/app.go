@@ -49,6 +49,7 @@ Commands:
   <command>     run that command as a gate
   <role>        run one of this project's gates: build, typecheck, lint,
                 workflows, test, vuln
+  run NAME...   run the named gates, including ones only .gate.toml declares
   doctor        report what is cheap to fix here (read-only)
 
 Global flags (before everything else):
@@ -70,7 +71,8 @@ Flags:
 The first non-flag argument begins the command, and everything after it --
 including its own flags -- belongs to the command. Use -- when the command's
 first token would otherwise look like a flag to gate, or when you mean the
-program that shares a name with a role: 'gate -- test' runs /usr/bin/test.
+program that shares a name with a role or with run: 'gate -- test' runs
+/usr/bin/test, and 'gate -- run x' runs a program called run.
 
 Run 'gate doctor --help' for what doctor checks.
 Full reference: docs/USAGE.md
@@ -231,10 +233,25 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	// ever have been a gate that cannot pass. `gate -- test` still reaches it,
 	// the same escape `doctor` has had.
 	command := args[i:]
-	role := ""
+	var roles []string
 	if !explicit && len(command) == 1 && detect.IsRole(command[0]) {
-		role = command[0]
+		roles = []string{command[0]}
 		command = nil
+	}
+
+	// `run` names gates explicitly, and is the only claimed word that takes
+	// arguments -- every other one is gate's only when it stands alone. It
+	// exists because a gate's name is not always a role: config declares gates
+	// detection could never infer, and guessing whether a bare word meant one
+	// of those or a program of the same name is exactly the ambiguity this
+	// spelling removes. `gate -- run x` still reaches a program called run.
+	if !explicit && len(command) > 0 && command[0] == "run" {
+		roles, command = command[1:], nil
+		if len(roles) == 0 {
+			fmt.Fprintln(stderr, "gate: run wants at least one gate name, e.g. `gate run lint test`")
+			fmt.Fprintln(stderr, "gate: run `gate --list` for what this project has, or bare `gate` to run all of it")
+			return InvalidUsage
+		}
 	}
 
 	if len(command) > 0 {
@@ -260,7 +277,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	// detector you cannot inspect is one you end up fighting.
 	var project detect.Project
 	var configured config.Config
-	if len(opts.gates) == 0 || role != "" {
+	if len(opts.gates) == 0 || len(roles) > 0 {
 		proj, err := detect.Detect(dir)
 		if err != nil {
 			fmt.Fprintf(stderr, "gate: cannot inspect this directory: %v\n", err)
@@ -287,12 +304,10 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		}
 
 		project = proj
-		found := false
 		for _, g := range proj.Gates {
-			if role != "" && g.Name != role {
+			if len(roles) > 0 && !slices.Contains(roles, g.Name) {
 				continue
 			}
-			found = true
 			spec := gateSpec{
 				argv:         g.Argv,
 				display:      g.Display(),
@@ -333,34 +348,46 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 
 		// Gates configuration declares and detection could not infer -- an
 		// e2e suite, a migration check. Added in name order so a run is
-		// reproducible, and only when nothing was selected by role.
-		if role == "" {
-			for _, name := range slices.Sorted(maps.Keys(cfg.Gates)) {
-				c := cfg.Gates[name]
-				if c.Run == "" || detect.IsRole(name) {
-					continue
-				}
-				found = true
-				opts.gates = append(opts.gates, gateSpec{
-					argv:      shellArgv(c.Run),
-					display:   c.Run,
-					toolchain: c.Toolchain,
-					serial:    c.Serial,
-					role:      name,
-					source:    c.Source + " gates." + name,
-					dir:       proj.Root,
-				})
+		// reproducible. These are selectable by name like any other gate, which
+		// is the whole point of `gate run`: a gate only config knows about was
+		// otherwise reachable only by running every gate in the project.
+		for _, name := range slices.Sorted(maps.Keys(cfg.Gates)) {
+			c := cfg.Gates[name]
+			if c.Run == "" || detect.IsRole(name) {
+				continue
 			}
+			if len(roles) > 0 && !slices.Contains(roles, name) {
+				continue
+			}
+			opts.gates = append(opts.gates, gateSpec{
+				argv:      shellArgv(c.Run),
+				display:   c.Run,
+				toolchain: c.Toolchain,
+				serial:    c.Serial,
+				role:      name,
+				source:    c.Source + " gates." + name,
+				dir:       proj.Root,
+			})
 		}
 
 		configured = cfg
 		// Never fall through to a program of that name. The caller is least
 		// sure what this project has in exactly the case where the fallback
 		// would fire, which is where running /usr/bin/test would be worst.
-		if role != "" && !found {
-			fmt.Fprintf(stderr, "gate: no %s gate detected in %s\n", role, proj.Root)
+		//
+		// Every name asked for has to resolve, not just one of them: running
+		// the subset that happened to match would report a pass for gates that
+		// never ran, which is the one answer this tool must never give.
+		var missing []string
+		for _, name := range roles {
+			if !slices.ContainsFunc(opts.gates, func(g gateSpec) bool { return g.role == name }) {
+				missing = append(missing, name)
+			}
+		}
+		if len(missing) > 0 {
+			fmt.Fprintf(stderr, "gate: no %s gate detected in %s\n", strings.Join(missing, ", "), proj.Root)
 			writeNotes(stderr, project)
-			fmt.Fprintf(stderr, "gate: run `gate --list` for what is here, or `gate -- %s` for a program by that name\n", role)
+			fmt.Fprintf(stderr, "gate: run `gate --list` for what is here, or `gate -- %s` for a program by that name\n", missing[0])
 			return InvalidUsage
 		}
 	}
