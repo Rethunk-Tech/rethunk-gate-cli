@@ -1,0 +1,31 @@
+# Git hooks, run through gate itself.
+#
+# Dog-fooding is the point: a tool not worth putting on the commit path of the
+# repository that builds it is not worth putting on anyone else's. It also
+# means the hooks inherit what gate gives every caller -- one line on success,
+# the complete log on disk, and the command's own exit status as the verdict.
+#
+# The split follows measurement, not taste. Commits here are frequent and
+# small by policy, so pre-commit carries only what is imperceptible; the rest
+# waits for the push, which happens rarely and once.
+#
+#   gate lint   0.14s
+#   gate        2.88s   (build, lint, workflows, test, vuln)
+#
+# Enable with `lefthook install`. Hooks are not committed by git, so this file
+# is the decision; running that command is what applies it.
+
+pre-commit:
+  jobs:
+    # golangci-lint, via the project's own Makefile target. It subsumes go vet
+    # and staticcheck, which is a lot of coverage for a seventh of a second.
+    - name: lint
+      run: gate lint
+
+pre-push:
+  jobs:
+    # Everything, because this is the last point before the code leaves the
+    # machine. Bare `gate` detects the project's gates rather than naming them
+    # here, so this file does not drift from what the project actually has.
+    - name: gates
+      run: gate

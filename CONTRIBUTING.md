@@ -59,6 +59,24 @@ Two cases carry more weight than the rest, and must not be weakened:
   lines than `--tail` keeps, and a single line longer than `maxTrackedLine` —
   and require the log to match byte for byte.
 
+## Hooks
+
+`lefthook.yml` runs `gate` on the commit path — `gate lint` before a commit
+(0.14s) and every gate before a push (2.88s). Hooks are not committed by git,
+so enabling them is a per-clone step:
+
+```bash
+lefthook install
+```
+
+One interaction is worth knowing rather than discovering. Gates carry
+`GATE_ACTIVE_ROOTS` to their children, and bare `gate` — or a role name like
+`gate lint` — refuses to detect a project whose gates are already running. So
+a `git commit` issued from inside a gate-run command will have its hook
+refused. That is the recursion guard working, but it blocks the commit; if it
+ever bites, name the command instead (`gate make lint`), which is not
+detection and is never refused.
+
 ## Modernization
 
 ```bash
