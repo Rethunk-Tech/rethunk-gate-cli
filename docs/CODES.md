@@ -23,8 +23,8 @@ already understands.
 | 124 | The gate exceeded its timeout and was killed — `timeout(1)`'s status, and never one the command produced |
 | 127 | The command could not be executed (not found, not executable) |
 | 128+*sig* | The command was killed by signal *sig* — 143 for SIGTERM, 137 for SIGKILL |
-| 128 | `gate` itself could not proceed: the log could not be created, or the command could not be started for a reason other than not being found |
-| 129 | Invalid usage of `gate` itself: no command given, an unrecognized flag, or a flag missing its value |
+| 128 | `gate` itself could not proceed: the log could not be created, a `-C` directory could not be entered, or the command could not be started for a reason other than not being found |
+| 129 | Invalid usage of `gate` itself: no command given, an unrecognized flag, a flag missing its value, or a malformed `-C` (no directory, or the glued `-C<path>` spelling) |
 
 A signalled command has no exit status of its own — the operating system
 reports only that a signal ended it, and Go's `exec` surfaces that as -1.

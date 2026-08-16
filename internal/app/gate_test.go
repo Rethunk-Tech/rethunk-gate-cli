@@ -686,3 +686,175 @@ func TestTimeoutWantsADuration(t *testing.T) {
 		t.Errorf("stderr = %q", stderr)
 	}
 }
+
+// -C runs the command in that directory. Proven by a marker the gate writes
+// into its own working directory, rather than by parsing `pwd` output.
+func TestChdirRunsTheCommandThere(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+
+	_, stderr, code := runGateTest(t, "-C", dir, "--log", tempLog(t), "touch", "marker")
+	if code != Success {
+		t.Fatalf("gate = %d, stderr = %q", code, stderr)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "marker")); err != nil {
+		t.Errorf("command did not run in the -C directory: %v", err)
+	}
+}
+
+// The regression that matters most here. gate used to run detected gates in
+// the caller's working directory while detection walked UP to the project
+// root, so it only worked when you stood exactly at the root. A detected gate
+// must run where the project's commands actually work.
+func TestDetectedGatesRunAtTheProjectRootNotTheCallerDirectory(t *testing.T) {
+	// t.Setenv below rules out t.Parallel.
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "Makefile"),
+		[]byte("test:\n\ttouch ran-at-root\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sub := filepath.Join(root, "deep", "inside")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TMPDIR", t.TempDir())
+
+	// -C points inside the project; detection walks up to the root.
+	_, stderr, code := runGateTest(t, "-C", sub)
+	if code != Success {
+		t.Fatalf("gate = %d, stderr = %q -- a detected gate ran where its Makefile is not", code, stderr)
+	}
+	if _, err := os.Stat(filepath.Join(root, "ran-at-root")); err != nil {
+		t.Errorf("detected gate did not run at the project root: %v", err)
+	}
+}
+
+// git's own accumulation rules, by way of rgit's -C. A second dialect of one
+// flag would be worse than no flag.
+func TestChdirRepeatsAccumulateAndAbsoluteResets(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	nested := filepath.Join(root, "a", "b")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	other := t.TempDir()
+
+	t.Run("relative repeats join", func(t *testing.T) {
+		t.Parallel()
+		_, stderr, code := runGateTest(t, "-C", root, "-C", "a", "-C", "b",
+			"--log", tempLog(t), "touch", "joined")
+		if code != Success {
+			t.Fatalf("gate = %d, stderr = %q", code, stderr)
+		}
+		if _, err := os.Stat(filepath.Join(nested, "joined")); err != nil {
+			t.Errorf("-C a -C b did not resolve to a/b: %v", err)
+		}
+	})
+
+	t.Run("absolute resets", func(t *testing.T) {
+		t.Parallel()
+		_, stderr, code := runGateTest(t, "-C", root, "-C", other,
+			"--log", tempLog(t), "touch", "reset")
+		if code != Success {
+			t.Fatalf("gate = %d, stderr = %q", code, stderr)
+		}
+		if _, err := os.Stat(filepath.Join(other, "reset")); err != nil {
+			t.Errorf("an absolute -C did not reset the accumulated path: %v", err)
+		}
+	})
+
+	t.Run("empty is a no-op", func(t *testing.T) {
+		t.Parallel()
+		_, stderr, code := runGateTest(t, "-C", root, "-C", "",
+			"--log", tempLog(t), "touch", "noop")
+		if code != Success {
+			t.Fatalf("gate = %d, stderr = %q", code, stderr)
+		}
+		if _, err := os.Stat(filepath.Join(root, "noop")); err != nil {
+			t.Errorf(`-C "" was not a no-op: %v`, err)
+		}
+	})
+}
+
+// A malformed -C is the caller's mistake; a directory that is not there is the
+// system's. Collapsing them into one status would lose which happened.
+func TestChdirRefusalsUseDistinctCodes(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		args []string
+		want Code
+	}{
+		{"glued spelling", []string{"-Cwherever", "true"}, InvalidUsage},
+		{"no directory given", []string{"-C"}, InvalidUsage},
+		{"directory absent", []string{"-C", filepath.Join(t.TempDir(), "nope"), "true"}, Fatal},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			_, stderr, code := runGateTest(t, tc.args...)
+			if code != tc.want {
+				t.Fatalf("gate %v = %d, want %d (stderr %q)", tc.args, code, tc.want, stderr)
+			}
+		})
+	}
+
+	t.Run("a file is not a directory", func(t *testing.T) {
+		t.Parallel()
+		file := filepath.Join(t.TempDir(), "regular")
+		if err := os.WriteFile(file, nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		_, _, code := runGateTest(t, "-C", file, "true")
+		if code != Fatal {
+			t.Fatalf("gate = %d, want %d", code, Fatal)
+		}
+	})
+}
+
+// -C should be indistinguishable from having stood there, which includes
+// where a relative output path lands.
+func TestRelativeLogResolvesAgainstChdir(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+
+	_, stderr, code := runGateTest(t, "-C", dir, "--log", "gate.log", "true")
+	if code != Success {
+		t.Fatalf("gate = %d, stderr = %q", code, stderr)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "gate.log")); err != nil {
+		t.Errorf("relative --log did not resolve against -C: %v", err)
+	}
+}
+
+// The invariant guard: gates carry their own directory rather than the
+// process having one. This fails the moment anyone "simplifies" cmd.Dir into
+// an os.Chdir, because a single chdir cannot satisfy two gates at once.
+func TestConcurrentGatesEachRunInTheirOwnDirectory(t *testing.T) {
+	// t.Setenv below rules out t.Parallel. TMPDIR is redirected so the two
+	// gates' default log paths land in a temp directory rather than
+	// littering /var/tmp -- they cannot share one --log between them.
+	first, second := t.TempDir(), t.TempDir()
+	t.Setenv("TMPDIR", t.TempDir())
+
+	opts := options{
+		tail:    defaultTail,
+		noPrune: true,
+		gates: []gateSpec{
+			{argv: []string{"touch", "from-first"}, display: "touch from-first", dir: first},
+			{argv: []string{"touch", "from-second"}, display: "touch from-second", dir: second},
+		},
+	}
+	var out, errBuf bytes.Buffer
+	if code := runGates(context.Background(), opts, &out, &errBuf); code != Success {
+		t.Fatalf("runGates = %d, stderr = %q", code, errBuf.String())
+	}
+
+	if _, err := os.Stat(filepath.Join(first, "from-first")); err != nil {
+		t.Errorf("first gate ran elsewhere: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(second, "from-second")); err != nil {
+		t.Errorf("second gate ran elsewhere: %v", err)
+	}
+}

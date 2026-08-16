@@ -6,6 +6,14 @@ Notable changes to `gate`. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Gates ran in the caller's working directory while detection walked up to the
+  project root, so `gate` only worked when run from the root. Detected gates
+  now run at the project root. This was never released, but it is a bug fix
+  rather than part of `-C`, and is listed separately because it changes
+  behaviour for anyone who was working around it.
+
 ### Added
 
 - `gate <command>` runs a command, captures its complete output to a log file,
@@ -15,6 +23,12 @@ Notable changes to `gate`. The format follows
   [`docs/USAGE.md`](docs/USAGE.md) and [`docs/CODES.md`](docs/CODES.md).
 
 - `--tail`, `--log`, `--quiet`, `--version`, and `--help`.
+
+- `-C <path>` runs as if gate had been started in `<path>`, with git's own
+  semantics: leading only, repeats accumulating, an absolute path resetting,
+  `-C ""` a no-op, and the glued spelling refused. A relative `--log` resolves
+  against it. See
+  [`docs/USAGE.md`](docs/USAGE.md#-c-path--running-somewhere-else).
 
 - `--timeout D` bounds each gate, defaulting to 1m; `0` disables it. A gate
   that overruns is killed with its whole process group and reported as killed

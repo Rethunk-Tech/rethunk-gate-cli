@@ -9,6 +9,44 @@ gate: ok  bun test  1.7s  /var/tmp/gate/bun-test-48211.log
 log file, and reports one line. The command's own exit status is returned
 unchanged.
 
+## `-C <path>` — running somewhere else
+
+`-C <path>` runs as if `gate` had been started in `<path>`, exactly as
+`git -C` and `rgit -C` do. It must come **before** everything else, because
+every argument after gate's first non-flag belongs to the wrapped command.
+
+```console
+$ gate -C ~/src/api                       # that project's gates
+$ gate -C ~/src/api --list                # what it would run there
+$ gate -C ~/src/api doctor                # what is worth fixing there
+```
+
+Which is what makes a sweep across checkouts a one-liner:
+
+```bash
+for d in ~/src/*/; do gate -C "$d" --quiet || echo "FAIL $d"; done
+```
+
+Repeats accumulate, each read relative to the last, and an absolute path
+resets — `-C a -C b` is `-C a/b`. `-C ""` is a no-op. All three are git's own
+semantics. The glued `-C<path>` spelling is a usage error, as it is in git.
+
+The directory is checked before anything runs: no directory argument is a
+usage error (129), and one that cannot be entered is fatal (128). A relative
+`--log` resolves against it too, so passing `-C` really is indistinguishable
+from having stood there.
+
+### Where a gate actually runs
+
+- **Detected gates run at the project root**, not where you stood. They are
+  the project's own commands and only work there.
+- **A command you name runs in the `-C` directory** (or your working
+  directory). That command is yours.
+
+This is also a bug fix: before `-C` existed, gates ran wherever the caller
+stood while detection walked *up* to the project root, so `gate` only worked
+from the root and nothing said so.
+
 ## Why not a pipe
 
 `bun test | tail -20` can invert a verdict: the exit status you get is

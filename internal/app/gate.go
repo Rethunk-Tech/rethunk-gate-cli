@@ -46,6 +46,11 @@ type gateSpec struct {
 	// about the command line says what it shares with anything else.
 	toolchain string
 
+	// dir is where this gate runs. Set per gate rather than by chdir: gates
+	// run concurrently, and the working directory is process-global, so one
+	// chdir would apply to every gate in flight.
+	dir string
+
 	// timeout bounds this gate alone. It sits here rather than on options
 	// so per-project configuration can set it per gate later without the
 	// runner changing shape. Zero means no limit.
@@ -245,6 +250,7 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 	// A child that ignores the kill still gets reaped rather than hanging the
 	// run it was supposed to bound.
 	cmd.WaitDelay = 5 * time.Second
+	cmd.Dir = spec.dir
 	cmd.Stdin = nil
 	// One writer for both streams, so interleaving in the log matches what a
 	// terminal would have shown. Splitting them would reorder the very lines

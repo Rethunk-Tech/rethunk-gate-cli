@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -32,15 +33,16 @@ const defaultKeepDays = 7
 // configuration can set it per gate.
 const defaultTimeout = time.Minute
 
-const gateHelp = `usage: gate [flags] <command> [args...]
-       gate [flags] -- <command> [args...]
-       gate doctor
+const gateHelp = `usage: gate [-C <path>] [flags] <command> [args...]
+       gate [-C <path>] [flags] -- <command> [args...]
+       gate [-C <path>] doctor
 
 Run a gate command, capture its complete output to a log file, and report only
 the verdict. The command's own exit status is passed through unchanged, so
 anything reading that status sees exactly what it would have without gate.
 
 Flags:
+  -C <path>     run as if gate had been started in <path> (before all else)
   --also CMD    run CMD as another gate, concurrently (repeatable; shell string)
   --serial      run gates in order and stop at the first failure
   --list        print the gates that would run, and run nothing
@@ -73,6 +75,14 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	opts := options{tail: defaultTail, keepFor: defaultKeepDays * 24 * time.Hour}
 	timeout := defaultTimeout
 	var also []string
+
+	dir, args, code, ok := parseChdir(args, stderr)
+	if !ok {
+		return code
+	}
+	if code, ok := enterable(dir, stderr); !ok {
+		return code
+	}
 
 	i := 0
 	for i < len(args) {
@@ -168,13 +178,14 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	// command to run. A real program by that name is still reachable as
 	// `gate -- doctor`, which is what -- is for.
 	if rest := args[i:]; len(rest) == 1 && rest[0] == "doctor" {
-		return runDoctor(stdout, stderr)
+		return runDoctor(dir, stdout, stderr)
 	}
 
 	if command := args[i:]; len(command) > 0 {
 		opts.gates = append(opts.gates, gateSpec{
 			argv:    command,
 			display: strings.Join(command, " "),
+			dir:     dir,
 		})
 	}
 	for _, shellCommand := range also {
@@ -184,6 +195,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		opts.gates = append(opts.gates, gateSpec{
 			argv:    []string{"sh", "-c", shellCommand},
 			display: shellCommand,
+			dir:     dir,
 		})
 	}
 
@@ -192,7 +204,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	// detector you cannot inspect is one you end up fighting.
 	var project detect.Project
 	if len(opts.gates) == 0 {
-		proj, err := detect.Detect(".")
+		proj, err := detect.Detect(dir)
 		if err != nil {
 			fmt.Fprintf(stderr, "gate: cannot inspect this directory: %v\n", err)
 			return Fatal
@@ -203,6 +215,9 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 				argv:      g.Argv,
 				display:   g.Display(),
 				toolchain: string(g.Toolchain),
+				// The project's own commands only work at its root, which
+				// is not necessarily where the caller stood.
+				dir: proj.Root,
 			})
 		}
 	}
@@ -230,6 +245,9 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	// resolved quietly: choosing silently between two stated intents is the
 	// one behaviour that would make this untrustworthy.
 	writeShadowWarnings(stderr, project)
+	if opts.logPath != "" && !filepath.IsAbs(opts.logPath) {
+		opts.logPath = filepath.Join(dir, opts.logPath)
+	}
 	if len(opts.gates) > 1 && opts.logPath != "" {
 		// One path cannot hold several gates' logs, and silently sharing it
 		// would destroy the output of every gate but the last.

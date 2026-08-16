@@ -12,8 +12,8 @@ import (
 // It exits 0 whether or not it found anything. Findings are advice, and an
 // advisory command that failed the build would turn every suggestion into a
 // blocker -- which is how advice stops being read.
-func runDoctor(stdout, stderr io.Writer) Code {
-	findings, err := doctor.Run(".")
+func runDoctor(dir string, stdout, stderr io.Writer) Code {
+	findings, err := doctor.Run(dir)
 	if err != nil {
 		fmt.Fprintf(stderr, "gate: cannot inspect this directory: %v\n", err)
 		return Fatal

@@ -65,6 +65,26 @@ Breaking one of these is silent.
 | A signalled command reports 128+signal | It has no exit status of its own; exec reports -1, which tells the caller nothing |
 | A log close error is reported, not deferred away | The complete log is the guarantee; losing it silently is the one failure nobody would notice |
 
+## Working directory
+
+**Never `os.Chdir`.** Gates run concurrently in goroutines and the working
+directory is process-global: one chdir applies to every gate in flight, and
+would make a relative `--log` resolve differently depending on scheduling.
+Each gate carries its own directory and the runner sets `cmd.Dir`, which is
+race-free by construction. `TestConcurrentGatesEachRunInTheirOwnDirectory`
+exists to fail the moment someone "simplifies" this into a chdir — a single
+chdir cannot satisfy two gates at once.
+
+**Detected gates run at `proj.Root`, not where the caller stood.** They are
+the project's own commands and only work at its root. Before this rule,
+`cmd.Dir` was never set at all, so detection walked up to the root while
+execution stayed put — `gate` worked only from the root, and said nothing
+about it.
+
+A command named explicitly runs in the `-C` directory instead: that command
+belongs to the caller, and `gate -C x <cmd>` should be indistinguishable from
+standing in `x` and typing it.
+
 ## Detection
 
 `internal/detect` reads manifests and stats files. **It never executes
