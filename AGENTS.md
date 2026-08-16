@@ -81,6 +81,28 @@ Breaking one of these is silent.
 | stdout and stderr share one writer | Splitting them reorders the very lines a failure is read from |
 | A signalled command reports 128+signal | It has no exit status of its own; exec reports -1, which tells the caller nothing |
 | A log close error is reported, not deferred away | The complete log is the guarantee; losing it silently is the one failure nobody would notice |
+| An interrupted gate still reaches `writeTrailer` and `Close` | Ctrl-C used to leave a zero-byte log: gate died and nothing finished the file it had opened |
+| An interrupt reports the signal that reached *gate* | The child dies of the SIGKILL gate sent it, so reporting 137 would name gate's own mechanism as the cause |
+
+## Interrupts
+
+A terminal signals the foreground process group, which is gate's. Every child
+is deliberately in its **own** group so a timeout can kill the whole tree —
+and that is precisely what puts the child beyond the terminal's reach. Before
+this was handled, Ctrl-C ended gate and left the gate running: measured, the
+child reparented to pid 1 and ran to completion while the log sat at zero
+bytes.
+
+`main` catches SIGINT and SIGTERM, cancels the context `app.Run` already
+takes, and the cancellation reaches the child through the same `cmd.Cancel`
+and `killProcessGroup` the timeout uses. It then hands the signal back to the
+operating system, so a second Ctrl-C ends gate even if a child is ignoring
+the first — a handler that swallowed every signal would make a wedged gate
+unkillable.
+
+An interrupted gate is reported as stopped, never failed, exactly as a
+timeout is. Gates that had not started are reported as not run, and say the
+run was interrupted rather than blaming a gate that failed.
 
 ## Working directory
 

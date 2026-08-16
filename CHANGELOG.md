@@ -15,6 +15,15 @@ Notable changes to `gate`. The format follows
 
 ### Added
 
+- Ctrl-C now stops the gate instead of orphaning it. gate handles SIGINT and
+  SIGTERM, kills each running gate with its whole process group, and exits
+  128+the signal — 130 for Ctrl-C. Previously gate died and the gate did not:
+  a terminal signals the foreground process group, which is gate's, while
+  every child sits in its own so a timeout can kill the whole tree. Measured,
+  the child reparented to pid 1 and ran to completion while its log was left
+  at zero bytes. Interrupted gates are reported as stopped rather than failed,
+  their logs still end with a trailer, and a second signal ends gate outright.
+
 - `gate doctor` reports a repository with no CI at all (`no-ci`). Every other
   CI check gives up on a missing `.github/workflows`, so a repository with
   imperfect CI produced several findings while one with none produced nothing

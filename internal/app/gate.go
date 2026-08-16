@@ -119,10 +119,17 @@ type gateResult struct {
 	fatalErr error
 
 	// skipped marks a gate that never started, because one before it in its
-	// group failed. It is reported rather than dropped: a gate missing from
-	// the output reads as "not failing" rather than "not run", which is the
-	// reading doctor's own ci-no-final-gate check exists to condemn.
-	skipped bool
+	// group failed or because the run was interrupted. It is reported rather
+	// than dropped: a gate missing from the output reads as "not failing"
+	// rather than "not run", which is the reading doctor's own
+	// ci-no-final-gate check exists to condemn.
+	skipped    bool
+	skipReason string
+
+	// interrupted marks a gate stopped because gate itself was signalled. It
+	// is not a failure and must never be reported as one -- the same
+	// distinction a timeout gets, for the same reason.
+	interrupted bool
 }
 
 // runGates runs every gate and returns the aggregate status.
@@ -143,6 +150,12 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 
 	if opts.serial {
 		for i, spec := range opts.gates {
+			// A cancelled run starts nothing further. Leaving these
+			// zero-valued reports them as skipped below, rather than as
+			// failures from an exec that was never going to happen.
+			if ctx.Err() != nil {
+				break
+			}
 			results[i] = runOne(ctx, spec, opts)
 			// --serial exists for gates that depend on each other -- build
 			// before test being the common one -- so a failure stops the
@@ -164,6 +177,9 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 				// group -- a test whose build just failed has nothing left
 				// to say -- but never touches the other groups.
 				for _, i := range group {
+					if ctx.Err() != nil {
+						break
+					}
 					results[i] = runOne(ctx, opts.gates[i], opts)
 					if results[i].code != Success {
 						break
@@ -178,9 +194,13 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 	// it never reached. They are named as skipped rather than dropped: the
 	// caller asked for these gates, and silence about one is indistinguishable
 	// from it having passed.
+	reason := "an earlier gate failed"
+	if ctx.Err() != nil {
+		reason = "the run was interrupted"
+	}
 	for i := range results {
 		if results[i].spec.display == "" {
-			results[i] = gateResult{spec: opts.gates[i], skipped: true}
+			results[i] = gateResult{spec: opts.gates[i], skipped: true, skipReason: reason}
 		}
 	}
 
@@ -221,11 +241,22 @@ func report(results []gateResult, opts options, stdout, stderr io.Writer) Code {
 			// verdict, and inventing one would be the lie this reports to
 			// avoid. It goes to stderr because it only ever accompanies a
 			// failure.
-			fmt.Fprintf(stderr, "gate: SKIP  %s  (not run: an earlier gate failed)\n", res.spec.short())
+			fmt.Fprintf(stderr, "gate: SKIP  %s  (not run: %s)\n", res.spec.short(), res.skipReason)
 		case res.fatalErr != nil:
 			fmt.Fprintf(stderr, "gate: %v\n", res.fatalErr)
 			if aggregate == Success {
 				aggregate = Fatal
+			}
+		case res.interrupted:
+			// Stopped, not judged -- the same distinction a timeout gets. The
+			// status reported is the signal that reached gate, never the
+			// SIGKILL gate sent the child, which would name gate's own
+			// mechanism as the cause.
+			fmt.Fprintf(stderr, "gate: INTERRUPTED  %s  (stopped, not failed)\n", res.spec.short())
+			writeFailureRegion(stderr, res.tracker)
+			fmt.Fprintf(stderr, "gate: partial log  %s\n", res.logPath)
+			if aggregate == Success {
+				aggregate = Interrupted
 			}
 		case res.timedOut:
 			fmt.Fprintf(stderr, "gate: TIMEOUT after %s  %s  (killed, not failed)\n",
@@ -338,6 +369,12 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 		// slower than the limit".
 		res.timedOut = true
 		res.code = TimedOut
+	case errors.Is(runCtx.Err(), context.Canceled):
+		// Checked before the exit status for the same reason a timeout is:
+		// the kill makes an interrupted gate look signalled, and it was not
+		// -- it was stopped.
+		res.interrupted = true
+		res.code = Interrupted
 	case runErr != nil && isNotFound(runErr):
 		res.notFound = true
 		res.code = NotFound
@@ -377,6 +414,8 @@ func writeTrailer(w io.Writer, res gateResult, danglingLine bool) error {
 	}
 	outcome := fmt.Sprintf("exit %d", int(res.code))
 	switch {
+	case res.interrupted:
+		outcome = "interrupted"
 	case res.timedOut:
 		outcome = "killed on timeout"
 	case res.notFound:

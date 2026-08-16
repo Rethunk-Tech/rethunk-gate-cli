@@ -23,6 +23,7 @@ already understands.
 | 124 | The gate exceeded its timeout and was killed — `timeout(1)`'s status, and never one the command produced |
 | 127 | The command could not be executed (not found, not executable) |
 | 128+*sig* | The command was killed by signal *sig* — 143 for SIGTERM, 137 for SIGKILL |
+| 130 / 143 | `gate` itself was interrupted (Ctrl-C) or terminated — 128+the signal that reached *gate*, never the SIGKILL it sent the gate |
 | 128 | `gate` itself could not proceed: the log could not be created, a `-C` directory could not be entered, the command could not be started for a reason other than not being found, or a gate from this project is already running (see below) |
 | 129 | Invalid usage of `gate` itself: no command given, an unrecognized flag, a flag missing its value, a malformed `-C` (no directory, or the glued `-C<path>` spelling), or a role named that this project has no gate for |
 
@@ -94,6 +95,22 @@ gate: cannot run "<command>": <error>
 
 On stderr, with exit 127. Distinct from a command that ran and failed:
 reporting "the gate failed" for something that never ran would be false.
+
+### Interrupted
+
+```text
+gate: INTERRUPTED  <command>  (stopped, not failed)
+gate: partial log  /var/tmp/gate/<name>.log
+```
+
+On stderr, with 128+the signal — 130 for Ctrl-C. Phrased as a stop rather
+than a failure, for the same reason a timeout is: the gate was not judged.
+Every gate in flight is killed with its whole process group, so nothing is
+left behind, and each log still ends with a trailer reading `interrupted`.
+Gates that had not started are reported as not run.
+
+A second signal ends `gate` outright, so a child ignoring the first cannot
+wedge the session.
 
 ### Already running this project's gates
 

@@ -781,6 +781,91 @@ func TestHelpListsExactlyTheRolesThatSelect(t *testing.T) {
 	}
 }
 
+// Ctrl-C used to end gate and leave the gate running: a terminal signals the
+// foreground process group, which is gate's, while every child is in its own
+// so a timeout can kill the whole tree. The child outlived gate and the log
+// was left zero bytes -- both invariants broken at once.
+//
+// Run takes its context from the caller, so cancelling it here exercises
+// everything except the handler in main.
+func TestAnInterruptedGateIsStoppedNotFailedAndKeepsItsLog(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	started := filepath.Join(dir, "child-started")
+	orphan := filepath.Join(dir, "orphan-survived")
+	log := tempLog(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	script := "echo before-the-interrupt; (touch " + started +
+		"; sleep 0.4; touch " + orphan + ") & sleep 10"
+
+	var out, errBuf bytes.Buffer
+	done := make(chan Code, 1)
+	go func() {
+		done <- Run(ctx, "v0.0.0-test", []string{"--timeout", "0", "--log", log,
+			"sh", "-c", script}, &out, &errBuf)
+	}()
+
+	// Let the child get going, then interrupt.
+	time.Sleep(150 * time.Millisecond)
+	cancel()
+
+	code := <-done
+	stderr := errBuf.String()
+
+	if code != Interrupted {
+		t.Fatalf("gate = %d, want %d (128+SIGINT) -- stderr = %q", code, Interrupted, stderr)
+	}
+	// Stopped, not judged. 137 would be the SIGKILL gate itself sent.
+	if !strings.Contains(stderr, "INTERRUPTED") || strings.Contains(stderr, "FAIL") {
+		t.Errorf("an interrupt was reported as a failure: %q", stderr)
+	}
+
+	if _, err := os.Stat(started); err != nil {
+		t.Fatalf("the background child never ran, so nothing here is proven: %v", err)
+	}
+	time.Sleep(700 * time.Millisecond)
+	if _, err := os.Stat(orphan); err == nil {
+		t.Error("a process spawned by the gate survived the interrupt")
+	}
+
+	// The log is the guarantee, and it was empty before this worked.
+	output, trailer := splitLog(t, log)
+	if !strings.Contains(output, "before-the-interrupt") {
+		t.Errorf("log lost what the command wrote: %q", output)
+	}
+	if !strings.Contains(trailer, "interrupted") {
+		t.Errorf("trailer = %q, want it to record the interrupt", trailer)
+	}
+}
+
+// Gates the interrupt stopped from starting are reported as not run, and say
+// why -- "an earlier gate failed" would be false.
+func TestGatesNotStartedWhenInterruptedSayTheRunWasInterrupted(t *testing.T) {
+	// setLogDir uses t.Setenv, which rules out t.Parallel.
+	setLogDir(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	var out, errBuf bytes.Buffer
+	done := make(chan Code, 1)
+	go func() {
+		done <- Run(ctx, "v0.0.0-test", []string{"--serial", "--timeout", "0",
+			"--also", "true", "sh", "-c", "sleep 10"}, &out, &errBuf)
+	}()
+
+	time.Sleep(150 * time.Millisecond)
+	cancel()
+	<-done
+
+	stderr := errBuf.String()
+	if !strings.Contains(stderr, "SKIP") || !strings.Contains(stderr, "interrupted") {
+		t.Errorf("the gate that never started was not reported as interrupted: %q", stderr)
+	}
+	if strings.Contains(stderr, "an earlier gate failed") {
+		t.Errorf("an interrupted run blamed a failing gate: %q", stderr)
+	}
+}
+
 // One path cannot hold several gates' logs, and silently sharing it would
 // destroy every gate's output but the last.
 func TestRunLogWithAlsoIsRefused(t *testing.T) {

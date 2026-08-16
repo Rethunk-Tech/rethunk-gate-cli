@@ -20,6 +20,13 @@ const (
 	// gate that failed.
 	TimedOut Code = 124
 
+	// Interrupted is a gate stopped because gate itself was signalled. 130 is
+	// 128+SIGINT, the shell's own value for a Ctrl-C, and it is what Run
+	// returns when its context is cancelled. `main` replaces it with
+	// 128+whatever signal actually arrived, so a SIGTERM reports 143 -- the
+	// signal that reached gate, never the SIGKILL gate sent the child.
+	Interrupted Code = 130
+
 	// NotFound is a command that could not be executed at all. 127 is the
 	// shell's own value for this, and gate matches it rather than inventing
 	// a second convention for a condition the platform already names.
