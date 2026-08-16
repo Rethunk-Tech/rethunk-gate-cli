@@ -35,6 +35,8 @@ on a specific status behaves as it would without `gate`.
 
 | Flag | Effect |
 | --- | --- |
+| `--also CMD` | Run `CMD` as another gate, concurrently. Repeatable. |
+| `--serial` | Run gates in order, stopping at the first failure |
 | `--tail N` | Trailing lines to quote on failure (default 40) |
 | `--log PATH` | Write the log here instead of the default location |
 | `--quiet` | Print nothing when the command passes; failures still report |
@@ -58,6 +60,46 @@ to `gate`:
 ```console
 gate -- --my-weird-command
 ```
+
+## Several gates at once
+
+```console
+$ gate --also 'bunx tsc --noEmit' --also 'bunx biome check .' bun test
+gate: ok  bun test          1.7s  /var/tmp/gate/bun-test-48211-1.log
+gate: ok  bunx tsc --noEmit  2.4s  /var/tmp/gate/sh-c-bunx-tsc-noEmit-48211-2.log
+gate: ok  bunx biome check .  0.3s  /var/tmp/gate/sh-c-bunx-biome-check-48211-3.log
+```
+
+Each gate gets its own log. Results are reported in the order the gates were
+named, never the order they finished, so the same run always reads the same
+way. When several gates fail, the exit status is that of the first one named.
+
+`--also` takes a single shell string, so it can carry pipes and globs. The main
+command is an argv and is not shell-interpreted.
+
+**`--also` must come before the command.** Everything after the first non-flag
+argument belongs to the command, so this does not do what it looks like:
+
+```console
+gate go vet ./... --also 'go build ./...'   # --also is passed to go vet
+```
+
+### When to use `--serial`
+
+`--serial` runs gates in order and stops at the first failure. Two reasons to
+reach for it, and the second is easy to miss:
+
+1. **Ordering.** `build` before the `test` that needs it. Running them together
+   tests an artifact that may not exist.
+2. **Shared caches.** Gates on the same toolchain can be *slower* concurrently.
+   Running `go vet`, `go build` and `gofmt` together on one repository took
+   1.11s, against 0.62s with `--serial` — sequentially the later gates find the
+   Go build cache warm, while concurrently they contend for the same
+   compilation.
+
+Concurrency pays when gates are genuinely independent, such as a linter and a
+type checker from different toolchains. It is never inferred, because nothing
+in the command line says which case you are in.
 
 ## Logs
 

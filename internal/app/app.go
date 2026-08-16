@@ -25,9 +25,11 @@ the verdict. The command's own exit status is passed through unchanged, so
 anything reading that status sees exactly what it would have without gate.
 
 Flags:
+  --also CMD    run CMD as another gate, concurrently (repeatable; shell string)
+  --serial      run gates in order and stop at the first failure
   --tail N      trailing lines to quote on failure (default 40)
   --log PATH    write the log here instead of the default location
-  --quiet       print nothing when the command passes
+  --quiet       print nothing when the gates pass
   --version     print the version and exit
   -h, --help    show this help and exit
 
@@ -35,12 +37,18 @@ The first non-flag argument begins the command, and everything after it --
 including its own flags -- belongs to the command. Use -- when the command's
 first token would otherwise look like a flag to gate.
 
+Gates named with --also run at the same time as the main command, because
+independent gates have no reason to wait for each other. Use --serial when one
+gate depends on another, such as a build before the tests that need it: gates
+then run in the order given and stop at the first failure.
+
 Full reference: docs/USAGE.md
 `
 
-// Run parses gate's own arguments and runs the command that follows them.
+// Run parses gate's own arguments and runs the gates that follow them.
 func Run(ctx context.Context, version string, args []string, stdout, stderr io.Writer) exitcode.Code {
 	opts := options{tail: defaultTail}
+	var also []string
 
 	i := 0
 	for i < len(args) {
@@ -66,6 +74,16 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		case "--quiet":
 			opts.quiet = true
 			i++
+		case "--serial":
+			opts.serial = true
+			i++
+		case "--also":
+			value, next, code := flagValue(args, i, name, inlineValue, hasInline, stderr)
+			if code != exitcode.Success {
+				return code
+			}
+			also = append(also, value)
+			i = next
 		case "--tail":
 			value, next, code := flagValue(args, i, name, inlineValue, hasInline, stderr)
 			if code != exitcode.Success {
@@ -92,14 +110,35 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		}
 	}
 
-	opts.command = args[i:]
-	if len(opts.command) == 0 {
+	if command := args[i:]; len(command) > 0 {
+		opts.gates = append(opts.gates, gateSpec{
+			argv:    command,
+			display: strings.Join(command, " "),
+		})
+	}
+	for _, shellCommand := range also {
+		// --also takes one string rather than an argv, so it has to reach a
+		// shell to be split -- which also means it can carry pipes and
+		// globs, the way anyone writing a second gate would expect.
+		opts.gates = append(opts.gates, gateSpec{
+			argv:    []string{"sh", "-c", shellCommand},
+			display: shellCommand,
+		})
+	}
+
+	if len(opts.gates) == 0 {
 		fmt.Fprintln(stderr, "gate: no command given")
 		fmt.Fprint(stderr, gateHelp)
 		return exitcode.InvalidUsage
 	}
+	if len(opts.gates) > 1 && opts.logPath != "" {
+		// One path cannot hold several gates' logs, and silently sharing it
+		// would destroy the output of every gate but the last.
+		fmt.Fprintln(stderr, "gate: --log names a single file; with --also, set TMPDIR to choose where logs go")
+		return exitcode.InvalidUsage
+	}
 
-	return runGate(ctx, opts, stdout, stderr)
+	return runGates(ctx, opts, stdout, stderr)
 }
 
 // flagValue reads a flag's value from either --flag=value or --flag value,

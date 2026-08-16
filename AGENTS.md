@@ -58,6 +58,34 @@ Breaking one of these is silent.
 | A signalled command reports 128+signal | It has no exit status of its own; exec reports -1, which tells the caller nothing |
 | A log close error is reported, not deferred away | The complete log is the guarantee; losing it silently is the one failure nobody would notice |
 
+## Concurrency, and when it loses
+
+Gates named with `--also` run concurrently by default. Measured over 7 days of
+real sessions, back-to-back gate chains cost 7.93h run sequentially against
+5.57h if overlapped — but that figure is an **upper bound**, and this repo has
+a counterexample of its own.
+
+Running `go vet`, `go build` and `gofmt` together on `rethunk-git-cli`:
+
+| Mode | Total | `go vet` alone |
+| --- | --- | --- |
+| concurrent | 1.11s | 1.1s |
+| `--serial` | 0.62s | 68ms |
+
+Serial won. The gates share a Go build cache, so run in sequence the second
+and third find it warm, while run together they duplicate and contend for the
+same compilation. Concurrency pays when gates are genuinely independent —
+different toolchains, such as a linter and a type checker — and costs when
+they share a cache.
+
+This is why parallelism is **explicit and never inferred**. It is also why
+`--serial` is not only about ordering: `build` before `test` needs it for
+correctness, and same-toolchain gates may want it for speed.
+
+Anything that later chooses gates automatically has to respect this. Grouping
+every detected gate into one concurrent batch would be slower than a sequence
+on exactly the projects with the most gates to run.
+
 ## Exit codes
 
 `gate` is a wrapper, so it mostly returns nothing of its own — the command's

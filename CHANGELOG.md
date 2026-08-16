@@ -15,3 +15,12 @@ Notable changes to `gate`. The format follows
   [`docs/USAGE.md`](docs/USAGE.md) and [`docs/CODES.md`](docs/CODES.md).
 
 - `--tail`, `--log`, `--quiet`, `--version`, and `--help`.
+
+- `--also CMD` runs additional gates concurrently, each with its own log,
+  reported in the order they were named rather than the order they finished.
+  When several fail, the exit status is that of the first gate named.
+
+- `--serial` runs gates in order and stops at the first failure — for gates
+  that depend on each other, and for gates on a shared build cache, which can
+  be slower run concurrently. See
+  [`docs/USAGE.md`](docs/USAGE.md#when-to-use---serial).

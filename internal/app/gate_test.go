@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/exitcode"
 )
@@ -247,5 +248,153 @@ func TestRunQuietSuppressesOnlyThePassLine(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "bad") {
 		t.Errorf("quiet failure stayed silent: %q", stderr)
+	}
+}
+
+// setLogDir points the default log location at a temp directory. Multi-gate
+// runs cannot use --log, since one path cannot hold several logs, so TMPDIR
+// is how a test keeps its logs out of /var/tmp. t.Setenv forbids t.Parallel.
+func setLogDir(t *testing.T) {
+	t.Helper()
+	t.Setenv("TMPDIR", t.TempDir())
+}
+
+// Independent gates have no reason to wait for each other. Measured over 7
+// days, back-to-back gate chains cost 7.93h sequentially against 5.57h if
+// overlapped, so this is the single largest saving the tool offers.
+func TestRunAlsoOverlapsIndependentGates(t *testing.T) {
+	setLogDir(t)
+
+	const sleep = "0.4"
+	started := time.Now()
+	_, stderr, code := runGateTest(t, "--also", "sleep "+sleep, "sleep", sleep)
+	elapsed := time.Since(started)
+
+	if code != exitcode.Success {
+		t.Fatalf("gate = %d, stderr = %q", code, stderr)
+	}
+	// Two 0.4s gates: overlapped they finish near 0.4s, serialised near 0.8s.
+	// The threshold sits between the two rather than near either, so ordinary
+	// scheduling noise cannot decide the result.
+	if elapsed > 700*time.Millisecond {
+		t.Errorf("two 0.4s gates took %s, want them overlapped", elapsed)
+	}
+}
+
+// A failing gate must not hide another gate's outcome: the whole reason to
+// run them together is to learn everything wrong in one pass.
+func TestRunAlsoReportsEveryGateAndPicksFirstFailure(t *testing.T) {
+	setLogDir(t)
+
+	_, stderr, code := runGateTest(t,
+		"--also", "echo second-problem >&2; exit 4",
+		"sh", "-c", "echo first-problem >&2; exit 3")
+
+	if code != exitcode.Code(3) {
+		t.Fatalf("aggregate = %d, want 3 (the first gate named)", code)
+	}
+	for _, want := range []string{"first-problem", "second-problem", "exit 3", "exit 4"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("stderr missing %q: %q", want, stderr)
+		}
+	}
+}
+
+// Concurrent gates finish in an order nobody controls, so the report is
+// ordered by declaration instead -- otherwise the same run would print
+// differently each time.
+func TestRunAlsoReportsInDeclarationOrderNotFinishOrder(t *testing.T) {
+	setLogDir(t)
+
+	stdout, stderr, code := runGateTest(t, "--also", "true", "sleep", "0.3")
+	if code != exitcode.Success {
+		t.Fatalf("gate = %d, stderr = %q", code, stderr)
+	}
+	slow := strings.Index(stdout, "sleep 0.3")
+	fast := strings.Index(stdout, "true")
+	if slow < 0 || fast < 0 {
+		t.Fatalf("stdout did not report both gates: %q", stdout)
+	}
+	if slow > fast {
+		t.Errorf("report followed finish order, not declaration order: %q", stdout)
+	}
+}
+
+// Concurrent gates in one process share a pid, and two gates can reduce to
+// the same slug -- so without a disambiguator they would overwrite each
+// other's logs, losing exactly what this tool exists to keep.
+func TestRunAlsoGivesEachGateItsOwnLog(t *testing.T) {
+	setLogDir(t)
+
+	stdout, stderr, code := runGateTest(t, "--also", "echo bbb", "sh", "-c", "echo aaa")
+	if code != exitcode.Success {
+		t.Fatalf("gate = %d, stderr = %q", code, stderr)
+	}
+
+	var logs []string
+	for line := range strings.SplitSeq(strings.TrimSpace(stdout), "\n") {
+		fields := strings.Fields(line)
+		logs = append(logs, fields[len(fields)-1])
+	}
+	if len(logs) != 2 {
+		t.Fatalf("want two verdict lines, got %q", stdout)
+	}
+	if logs[0] == logs[1] {
+		t.Fatalf("both gates logged to %s", logs[0])
+	}
+	bodies := []string{readLog(t, logs[0]), readLog(t, logs[1])}
+	if bodies[0] != "aaa\n" || bodies[1] != "bbb\n" {
+		t.Errorf("logs = %q, want [\"aaa\\n\" \"bbb\\n\"]", bodies)
+	}
+}
+
+// --serial is for gates that depend on each other. build-then-test is the
+// third most common real chain and is not order-independent, so a failed
+// build must stop the run rather than let the tests fail for a reason nobody
+// needs to read.
+func TestRunSerialStopsAtFirstFailure(t *testing.T) {
+	setLogDir(t)
+
+	marker := filepath.Join(t.TempDir(), "second-ran")
+	_, stderr, code := runGateTest(t, "--serial",
+		"--also", "touch "+marker,
+		"sh", "-c", "exit 5")
+
+	if code != exitcode.Code(5) {
+		t.Fatalf("gate = %d, want 5", code)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Error("--serial ran the second gate after the first failed")
+	}
+	if strings.Contains(stderr, "touch") {
+		t.Errorf("second gate was reported despite never running: %q", stderr)
+	}
+}
+
+func TestRunSerialRunsEveryGateWhenAllPass(t *testing.T) {
+	setLogDir(t)
+
+	marker := filepath.Join(t.TempDir(), "second-ran")
+	stdout, stderr, code := runGateTest(t, "--serial", "--also", "touch "+marker, "true")
+	if code != exitcode.Success {
+		t.Fatalf("gate = %d, stderr = %q", code, stderr)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Errorf("--serial skipped the second gate: %v", err)
+	}
+	if strings.Count(stdout, "gate: ok") != 2 {
+		t.Errorf("want two pass lines, got %q", stdout)
+	}
+}
+
+// One path cannot hold several gates' logs, and silently sharing it would
+// destroy every gate's output but the last.
+func TestRunLogWithAlsoIsRefused(t *testing.T) {
+	_, stderr, code := runGateTest(t, "--log", tempLog(t), "--also", "true", "true")
+	if code != exitcode.InvalidUsage {
+		t.Fatalf("gate = %d, want %d", code, exitcode.InvalidUsage)
+	}
+	if !strings.Contains(stderr, "--log names a single file") {
+		t.Errorf("stderr = %q", stderr)
 	}
 }
