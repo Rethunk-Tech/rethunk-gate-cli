@@ -23,6 +23,15 @@ const defaultTail = 40
 // in a measured week -- nothing else would ever remove them.
 const defaultKeepDays = 7
 
+// defaultTimeout bounds each gate. Chosen deliberately at one minute, with
+// the cost known: of 12,569 real gate invocations measured over a week, 141
+// (1.12%) ran longer than 60s and p99 was 65.0s -- so this sits almost
+// exactly on the 99th percentile and will kill roughly one working gate in
+// ninety. That is why a timeout reports 124 and says "killed", never
+// "failed", and why --timeout exists to raise it per run until per-project
+// configuration can set it per gate.
+const defaultTimeout = time.Minute
+
 const gateHelp = `usage: gate [flags] <command> [args...]
        gate [flags] -- <command> [args...]
        gate doctor
@@ -38,6 +47,7 @@ Flags:
   --tail N      trailing lines to quote on failure (default 40)
   --log PATH    write the log here instead of the default location
   --quiet       print nothing when the gates pass
+  --timeout D   kill a gate that runs longer than D (default 1m, 0 disables)
   --keep DAYS   how long gate's own logs survive (default 7)
   --no-prune    keep every log, however old
   --version     print the version and exit
@@ -61,6 +71,7 @@ Full reference: docs/USAGE.md
 // Run parses gate's own arguments and runs the gates that follow them.
 func Run(ctx context.Context, version string, args []string, stdout, stderr io.Writer) Code {
 	opts := options{tail: defaultTail, keepFor: defaultKeepDays * 24 * time.Hour}
+	timeout := defaultTimeout
 	var also []string
 
 	i := 0
@@ -114,6 +125,18 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 				return InvalidUsage
 			}
 			opts.tail = n
+			i = next
+		case "--timeout":
+			value, next, code := flagValue(args, i, name, inlineValue, hasInline, stderr)
+			if code != Success {
+				return code
+			}
+			d, err := time.ParseDuration(value)
+			if err != nil || d < 0 {
+				fmt.Fprintf(stderr, "gate: --timeout wants a duration like 90s or 5m, got %q\n", value)
+				return InvalidUsage
+			}
+			timeout = d
 			i = next
 		case "--keep":
 			value, next, code := flagValue(args, i, name, inlineValue, hasInline, stderr)
@@ -182,6 +205,10 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 				toolchain: string(g.Toolchain),
 			})
 		}
+	}
+
+	for i := range opts.gates {
+		opts.gates[i].timeout = timeout
 	}
 
 	if opts.list {

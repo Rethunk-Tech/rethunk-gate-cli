@@ -607,3 +607,82 @@ func TestPruningAMissingDirectoryIsHarmless(t *testing.T) {
 		t.Fatalf("gate = %d, stderr = %q", code, stderr)
 	}
 }
+
+// A killed gate must never read as a failed one. 124 is timeout(1)'s status
+// and is not something the command could have returned itself, so a caller
+// branching on it can tell "slower than the limit" from "broken".
+func TestTimeoutReportsKilledNotFailed(t *testing.T) {
+	t.Parallel()
+	log := tempLog(t)
+
+	_, stderr, code := runGateTest(t, "--timeout", "300ms", "--log", log,
+		"sh", "-c", "echo before-the-kill; sleep 10")
+
+	if code != TimedOut {
+		t.Fatalf("gate = %d, want %d", code, TimedOut)
+	}
+	if !strings.Contains(stderr, "TIMEOUT") || strings.Contains(stderr, "FAIL") {
+		t.Errorf("stderr reads as a failure rather than a kill: %q", stderr)
+	}
+
+	// Whatever the command managed to write before the kill is still the
+	// log's job to keep.
+	output, trailer := splitLog(t, log)
+	if !strings.Contains(output, "before-the-kill") {
+		t.Errorf("log lost output written before the kill: %q", output)
+	}
+	// The trailer must not claim an exit status the command never produced.
+	if !strings.Contains(trailer, "killed on timeout") {
+		t.Errorf("trailer = %q, want it to record the timeout", trailer)
+	}
+}
+
+func TestGateInsideItsTimeoutIsUnaffected(t *testing.T) {
+	t.Parallel()
+	_, stderr, code := runGateTest(t, "--timeout", "30s", "--log", tempLog(t), "true")
+	if code != Success {
+		t.Fatalf("gate = %d, stderr = %q", code, stderr)
+	}
+}
+
+func TestTimeoutZeroDisablesTheLimit(t *testing.T) {
+	t.Parallel()
+	_, stderr, code := runGateTest(t, "--timeout", "0", "--log", tempLog(t),
+		"sh", "-c", "sleep 0.2")
+	if code != Success {
+		t.Fatalf("gate = %d, stderr = %q", code, stderr)
+	}
+}
+
+// Killing only the direct child leaves whatever it spawned still running --
+// a test runner's workers keep holding their port, and the next run fails
+// for a reason that has nothing to do with the code.
+func TestTimeoutKillsTheWholeProcessGroup(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	orphan := filepath.Join(dir, "orphan-survived")
+
+	// The background child outlives its parent's kill unless the whole group
+	// is signalled.
+	script := "(sleep 1; touch " + orphan + ") & sleep 10"
+	_, _, code := runGateTest(t, "--timeout", "200ms", "--log", tempLog(t), "sh", "-c", script)
+	if code != TimedOut {
+		t.Fatalf("gate = %d, want %d", code, TimedOut)
+	}
+
+	time.Sleep(1500 * time.Millisecond)
+	if _, err := os.Stat(orphan); err == nil {
+		t.Error("a process spawned by the gate survived the timeout kill")
+	}
+}
+
+func TestTimeoutWantsADuration(t *testing.T) {
+	t.Parallel()
+	_, stderr, code := runGateTest(t, "--timeout", "soon", "true")
+	if code != InvalidUsage {
+		t.Fatalf("gate = %d, want %d", code, InvalidUsage)
+	}
+	if !strings.Contains(stderr, "duration") {
+		t.Errorf("stderr = %q", stderr)
+	}
+}

@@ -14,6 +14,12 @@ const (
 	// Success is the wrapped command's own success.
 	Success Code = 0
 
+	// TimedOut is a gate killed for exceeding its timeout. 124 is what
+	// coreutils' timeout(1) reports, and it is deliberately not a status the
+	// command itself produced: a gate that was killed must never read as a
+	// gate that failed.
+	TimedOut Code = 124
+
 	// NotFound is a command that could not be executed at all. 127 is the
 	// shell's own value for this, and gate matches it rather than inventing
 	// a second convention for a condition the platform already names.

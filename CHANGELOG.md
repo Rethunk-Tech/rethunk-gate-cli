@@ -16,6 +16,11 @@ Notable changes to `gate`. The format follows
 
 - `--tail`, `--log`, `--quiet`, `--version`, and `--help`.
 
+- `--timeout D` bounds each gate, defaulting to 1m; `0` disables it. A gate
+  that overruns is killed with its whole process group and reported as killed
+  rather than failed, exiting 124. The measured cost of the default is in
+  [`docs/USAGE.md`](docs/USAGE.md#the-default-is-aggressive-deliberately).
+
 - Logs are created 0600 in a 0700 directory, and an existing directory with a
   looser mode is tightened on use. gate's own logs older than 7 days are
   pruned on each run; `--keep DAYS` and `--no-prune` control it. A directory

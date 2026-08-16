@@ -45,6 +45,11 @@ type gateSpec struct {
 	// which is what an explicitly named --also gate gets, since nothing
 	// about the command line says what it shares with anything else.
 	toolchain string
+
+	// timeout bounds this gate alone. It sits here rather than on options
+	// so per-project configuration can set it per gate later without the
+	// runner changing shape. Zero means no limit.
+	timeout time.Duration
 }
 
 // gateResult is everything one gate produced. Running fills these in; nothing
@@ -57,6 +62,7 @@ type gateResult struct {
 	logPath  string
 	tracker  *lineTracker
 	notFound bool
+	timedOut bool
 	fatalErr error
 }
 
@@ -156,6 +162,14 @@ func report(results []gateResult, opts options, stdout, stderr io.Writer) Code {
 			if aggregate == Success {
 				aggregate = Fatal
 			}
+		case res.timedOut:
+			fmt.Fprintf(stderr, "gate: TIMEOUT after %s  %s  (killed, not failed)\n",
+				res.spec.timeout, res.spec.display)
+			writeFailureRegion(stderr, res.tracker)
+			fmt.Fprintf(stderr, "gate: partial log  %s\n", res.logPath)
+			if aggregate == Success {
+				aggregate = TimedOut
+			}
 		case res.notFound:
 			fmt.Fprintf(stderr, "gate: cannot run %q\n", res.spec.display)
 			if aggregate == Success {
@@ -216,7 +230,21 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 
 	res.tracker = newLineTracker(opts.tail)
 
-	cmd := exec.CommandContext(ctx, spec.argv[0], spec.argv[1:]...)
+	runCtx := ctx
+	if spec.timeout > 0 {
+		var cancel context.CancelFunc
+		runCtx, cancel = context.WithTimeout(ctx, spec.timeout)
+		defer cancel()
+	}
+
+	cmd := exec.CommandContext(runCtx, spec.argv[0], spec.argv[1:]...)
+	// Kill the whole process group, not just the child: a test runner that
+	// spawned workers would otherwise leave them behind holding a port.
+	setProcessGroup(cmd)
+	cmd.Cancel = func() error { return killProcessGroup(cmd) }
+	// A child that ignores the kill still gets reaped rather than hanging the
+	// run it was supposed to bound.
+	cmd.WaitDelay = 5 * time.Second
 	cmd.Stdin = nil
 	// One writer for both streams, so interleaving in the log matches what a
 	// terminal would have shown. Splitting them would reorder the very lines
@@ -235,10 +263,18 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 	danglingLine := res.tracker.pending()
 	res.tracker.close()
 
-	if runErr != nil && isNotFound(runErr) {
+	switch {
+	case spec.timeout > 0 && errors.Is(runCtx.Err(), context.DeadlineExceeded):
+		// Checked before the exit status, because the kill makes a timed-out
+		// gate look signalled. It was not: it was stopped, and saying so is
+		// the difference between "your tests are broken" and "your tests are
+		// slower than the limit".
+		res.timedOut = true
+		res.code = TimedOut
+	case runErr != nil && isNotFound(runErr):
 		res.notFound = true
 		res.code = NotFound
-	} else {
+	default:
 		res.code = resolveCode(runErr)
 	}
 
@@ -273,7 +309,10 @@ func writeTrailer(w io.Writer, res gateResult, danglingLine bool) error {
 		lead = "\n"
 	}
 	outcome := fmt.Sprintf("exit %d", int(res.code))
-	if res.notFound {
+	switch {
+	case res.timedOut:
+		outcome = "killed on timeout"
+	case res.notFound:
 		outcome = "could not run"
 	}
 	_, err := fmt.Fprintf(w, "%s%s %s in %s -- %s\n",

@@ -20,6 +20,7 @@ already understands.
 | --- | --- |
 | 0 | The command succeeded |
 | *n* | The command exited *n* — passed through unchanged |
+| 124 | The gate exceeded its timeout and was killed — `timeout(1)`'s status, and never one the command produced |
 | 127 | The command could not be executed (not found, not executable) |
 | 128+*sig* | The command was killed by signal *sig* — 143 for SIGTERM, 137 for SIGKILL |
 | 128 | `gate` itself could not proceed: the log could not be created, or the command could not be started for a reason other than not being found |
@@ -71,6 +72,19 @@ It comes after every byte the command wrote, so the log still starts with
 exactly the command's own output, and a log read a week later answers what
 happened rather than only what was printed. `[gate]` is distinctive enough to
 grep for, or to strip with `head -n -1`.
+
+### Timed out
+
+```text
+gate: TIMEOUT after <duration>  <command>  (killed, not failed)
+--- last <n> line(s) ---
+<lines>
+gate: partial log  <log path>
+```
+
+On stderr, with exit 124. Deliberately not phrased as a failure: the command
+was stopped, not judged. Its log trailer reads `killed on timeout` rather than
+an exit status it never returned.
 
 ### Could not run
 

@@ -41,6 +41,7 @@ on a specific status behaves as it would without `gate`.
 | `--tail N` | Trailing lines to quote on failure (default 40) |
 | `--log PATH` | Write the log here instead of the default location |
 | `--quiet` | Print nothing when the command passes; failures still report |
+| `--timeout D` | Kill a gate running longer than `D` (default `1m`, `0` disables) |
 | `--keep DAYS` | How long gate's own logs survive (default 7) |
 | `--no-prune` | Keep every log, however old |
 | `--version` | Print the version and exit |
@@ -203,6 +204,42 @@ would be noise.
 Every check reads the repository itself, so the same repository gives the same
 findings on any machine. A check that depended on leftover state elsewhere on
 the box was removed for that reason.
+
+## Timeouts
+
+Each gate is bounded independently, defaulting to one minute. A gate that
+overruns is **killed, not failed**:
+
+```console
+$ gate --timeout 1s -- sh -c 'echo starting; sleep 5'
+gate: TIMEOUT after 1s  sh -c echo starting; sleep 5  (killed, not failed)
+--- last 1 line(s) ---
+starting
+gate: partial log  /var/tmp/gate/sh-c-echo-starting-sleep-5-359260-1.log
+$ echo $?
+124
+```
+
+124 is `timeout(1)`'s status and is not one the command could have produced,
+so a caller can tell "slower than the limit" from "broken". The log keeps
+whatever was written before the kill, and its trailer records the timeout
+rather than an exit status that never happened.
+
+The whole process group is killed, not just the command: a test runner that
+forked workers would otherwise leave them holding a port.
+
+### The default is aggressive, deliberately
+
+Measured over 12,569 real gate invocations in a week: **141 (1.12%) ran longer
+than 60s, and p99 was 65.0s**. The one-minute default therefore sits almost
+exactly on the 99th percentile — roughly one working gate in ninety will be
+killed by it. That is a deliberate trade for bounding unattended runs, and it
+is why a timeout is reported so distinctly.
+
+Raise it per run with `--timeout 5m`, or disable it with `--timeout 0`.
+Per-gate limits from per-project configuration are the intended follow-on; the
+timeout already lives on the gate rather than on the run, so that will not
+change the runner's shape.
 
 ## Logs
 
