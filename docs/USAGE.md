@@ -322,6 +322,28 @@ rather than an exit status that never happened.
 The whole process group is killed, not just the command: a test runner that
 forked workers would otherwise leave them holding a port.
 
+## Interrupting a run
+
+Ctrl-C stops the gates, not only `gate`. Each running command is killed with
+its whole process group, every log still ends with a trailer recording the
+interrupt, and gates that had not started are reported as not run:
+
+```console
+^C
+gate: INTERRUPTED  make test  (stopped, not failed)
+gate: partial log  /var/tmp/gate/make-test-48211-4.log
+gate: SKIP  govulncheck ./...  (not run: the run was interrupted)
+```
+
+`gate` exits **128+the signal** — 130 for Ctrl-C, 143 for SIGTERM. That is the
+signal that reached `gate`, never the SIGKILL `gate` sent the command, which
+would name its own mechanism as the cause. An interrupted gate is reported as
+stopped rather than failed, for the same reason a timeout is: it was not
+judged.
+
+A second signal ends `gate` outright, so a command ignoring the first cannot
+wedge the session.
+
 ### The default is aggressive, deliberately
 
 Measured over 12,569 real gate invocations in a week: **141 (1.12%) ran longer

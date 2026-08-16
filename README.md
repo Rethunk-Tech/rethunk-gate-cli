@@ -37,9 +37,16 @@ Prerequisites and full install notes: [HUMANS.md](HUMANS.md).
   happened", not just "what was printed".
 - **A passing gate costs one line.** Measured on a real suite, output dropped
   94% — from ~242 tokens to ~16.
+- **It already knows your gates.** Bare `gate` reads the project — `Makefile`
+  targets, `package.json` scripts, `turbo.json` tasks — and runs them. A bare
+  role name runs one: `gate test`, `gate lint`. `gate --list` shows what it
+  chose and why.
 - **Concurrent when you say so.** `--also` runs independent gates together,
   each with its own log, reported in the order you named them. `--serial` is
   there for gates that depend on each other, or share a build cache.
+- **Ctrl-C stops the gate, not just `gate`.** The running command and anything
+  it spawned are killed together, and the log still gets its trailer. A gate
+  an earlier failure stopped is reported as skipped rather than omitted.
 - **`gate doctor` tells you what to fix.** Missing vulnerability gates, CI
   gaps, superseded tooling — each with the evidence behind it. Read-only.
 - **Fast enough to wrap anything.** ~700µs of startup, against a median real
