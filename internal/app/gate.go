@@ -76,8 +76,14 @@ type gateSpec struct {
 
 	// serial sequences this gate against the other serial ones. Nothing else
 	// sequences a gate -- gates run concurrently unless --serial, a config
-	// default, or this gate's own config entry asks for order.
+	// default, this gate's own config entry, or detection finding two gates
+	// that provably write the same files asks for order.
 	serial bool
+
+	// serialReason says why a gate detection sequenced is sequenced. Empty
+	// when the caller asked, since --serial and a config entry already say
+	// so themselves.
+	serialReason string
 
 	// dir is where this gate runs. Set per gate rather than by chdir: gates
 	// run concurrently, and the working directory is process-global, so one

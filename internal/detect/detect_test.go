@@ -269,3 +269,48 @@ func TestSupabaseIsSkippedWithAStatedReason(t *testing.T) {
 	qt.Check(t, qt.IsTrue(hasNote(detect(t, dir), "supabase")),
 		qt.Commentf("supabase's omission was not explained"))
 }
+
+// The one ordering detection infers, and the reason it is allowed to: build
+// and typecheck both write .next, which is a shared FILE rather than a
+// dependency on another gate's result. Run concurrently they clobber each
+// other nondeterministically, so a lucky run proves nothing and the failure
+// blames the type checker for a build's timing.
+//
+// The member is where next lives, not the root: a Next monorepo declares
+// workspaces and keeps each app's dependency in that app's manifest, so a
+// check that read only the root manifest would answer no for exactly the
+// repository that needs this most.
+func TestNextBuildAndTypecheckAreSequencedAgainstEachOther(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	write(t, dir, "package.json", `{"workspaces":["apps/*"],"scripts":{"build":"turbo run build","typecheck":"turbo run typecheck","lint":"biome check ."}}`)
+	write(t, dir, "apps/web/package.json", `{"dependencies":{"next":"^15.0.0"}}`)
+	write(t, dir, "package-lock.json", "{}")
+
+	proj := detect(t, dir)
+	for _, name := range []string{"build", "typecheck"} {
+		g := gateNamed(t, proj, name)
+		qt.Check(t, qt.IsTrue(g.Serial), qt.Commentf("gate %s was left to race the other over .next", name))
+		qt.Check(t, qt.StringContains(g.SerialReason, ".next"),
+			qt.Commentf("gate %s is sequenced but does not say why: %q", name, g.SerialReason))
+	}
+	// Everything else still overlaps: the conflict is those two, and
+	// sequencing a gate that shares nothing is pure wall clock.
+	qt.Check(t, qt.IsFalse(gateNamed(t, proj, "lint").Serial),
+		qt.Commentf("lint was sequenced despite sharing nothing with build"))
+}
+
+// A node project that is not Next keeps every gate concurrent. Without this,
+// the check above would still pass if detection simply sequenced build and
+// typecheck everywhere.
+func TestANonNextProjectSequencesNothing(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	write(t, dir, "package.json", `{"scripts":{"build":"tsc","typecheck":"tsc --noEmit","lint":"biome check ."}}`)
+	write(t, dir, "package-lock.json", "{}")
+
+	proj := detect(t, dir)
+	for _, g := range proj.Gates {
+		qt.Check(t, qt.IsFalse(g.Serial), qt.Commentf("gate %s was sequenced with no shared output to justify it", g.Name))
+	}
+}

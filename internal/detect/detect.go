@@ -51,6 +51,15 @@ type Gate struct {
 
 	Toolchain Toolchain
 
+	// Serial asks for this gate to run in sequence with the other serial
+	// gates rather than concurrently. Set only where two gates provably
+	// contend for the same files -- see markSerial.
+	Serial bool
+
+	// SerialReason says why, so --list can explain an order gate chose
+	// rather than one the caller asked for.
+	SerialReason string
+
 	// Shadowed lists other DECLARATIONS found for the same role that this
 	// one outranks. Never resolved silently -- reported.
 	//
@@ -163,7 +172,39 @@ func Detect(dir string) (Project, error) {
 			proj.Gates = append(proj.Gates, g)
 		}
 	}
+
+	// The one ordering gate infers, and it is a shared FILE, not a dependency
+	// on another gate's result: build and typecheck both write .next. Two
+	// gates writing one directory is something detection can see, unlike
+	// "test needs the artifact build produced", which only the project knows.
+	// A project that disagrees sets gates.<role>.serial = false.
+	markSerial(&proj, "next writes .next in both build and typecheck", "build", "typecheck")
+
 	return proj, nil
+}
+
+// markSerial sequences the named gates against each other, but only when every
+// one of them is present: pairing a gate with one that does not exist would
+// serialise it against nothing and still say so in --list.
+func markSerial(proj *Project, reason string, names ...string) {
+	if !usesNext(proj.Root) {
+		return
+	}
+	found := 0
+	for i := range proj.Gates {
+		if slices.Contains(names, proj.Gates[i].Name) {
+			found++
+		}
+	}
+	if found < len(names) {
+		return
+	}
+	for i := range proj.Gates {
+		if slices.Contains(names, proj.Gates[i].Name) {
+			proj.Gates[i].Serial = true
+			proj.Gates[i].SerialReason = reason
+		}
+	}
 }
 
 func (p Project) workspaceOrRoot() string {

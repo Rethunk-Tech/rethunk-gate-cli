@@ -50,6 +50,15 @@ Notable changes to `gate`. The format follows
   A project whose `test` depends on its `build` and never said so will now run
   them together. Add `serial = true` to both.
 
+- Next projects sequence `build` against `typecheck` automatically. Both write
+  the same `.next` directory — `typecheck` runs `next typegen`, `build` clears
+  and rewrites it — so concurrently they race, failing nondeterministically as
+  a missing `.next/types` file or "Unexpected error while generating route
+  types". Measured on `caldera`: 2 of 3 concurrent runs failed, none sequenced.
+  Only those two gates are paired, it costs ~5% on a single-app Next repo, the
+  reason is named in `--list`, and `gates.<role>.serial = false` overrides it.
+  This is the only order gate infers.
+
 - `--serial` and a serial group are now one code path rather than two that had
   to agree, and `--list` reports the resulting shape (`all concurrent`, or
   which gates are sequenced).

@@ -303,6 +303,12 @@ repository's gates fully concurrently beat it by 24–42% (`rethunk-git-cli`
 1.55s → 0.97s, `Routed` 1.22s → 0.71s). Contention costs less than the
 serialisation does.
 
+One order gate infers on its own: in a **Next** project, `build` and
+`typecheck` are sequenced against each other, because `next build` and the
+`next typegen` that `typecheck` runs both write the same `.next` directory and
+race when overlapped. `--list` names that as the reason, and
+`gates.<role>.serial = false` turns it off. Nothing else is ever inferred.
+
 Precedence is the same as the timeout's, nearest intent first: `--serial` beats
 `[defaults] serial`, which applies when the flag is absent. A gate's own
 `serial = false` turns off a user-level default, which is why an absent key and

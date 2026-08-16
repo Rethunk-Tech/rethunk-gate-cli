@@ -80,17 +80,93 @@ func makefileToolchain(root string) Toolchain {
 }
 
 type packageJSON struct {
-	Scripts map[string]string `json:"scripts"`
+	Scripts      map[string]string `json:"scripts"`
+	Dependencies map[string]string `json:"dependencies"`
+	DevDeps      map[string]string `json:"devDependencies"`
+	// Workspaces is npm/bun's array form or yarn's object form, so it is held
+	// raw and decoded by usesNext, which is the only caller that needs it.
+	Workspaces json.RawMessage `json:"workspaces"`
+}
+
+// usesNext reports whether this project builds a Next application.
+//
+// It exists for one scheduling decision: `next build` and `next typegen` both
+// write the app's .next directory, and typecheck runs typegen. Left to overlap
+// they clobber each other, and the failure is nondeterministic -- a build
+// clearing .next while typegen writes .next/types surfaces as a missing
+// type file, or as "Unexpected error while generating route types", or not
+// at all on a lucky run.
+//
+// Members are read rather than walked: a monorepo declares where its packages
+// are, and caldera keeps every next.config.ts under apps/*, so the root
+// manifest alone would answer no.
+func usesNext(root string) bool {
+	pkg, ok := readPackageJSON(filepath.Join(root, "package.json"))
+	if !ok {
+		return false
+	}
+	if dependsOnNext(pkg) {
+		return true
+	}
+
+	for _, pattern := range workspacePatterns(pkg) {
+		// A member pattern is relative to the root that declared it, and a
+		// glob is as deep as this goes: a workspace that hides members
+		// somewhere undeclared is not something detection can see.
+		matches, err := filepath.Glob(filepath.Join(root, filepath.FromSlash(pattern), "package.json"))
+		if err != nil {
+			continue
+		}
+		for _, path := range matches {
+			if member, ok := readPackageJSON(path); ok && dependsOnNext(member) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func readPackageJSON(path string) (packageJSON, bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return packageJSON{}, false
+	}
+	var pkg packageJSON
+	if err := json.Unmarshal(data, &pkg); err != nil {
+		return packageJSON{}, false
+	}
+	return pkg, true
+}
+
+func dependsOnNext(pkg packageJSON) bool {
+	_, dep := pkg.Dependencies["next"]
+	_, dev := pkg.DevDeps["next"]
+	return dep || dev
+}
+
+// workspacePatterns accepts both spellings: npm and bun write an array, yarn
+// writes an object with a packages key. Neither is rare enough to ignore.
+func workspacePatterns(pkg packageJSON) []string {
+	if len(pkg.Workspaces) == 0 {
+		return nil
+	}
+	var list []string
+	if err := json.Unmarshal(pkg.Workspaces, &list); err == nil {
+		return list
+	}
+	var object struct {
+		Packages []string `json:"packages"`
+	}
+	if err := json.Unmarshal(pkg.Workspaces, &object); err == nil {
+		return object.Packages
+	}
+	return nil
 }
 
 // packageJSONGates reads the scripts a project declares.
 func packageJSONGates(root, workspace string, proj *Project) []Gate {
-	data, err := os.ReadFile(filepath.Join(root, "package.json"))
-	if err != nil {
-		return nil
-	}
-	var pkg packageJSON
-	if err := json.Unmarshal(data, &pkg); err != nil {
+	pkg, ok := readPackageJSON(filepath.Join(root, "package.json"))
+	if !ok {
 		return nil
 	}
 	if _, ok := pkg.Scripts[aggregateName]; ok && proj != nil {

@@ -294,12 +294,14 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 			}
 			found = true
 			spec := gateSpec{
-				argv:      g.Argv,
-				display:   g.Display(),
-				toolchain: string(g.Toolchain),
-				role:      g.Name,
-				source:    g.Source,
-				shadowed:  g.Shadowed,
+				argv:         g.Argv,
+				display:      g.Display(),
+				toolchain:    string(g.Toolchain),
+				serial:       g.Serial,
+				serialReason: g.SerialReason,
+				role:         g.Name,
+				source:       g.Source,
+				shadowed:     g.Shadowed,
 				// The project's own commands only work at its root, which
 				// is not necessarily where the caller stood.
 				dir: proj.Root,
@@ -319,7 +321,11 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 				if c.Toolchain != "" {
 					spec.toolchain = c.Toolchain
 				}
-				spec.serial = c.Serial
+				// Only where the file actually said so: an absent key must
+				// not silently undo an order detection found for a reason.
+				if c.HasSerial {
+					spec.serial, spec.serialReason = c.Serial, ""
+				}
 				spec.source = g.Source + ", overridden by " + c.Source
 			}
 			opts.gates = append(opts.gates, spec)

@@ -53,6 +53,9 @@ func writeListing(w io.Writer, project detect.Project, files []string, opts opti
 			if spec.role != "" {
 				fmt.Fprintf(w, "%s[%s] %-10s %s\n", lead, toolchain, spec.role, spec.display)
 				fmt.Fprintf(w, "        from %s\n", spec.source)
+				if spec.serialReason != "" {
+					fmt.Fprintf(w, "        serial: %s\n", spec.serialReason)
+				}
 				for _, shadowed := range spec.shadowed {
 					fmt.Fprintf(w, "        shadows %s\n", shadowed)
 				}

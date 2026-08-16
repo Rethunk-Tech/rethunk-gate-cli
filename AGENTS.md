@@ -248,6 +248,30 @@ the toolchain, so the project has to say it: `--serial` for a whole run,
 `gates.<role>.serial` for the gates that genuinely chain. Everything else
 overlaps.
 
+### The one order gate infers
+
+A shared **file** is different from a shared result, and detection can see it.
+Next writes `.next` from both `next build` and `next typegen`, and `typecheck`
+runs typegen — so run concurrently they clobber each other, and the failure is
+nondeterministic. A build clearing `.next` while typegen writes `.next/types`
+surfaces as a missing type file, as "Unexpected error while generating route
+types", or not at all on a lucky run. Measured on `caldera`, concurrent runs
+failed 2 of 3; sequenced, none.
+
+So `usesNext` pairs `build` and `typecheck` into one serial group, and only
+those two — sequencing a gate that shares nothing is pure wall clock. It costs
+about 5% on a single-app Next repository (2.34s to 2.47s) and nothing where a
+slower gate already sets the pace.
+
+Detection reads the workspace members rather than walking the tree, because
+that is where the dependency lives: a Next monorepo declares `workspaces` and
+keeps each app's `next` in the app's own manifest, so the root manifest alone
+would answer no for exactly the repository that needs this most.
+
+`--list` names the reason on the gate, and `gates.<role>.serial = false` turns
+it off — an inferred order the caller cannot see or override would be the
+thing this tool exists not to be.
+
 That is the whole scheduling rule, and `schedule` is where it lives: a gate
 marked serial joins one group, every other gate becomes a group of its own,
 and groups run concurrently. A whole-run `--serial` puts every gate into that
