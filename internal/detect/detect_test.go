@@ -3,8 +3,11 @@ package detect
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/go-quicktest/qt"
 )
 
 // write creates a file, making its parents. Fixtures are directories of
@@ -12,12 +15,8 @@ import (
 func write(t *testing.T, dir, name, body string) {
 	t.Helper()
 	path := filepath.Join(dir, name)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	qt.Assert(t, qt.IsNil(os.MkdirAll(filepath.Dir(path), 0o755)))
+	qt.Assert(t, qt.IsNil(os.WriteFile(path, []byte(body), 0o644)))
 }
 
 // writeExecutable plants a runnable file, used to stand in for a tool that
@@ -25,13 +24,17 @@ func write(t *testing.T, dir, name, body string) {
 func writeExecutable(t *testing.T, dir, name string) string {
 	t.Helper()
 	path := filepath.Join(dir, name)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	qt.Assert(t, qt.IsNil(os.MkdirAll(filepath.Dir(path), 0o755)))
+	qt.Assert(t, qt.IsNil(os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o755)))
 	return path
+}
+
+// detect runs Detect and fails the test if it could not.
+func detect(t *testing.T, dir string) Project {
+	t.Helper()
+	proj, err := Detect(dir)
+	qt.Assert(t, qt.IsNil(err))
+	return proj
 }
 
 func gateNamed(t *testing.T, proj Project, name string) Gate {
@@ -45,6 +48,15 @@ func gateNamed(t *testing.T, proj Project, name string) Gate {
 	return Gate{}
 }
 
+// hasNote reports whether detection explained something. Notes are how a
+// deliberate omission is distinguished from silence, so several tests ask
+// this same question.
+func hasNote(proj Project, substr string) bool {
+	return slices.ContainsFunc(proj.Notes, func(n string) bool {
+		return strings.Contains(n, substr)
+	})
+}
+
 // Rule 1, and the case most likely to regress silently. Measured across the
 // fleet, 52 of 71 package.json files declare a typecheck script -- so
 // inferring `tsc` while the project declares its own command would bypass the
@@ -56,23 +68,13 @@ func TestDeclaredScriptBeatsTheInferredCommand(t *testing.T) {
 	write(t, dir, "bun.lock", "")
 	writeExecutable(t, dir, "node_modules/.bin/tsc")
 
-	proj, err := Detect(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	typecheck := gateNamed(t, proj, "typecheck")
-	if want := "bun run typecheck"; typecheck.Display() != want {
-		t.Errorf("typecheck = %q, want %q", typecheck.Display(), want)
-	}
-	if !strings.Contains(typecheck.Source, "package.json") {
-		t.Errorf("source = %q, want the package.json declaration", typecheck.Source)
-	}
+	typecheck := gateNamed(t, detect(t, dir), "typecheck")
+	qt.Check(t, qt.Equals(typecheck.Display(), "bun run typecheck"))
+	qt.Check(t, qt.StringContains(typecheck.Source, "package.json"))
 	// A convention losing to a declaration is the design working, not a
 	// disagreement, so it must not be reported as one.
-	if len(typecheck.Shadowed) != 0 {
-		t.Errorf("a convention was reported as shadowed: %v", typecheck.Shadowed)
-	}
+	qt.Check(t, qt.HasLen(typecheck.Shadowed, 0),
+		qt.Commentf("a convention was reported as shadowed"))
 }
 
 // Rule 2. Measured on the machine this was built for, turbo and pyrefly are
@@ -86,18 +88,9 @@ func TestFallbackResolvesProjectLocalBinaryAbsentFromPath(t *testing.T) {
 	write(t, dir, "bun.lock", "")
 	biome := writeExecutable(t, dir, "node_modules/.bin/biome")
 
-	proj, err := Detect(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	lint := gateNamed(t, proj, "lint")
-	if lint.Argv[0] != biome {
-		t.Errorf("lint runs %q, want the resolved path %q -- a bare name is not on PATH", lint.Argv[0], biome)
-	}
-	if !strings.HasPrefix(lint.Display(), biome) {
-		t.Errorf("lint = %q, want it to invoke the project-local biome", lint.Display())
-	}
+	lint := gateNamed(t, detect(t, dir), "lint")
+	qt.Check(t, qt.Equals(lint.Argv[0], biome),
+		qt.Commentf("a bare name is not on PATH and would fail to execute"))
 }
 
 // Two manifests declaring the same role differently is the case that must
@@ -111,23 +104,15 @@ func TestCompetingDeclarationsAreReportedNotResolvedSilently(t *testing.T) {
 	write(t, dir, "package.json", `{"scripts":{"test":"vitest run"}}`)
 	write(t, dir, "bun.lock", "")
 
-	proj, err := Detect(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	test := gateNamed(t, proj, "test")
+	test := gateNamed(t, detect(t, dir), "test")
 	// The Makefile wins: a target that exists is a deliberate wrapper, and
 	// usually adds flags the other declaration would miss.
-	if want := "make test"; test.Display() != want {
-		t.Errorf("test = %q, want %q (Makefile outranks package.json)", test.Display(), want)
-	}
-	if len(test.Shadowed) != 1 {
-		t.Fatalf("shadowed = %v, want the package.json declaration recorded", test.Shadowed)
-	}
-	if !strings.Contains(test.Shadowed[0], "vitest run") {
-		t.Errorf("shadowed = %q, want it to name the ignored command", test.Shadowed[0])
-	}
+	qt.Check(t, qt.Equals(test.Display(), "make test"),
+		qt.Commentf("Makefile outranks package.json"))
+	qt.Assert(t, qt.HasLen(test.Shadowed, 1),
+		qt.Commentf("the package.json declaration was not recorded"))
+	qt.Check(t, qt.StringContains(test.Shadowed[0], "vitest run"),
+		qt.Commentf("the shadow does not name the ignored command"))
 }
 
 // Detection must never execute anything -- it reads manifests and stats
@@ -137,12 +122,10 @@ func TestDetectRunsNothing(t *testing.T) {
 	dir := t.TempDir()
 	write(t, dir, "Makefile", "test:\n\ttouch "+filepath.Join(dir, "SHOULD-NOT-EXIST")+"\n")
 
-	if _, err := Detect(dir); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(filepath.Join(dir, "SHOULD-NOT-EXIST")); err == nil {
-		t.Fatal("Detect executed a Makefile target")
-	}
+	detect(t, dir)
+
+	_, err := os.Stat(filepath.Join(dir, "SHOULD-NOT-EXIST"))
+	qt.Assert(t, qt.IsNotNil(err), qt.Commentf("Detect executed a Makefile target"))
 }
 
 // Gates that share a build cache have to land in one group, and gates that
@@ -155,23 +138,15 @@ func TestToolchainGroupsFollowTheBuildCache(t *testing.T) {
 	write(t, dir, ".github/workflows/ci.yml", "name: CI\n")
 	writeExecutable(t, dir, "node_modules/.bin/actionlint")
 
-	proj, err := Detect(dir)
-	if err != nil {
-		t.Fatal(err)
+	proj := detect(t, dir)
+	for _, name := range []string{"build", "test", "lint"} {
+		qt.Check(t, qt.Equals(gateNamed(t, proj, name).Toolchain, ToolchainGo),
+			qt.Commentf("gate %s", name))
 	}
-
-	for _, g := range proj.Gates {
-		switch g.Name {
-		case "build", "test", "lint":
-			if g.Toolchain != ToolchainGo {
-				t.Errorf("%s toolchain = %q, want go", g.Name, g.Toolchain)
-			}
-		case "ci":
-			if g.Toolchain != ToolchainOther {
-				t.Errorf("ci toolchain = %q, want other -- actionlint shares no cache with go", g.Toolchain)
-			}
-		}
-	}
+	// actionlint shares no cache with go, so it must not be serialised behind
+	// it. Named by its role, which is "workflows" -- while this asserted on a
+	// role called "ci" it matched nothing and checked nothing.
+	qt.Check(t, qt.Equals(gateNamed(t, proj, "workflows").Toolchain, ToolchainOther))
 }
 
 // A workspace member is the common shape: 71 package.json files against 32
@@ -183,21 +158,12 @@ func TestWorkspaceRootIsFoundAboveThePackage(t *testing.T) {
 	pkg := filepath.Join(root, "packages", "web")
 	write(t, pkg, "package.json", `{"scripts":{"test":"bun test"}}`)
 
-	proj, err := Detect(pkg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if proj.Root != pkg {
-		t.Errorf("root = %q, want the package %q", proj.Root, pkg)
-	}
-	if proj.Workspace != root {
-		t.Errorf("workspace = %q, want the lockfile root %q", proj.Workspace, root)
-	}
+	proj := detect(t, pkg)
+	qt.Check(t, qt.Equals(proj.Root, pkg))
+	qt.Check(t, qt.Equals(proj.Workspace, root), qt.Commentf("want the lockfile root"))
 	// The local package's script runs, resolved through the workspace's
 	// package manager.
-	if want := "bun run test"; gateNamed(t, proj, "test").Display() != want {
-		t.Errorf("test = %q, want %q", gateNamed(t, proj, "test").Display(), want)
-	}
+	qt.Check(t, qt.Equals(gateNamed(t, proj, "test").Display(), "bun run test"))
 }
 
 // Rule 2 again, for the tool it was written about. turbo shipped with a bare
@@ -212,18 +178,10 @@ func TestTurboGatesRunTheResolvedBinary(t *testing.T) {
 	write(t, dir, "bun.lock", "")
 	turbo := writeExecutable(t, dir, "node_modules/.bin/turbo")
 
-	proj, err := Detect(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	test := gateNamed(t, proj, "test")
-	if test.Argv[0] != turbo {
-		t.Errorf("test runs %q, want the resolved path %q -- a bare name is not on PATH", test.Argv[0], turbo)
-	}
-	if !strings.Contains(test.Source, "turbo.json") {
-		t.Errorf("source = %q, want the turbo declaration", test.Source)
-	}
+	test := gateNamed(t, detect(t, dir), "test")
+	qt.Check(t, qt.Equals(test.Argv[0], turbo),
+		qt.Commentf("a bare name is not on PATH and would exit 127"))
+	qt.Check(t, qt.StringContains(test.Source, "turbo.json"))
 }
 
 // With no turbo to run, delegating to it would hand every role to a command
@@ -239,23 +197,10 @@ func TestTurboWithoutTheBinaryFallsBackToPackageScripts(t *testing.T) {
 	write(t, dir, "package.json", `{"scripts":{"test":"vitest"}}`)
 	write(t, dir, "bun.lock", "")
 
-	proj, err := Detect(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if want := "bun run test"; gateNamed(t, proj, "test").Display() != want {
-		t.Errorf("test = %q, want the package script %q", gateNamed(t, proj, "test").Display(), want)
-	}
-	var explained bool
-	for _, note := range proj.Notes {
-		if strings.Contains(note, "turbo is not installed") {
-			explained = true
-		}
-	}
-	if !explained {
-		t.Errorf("notes = %v, want turbo's absence explained", proj.Notes)
-	}
+	proj := detect(t, dir)
+	qt.Check(t, qt.Equals(gateNamed(t, proj, "test").Display(), "bun run test"))
+	qt.Check(t, qt.IsTrue(hasNote(proj, "turbo is not installed")),
+		qt.Commentf("notes = %v", proj.Notes))
 }
 
 // A declared vuln target used to be dropped -- it was absent from
@@ -269,23 +214,12 @@ func TestADeclaredVulnTargetBeatsTheConvention(t *testing.T) {
 	write(t, dir, "go.mod", "module demo\n\ngo 1.26\n")
 	write(t, dir, "Makefile", "vuln:\n\tgovulncheck -show verbose ./...\n")
 
-	proj, err := Detect(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	vuln := gateNamed(t, proj, "vuln")
-	if want := "make vuln"; vuln.Display() != want {
-		t.Errorf("vuln = %q, want the declaration %q", vuln.Display(), want)
-	}
-	if !vuln.Declared {
-		t.Error("a Makefile target was not marked as declared")
-	}
+	vuln := gateNamed(t, detect(t, dir), "vuln")
+	qt.Check(t, qt.Equals(vuln.Display(), "make vuln"))
+	qt.Check(t, qt.IsTrue(vuln.Declared))
 	// A Makefile in a Go repository shares the Go build cache, so it has to
 	// land in that group rather than becoming its own.
-	if vuln.Toolchain != ToolchainGo {
-		t.Errorf("toolchain = %q, want go", vuln.Toolchain)
-	}
+	qt.Check(t, qt.Equals(vuln.Toolchain, ToolchainGo))
 }
 
 // "ci" meant two different things: the convention ladder's workflow linter,
@@ -300,34 +234,20 @@ func TestTheWorkflowLinterIsNamedWorkflowsAndCiIsNotAGate(t *testing.T) {
 	write(t, dir, ".github/workflows/ci.yml", "jobs: {}\n")
 	writeExecutable(t, dir, "node_modules/.bin/actionlint")
 
-	proj, err := Detect(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-
+	proj := detect(t, dir)
 	// The role a project declares is not claimed...
-	for _, g := range proj.Gates {
-		if g.Name == "ci" {
-			t.Errorf("a ci gate was claimed: %s", g.Display())
-		}
-	}
+	qt.Check(t, qt.IsFalse(slices.ContainsFunc(proj.Gates, func(g Gate) bool {
+		return g.Name == "ci"
+	})), qt.Commentf("a ci gate was claimed"))
 	// ...but the decision is stated rather than left as silence.
-	var explained bool
-	for _, note := range proj.Notes {
-		if strings.Contains(note, "ci") && strings.Contains(note, "aggregates") {
-			explained = true
-		}
-	}
-	if !explained {
-		t.Errorf("notes = %v, want the ci target's omission explained", proj.Notes)
-	}
+	qt.Check(t, qt.IsTrue(hasNote(proj, "aggregates")),
+		qt.Commentf("notes = %v", proj.Notes))
 
 	// And the linter survived the rename. A role missing from gateOrder is
 	// dropped silently, which is exactly how this gate once disappeared.
 	linter := gateNamed(t, proj, "workflows")
-	if !strings.HasSuffix(linter.Argv[0], "actionlint") {
-		t.Errorf("workflows gate runs %q, want actionlint", linter.Display())
-	}
+	qt.Check(t, qt.IsTrue(strings.HasSuffix(linter.Argv[0], "actionlint")),
+		qt.Commentf("workflows gate runs %q", linter.Display()))
 }
 
 // Supabase appears often in this fleet but has no unambiguous pass/fail check
@@ -337,21 +257,8 @@ func TestSupabaseIsSkippedWithAStatedReason(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	write(t, dir, "go.mod", "module demo\n\ngo 1.26\n")
-	if err := os.MkdirAll(filepath.Join(dir, "supabase"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	qt.Assert(t, qt.IsNil(os.MkdirAll(filepath.Join(dir, "supabase"), 0o755)))
 
-	proj, err := Detect(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var found bool
-	for _, note := range proj.Notes {
-		if strings.Contains(note, "supabase") {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("notes = %v, want supabase's omission explained", proj.Notes)
-	}
+	qt.Check(t, qt.IsTrue(hasNote(detect(t, dir), "supabase")),
+		qt.Commentf("supabase's omission was not explained"))
 }

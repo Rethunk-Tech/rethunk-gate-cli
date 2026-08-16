@@ -33,6 +33,13 @@ double would encode what its author believed `os/exec` did and then stop
 tracking it, and this tool's whole contract is what a real process's status
 and output do.
 
+Assertions use [`go-quicktest/qt`](https://github.com/go-quicktest/qt):
+`qt.Assert` where the old code called `t.Fatalf`, `qt.Check` where it called
+`t.Errorf`. It prints got and want itself, so `qt.Commentf` carries only what
+the values do not say — the reason the assertion exists. This is the only
+third-party dependency, it is test-only, and nothing third-party is linked
+into the binary.
+
 Every test passes `--log` into `t.TempDir()`. A test that used the default
 location would write into `/var/tmp` and leave litter behind.
 

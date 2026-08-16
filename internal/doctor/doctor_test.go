@@ -9,17 +9,21 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/go-quicktest/qt"
 )
 
 func write(t *testing.T, dir, name, body string) {
 	t.Helper()
 	path := filepath.Join(dir, name)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	qt.Assert(t, qt.IsNil(os.MkdirAll(filepath.Dir(path), 0o755)))
+	qt.Assert(t, qt.IsNil(os.WriteFile(path, []byte(body), 0o644)))
+}
+
+// reported reports whether a check fired, which is what most cases here ask.
+func reported(findings []Finding, check string) bool {
+	_, ok := findingNamed(findings, check)
+	return ok
 }
 
 func findingNamed(findings []Finding, check string) (Finding, bool) {
@@ -46,21 +50,14 @@ func TestGoModuleWithoutGovulncheckIsReported(t *testing.T) {
 	write(t, dir, "go.mod", "module demo\n\ngo 1.26\n")
 
 	findings, err := Run(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	qt.Assert(t, qt.IsNil(err))
 	f, ok := findingNamed(findings, "go-no-govulncheck")
-	if !ok {
-		t.Fatalf("findings = %v, want go-no-govulncheck", findings)
-	}
-	if !f.Warn {
-		t.Error("severity = advice, want warn")
-	}
+	qt.Assert(t, qt.IsTrue(ok), qt.Commentf("findings = %v, want go-no-govulncheck", findings))
+	qt.Check(t, qt.IsTrue(f.Warn), qt.Commentf("severity = advice, want warn"))
 	// A finding without evidence is a preference, so every one carries its
 	// reasoning and its next action.
-	if f.Why == "" || f.Fix == "" {
-		t.Errorf("finding lacks why/fix: %+v", f)
-	}
+	qt.Check(t, qt.Not(qt.Equals(f.Why, "")), qt.Commentf("finding = %+v", f))
+	qt.Check(t, qt.Not(qt.Equals(f.Fix, "")), qt.Commentf("finding = %+v", f))
 }
 
 // The guarantee doctor rests on: it advises, it does not act.
@@ -74,12 +71,10 @@ func TestDoctorLeavesTheRepositoryByteIdentical(t *testing.T) {
 	write(t, dir, "Makefile", "test:\n\ttouch SHOULD-NOT-EXIST\n")
 
 	before := treeDigest(t, dir)
-	if _, err := Run(dir); err != nil {
-		t.Fatal(err)
-	}
-	if after := treeDigest(t, dir); after != before {
-		t.Fatal("doctor modified the repository")
-	}
+	_, err := Run(dir)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Assert(t, qt.Equals(treeDigest(t, dir), before),
+		qt.Commentf("doctor modified the repository"))
 }
 
 // treeDigest hashes every file's path and contents, so any edit, addition or
@@ -103,9 +98,7 @@ func treeDigest(t *testing.T, root string) string {
 		entries = append(entries, rel+":"+hex.EncodeToString(sum[:]))
 		return nil
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	qt.Assert(t, qt.IsNil(err))
 	sort.Strings(entries)
 	sum := sha256.Sum256([]byte(strings.Join(entries, "\n")))
 	return hex.EncodeToString(sum[:])
@@ -124,12 +117,8 @@ func TestGovulncheckIsJudgedAcrossAllWorkflows(t *testing.T) {
 		"jobs:\n  b:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-go@v1.7\n")
 
 	findings, err := Run(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if f, ok := findingNamed(findings, "ci-govulncheck-off"); ok {
-		t.Errorf("flagged %s though another workflow enables govulncheck", f.Where)
-	}
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsFalse(reported(findings, "ci-govulncheck-off")), qt.Commentf("flagged %s though another workflow enables govulncheck", checkNames(findings)))
 }
 
 func TestWorkflowGapsAreReported(t *testing.T) {
@@ -150,18 +139,15 @@ func TestWorkflowGapsAreReported(t *testing.T) {
 	}, "\n"))
 
 	findings, err := Run(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	qt.Assert(t, qt.IsNil(err))
 	for _, want := range []string{
 		"corepack-with-setup-bun",
 		"npx-in-bun-workspace",
 		"ci-no-final-gate",
 		"actions-floating-ref",
 	} {
-		if _, ok := findingNamed(findings, want); !ok {
-			t.Errorf("missing %s in %v", want, checkNames(findings))
-		}
+		qt.Check(t, qt.IsTrue(reported(findings, want)),
+			qt.Commentf("missing %s in %v", want, checkNames(findings)))
 	}
 }
 
@@ -173,12 +159,8 @@ func TestStaleActionRefIsReportedButNewerIsNot(t *testing.T) {
 	write(t, older, ".github/workflows/ci.yml",
 		"jobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-bun@v1.2\n")
 	findings, err := Run(older)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := findingNamed(findings, "actions-stale-ref"); !ok {
-		t.Errorf("v1.2 not reported as behind %s: %v", knownGoodActionsTag, checkNames(findings))
-	}
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsTrue(reported(findings, "actions-stale-ref")), qt.Commentf("v1.2 not reported as behind %s: %v", knownGoodActionsTag, checkNames(findings)))
 
 	// A pin newer than this build knows about must not be flagged -- the
 	// constant goes stale by design, and reporting the future as a problem
@@ -194,12 +176,8 @@ func TestStaleActionRefIsReportedButNewerIsNot(t *testing.T) {
 			"      - uses: Rethunk-Tech/gh-actions/setup-go@3d3c42e5aac5ba805825da76410c181273ba90b1\n"+
 			"      - uses: Rethunk-Tech/gh-actions/setup-node@v1\n")
 	findings, err = Run(newer)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := findingNamed(findings, "actions-stale-ref"); ok {
-		t.Errorf("v9.9 wrongly reported as stale: %v", checkNames(findings))
-	}
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsFalse(reported(findings, "actions-stale-ref")), qt.Commentf("v9.9 wrongly reported as stale: %v", checkNames(findings)))
 }
 
 // Stragglers get flagged, leaders do not -- the direction comes from what the
@@ -210,22 +188,14 @@ func TestSupersededToolingFlagsOnlyTheStraggler(t *testing.T) {
 	straggler := t.TempDir()
 	write(t, straggler, "package.json", `{"scripts":{"lint":"eslint ."}}`)
 	findings, err := Run(straggler)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := findingNamed(findings, "superseded-tooling"); !ok {
-		t.Errorf("eslint-only project not flagged: %v", checkNames(findings))
-	}
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsTrue(reported(findings, "superseded-tooling")), qt.Commentf("eslint-only project not flagged: %v", checkNames(findings)))
 
 	migrated := t.TempDir()
 	write(t, migrated, "package.json", `{"scripts":{"lint":"biome check ."}}`)
 	findings, err = Run(migrated)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := findingNamed(findings, "superseded-tooling"); ok {
-		t.Errorf("biome project wrongly flagged: %v", checkNames(findings))
-	}
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsFalse(reported(findings, "superseded-tooling")), qt.Commentf("biome project wrongly flagged: %v", checkNames(findings)))
 }
 
 func TestLockfileCollisionIsReported(t *testing.T) {
@@ -236,12 +206,8 @@ func TestLockfileCollisionIsReported(t *testing.T) {
 	write(t, dir, "package-lock.json", "{}")
 
 	findings, err := Run(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := findingNamed(findings, "lockfile-collision"); !ok {
-		t.Errorf("collision not reported: %v", checkNames(findings))
-	}
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsTrue(reported(findings, "lockfile-collision")), qt.Commentf("collision not reported: %v", checkNames(findings)))
 }
 
 // Every other CI check gives up on a missing .github/workflows, so a
@@ -255,13 +221,9 @@ func TestARepositoryWithNoCIIsReported(t *testing.T) {
 	write(t, repo, ".git/HEAD", "ref: refs/heads/main\n")
 
 	findings, err := Run(repo)
-	if err != nil {
-		t.Fatal(err)
-	}
+	qt.Assert(t, qt.IsNil(err))
 	f, ok := findingNamed(findings, "no-ci")
-	if !ok {
-		t.Fatalf("findings = %v, want no-ci", checkNames(findings))
-	}
+	qt.Assert(t, qt.IsTrue(ok), qt.Commentf("findings = %v, want no-ci", checkNames(findings)))
 	if !f.Warn {
 		t.Error("severity = advice, want warn: no CI is not a style preference")
 	}
@@ -276,23 +238,15 @@ func TestARepositoryWithNoCIIsReported(t *testing.T) {
 	write(t, member, "package.json", `{"name":"web"}`)
 	write(t, repo, ".github/workflows/ci.yml", "jobs: {}\n")
 	findings, err = Run(member)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := findingNamed(findings, "no-ci"); ok {
-		t.Errorf("a workspace member was reported as having no CI: %v", checkNames(findings))
-	}
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsFalse(reported(findings, "no-ci")), qt.Commentf("a workspace member was reported as having no CI: %v", checkNames(findings)))
 
 	// A directory that merely holds a manifest is not a project missing CI.
 	loose := t.TempDir()
 	write(t, loose, "go.mod", "module loose\n\ngo 1.26\n")
 	findings, err = Run(loose)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := findingNamed(findings, "no-ci"); ok {
-		t.Errorf("a non-repository was reported as having no CI: %v", checkNames(findings))
-	}
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsFalse(reported(findings, "no-ci")), qt.Commentf("a non-repository was reported as having no CI: %v", checkNames(findings)))
 }
 
 func checkNames(findings []Finding) []string {
