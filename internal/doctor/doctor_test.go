@@ -244,6 +244,57 @@ func TestLockfileCollisionIsReported(t *testing.T) {
 	}
 }
 
+// Every other CI check gives up on a missing .github/workflows, so a
+// repository with no CI produced no findings while one with imperfect CI
+// produced several -- absence reading as health.
+func TestARepositoryWithNoCIIsReported(t *testing.T) {
+	isolatePath(t)
+
+	repo := t.TempDir()
+	write(t, repo, "go.mod", "module demo\n\ngo 1.26\n")
+	write(t, repo, ".git/HEAD", "ref: refs/heads/main\n")
+
+	findings, err := Run(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, ok := findingNamed(findings, "no-ci")
+	if !ok {
+		t.Fatalf("findings = %v, want no-ci", checkNames(findings))
+	}
+	if !f.Warn {
+		t.Error("severity = advice, want warn: no CI is not a style preference")
+	}
+	if f.Why == "" || f.Fix == "" {
+		t.Errorf("finding carries no evidence or no fix: %+v", f)
+	}
+
+	// A workspace member has no .github of its own. Judging from the package
+	// rather than the repository would fire on the majority shape in this
+	// fleet, where most package.json files sit under a workspace root.
+	member := filepath.Join(repo, "packages", "web")
+	write(t, member, "package.json", `{"name":"web"}`)
+	write(t, repo, ".github/workflows/ci.yml", "jobs: {}\n")
+	findings, err = Run(member)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := findingNamed(findings, "no-ci"); ok {
+		t.Errorf("a workspace member was reported as having no CI: %v", checkNames(findings))
+	}
+
+	// A directory that merely holds a manifest is not a project missing CI.
+	loose := t.TempDir()
+	write(t, loose, "go.mod", "module loose\n\ngo 1.26\n")
+	findings, err = Run(loose)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := findingNamed(findings, "no-ci"); ok {
+		t.Errorf("a non-repository was reported as having no CI: %v", checkNames(findings))
+	}
+}
+
 func checkNames(findings []Finding) []string {
 	out := make([]string, 0, len(findings))
 	for _, f := range findings {

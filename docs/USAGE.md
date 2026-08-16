@@ -277,6 +277,7 @@ on is a preference, and preferences are what people learn to skip.
 
 | Check | Fires when |
 | --- | --- |
+| `no-ci` | A repository with no `.github/workflows` at all |
 | `go-no-govulncheck` | A Go module with no vulnerability gate available |
 | `ci-govulncheck-off` | `setup-go` used, but no workflow sets `run-govulncheck` |
 | `ci-no-final-gate` | Matrix checks with no single aggregating job to require |

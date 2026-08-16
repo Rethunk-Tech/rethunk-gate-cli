@@ -15,6 +15,13 @@ Notable changes to `gate`. The format follows
 
 ### Added
 
+- `gate doctor` reports a repository with no CI at all (`no-ci`). Every other
+  CI check gives up on a missing `.github/workflows`, so a repository with
+  imperfect CI produced several findings while one with none produced nothing
+  — absence reading as health, which is the inversion `ci-no-final-gate`
+  exists to condemn. Judged from the repository root, so workspace members are
+  not flagged, and only for a directory that is actually a repository.
+
 - A bare role name runs that one gate: `gate test`, `gate lint`, `gate build`,
   `gate typecheck`, `gate workflows`, `gate vuln`. Previously `gate test` ran
   `/usr/bin/test`, which evaluates the empty expression and exits 1 in every

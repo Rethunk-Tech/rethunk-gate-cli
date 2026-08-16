@@ -60,6 +60,7 @@ func Run(dir string) ([]Finding, error) {
 
 	checkSupersededTooling(root, add)
 	checkGoVuln(root, proj, add)
+	checkNoCI(proj, add)
 	checkWorkflows(root, add)
 	checkLockfiles(root, add)
 	checkDeclaredGates(root, proj, add)
@@ -146,6 +147,56 @@ func checkGoVuln(root string, proj detect.Project, add func(Finding)) {
 			Why:   "the shared setup-go action ships govulncheck opt-in and OFF, so nothing else is checking",
 			Fix:   "go install golang.org/x/vuln/cmd/govulncheck@latest",
 		})
+	}
+}
+
+// checkNoCI reports a repository with no workflows at all.
+//
+// Without it doctor inverts: it has plenty to say about CI that exists and is
+// imperfect, and nothing at all about CI that does not exist, because every
+// workflow check gives up on the missing directory. That is the reading
+// ci-no-final-gate exists to condemn -- absence read as health -- applied to
+// the whole directory rather than one job.
+func checkNoCI(proj detect.Project, add func(Finding)) {
+	// A directory that merely holds a manifest is not a project missing CI:
+	// a scratch checkout, a vendored copy, an extracted tarball.
+	if !proj.HasManifest {
+		return
+	}
+	repo, ok := repoRoot(proj.Root)
+	if !ok {
+		return
+	}
+	// Judged from the repository, not the package. Most package.json files in
+	// this fleet sit under a workspace root -- 71 against 32 lockfiles -- and
+	// a member never has a .github of its own, so judging from proj.Root would
+	// fire on the majority shape.
+	if exists(filepath.Join(repo, ".github", "workflows")) {
+		return
+	}
+	add(Finding{
+		Warn:  true,
+		Check: "no-ci",
+		Where: ".github/workflows",
+		What:  "this repository has no CI workflows at all",
+		Why:   "8 of 40 repository roots in this fleet have a manifest and no workflows, and every other CI check here gives up on the missing directory -- so the repository with the least CI is the one doctor says least about",
+		Fix:   "add a workflow; Rethunk-Tech/gh-actions covers Go, Bun and Node setup",
+	})
+}
+
+// repoRoot walks up for the directory holding .git. It is a stat, never a
+// command: doctor executes nothing. .git is a file rather than a directory in
+// a worktree, so its kind is not checked.
+func repoRoot(dir string) (string, bool) {
+	for {
+		if exists(filepath.Join(dir, ".git")) {
+			return dir, true
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", false
+		}
+		dir = parent
 	}
 }
 
