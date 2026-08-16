@@ -16,6 +16,22 @@ Notable changes to `gate`. The format follows
 
 - `--tail`, `--log`, `--quiet`, `--version`, and `--help`.
 
+- Bare `gate` detects the project and runs its gates. The project's own
+  declarations win over inferred commands: `Makefile` targets, then
+  `turbo.json` tasks, then `package.json` scripts, then conventions for Go,
+  Python, Node and GitHub workflows. Binaries resolve from `node_modules/.bin`
+  and `.venv/bin` before `PATH`. See
+  [`docs/USAGE.md`](docs/USAGE.md#bare-gate--running-a-projects-own-gates).
+
+- `--list` prints what was detected, where each gate came from, and what it
+  shadows, and runs nothing.
+
+- Detected gates are scheduled by toolchain: sequential within a shared build
+  cache, concurrent across separate ones.
+
+- Competing declarations for the same role are reported rather than resolved
+  silently.
+
 - `--also CMD` runs additional gates concurrently, each with its own log,
   reported in the order they were named rather than the order they finished.
   When several fail, the exit status is that of the first gate named.

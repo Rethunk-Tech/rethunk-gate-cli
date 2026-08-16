@@ -199,7 +199,6 @@ func TestRunReportsNotFoundAndSignalDistinctly(t *testing.T) {
 }
 
 func TestRunUsage(t *testing.T) {
-	t.Parallel()
 
 	t.Run("help", func(t *testing.T) {
 		t.Parallel()
@@ -211,13 +210,16 @@ func TestRunUsage(t *testing.T) {
 		}
 	})
 
-	t.Run("no command", func(t *testing.T) {
-		t.Parallel()
+	// Bare gate reads the project rather than erroring, so "nothing given"
+	// is only a failure where there is also nothing to detect. t.Chdir rules
+	// out t.Parallel for this one.
+	t.Run("no command and nothing detectable", func(t *testing.T) {
+		t.Chdir(t.TempDir())
 		_, stderr, code := runGateTest(t)
 		if code != exitcode.InvalidUsage {
 			t.Fatalf("gate = %d, want %d", code, exitcode.InvalidUsage)
 		}
-		if !strings.Contains(stderr, "no command given") {
+		if !strings.Contains(stderr, "no gates detected") {
 			t.Errorf("stderr = %q", stderr)
 		}
 	})
@@ -426,5 +428,39 @@ func TestRunLogWithAlsoIsRefused(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "--log names a single file") {
 		t.Errorf("stderr = %q", stderr)
+	}
+}
+
+// --list is the trust escape hatch for detection: a tool that picks commands
+// on your behalf and cannot show its working is one you end up fighting. It
+// must name what it chose, where that came from, and what it ignored -- and
+// must run nothing at all.
+func TestListShowsChosenAndShadowedAndRunsNothing(t *testing.T) {
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "SHOULD-NOT-EXIST")
+	if err := os.WriteFile(filepath.Join(dir, "Makefile"),
+		[]byte("test:\n\ttouch "+marker+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "package.json"),
+		[]byte(`{"scripts":{"test":"vitest run"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "bun.lock"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+
+	stdout, stderr, code := runGateTest(t, "--list")
+	if code != exitcode.Success {
+		t.Fatalf("gate --list = %d, stderr = %q", code, stderr)
+	}
+	for _, want := range []string{"make test", "Makefile target test", "shadows", "vitest run"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("--list output missing %q:\n%s", want, stdout)
+		}
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("--list executed a gate")
 	}
 }

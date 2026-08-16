@@ -37,6 +37,7 @@ on a specific status behaves as it would without `gate`.
 | --- | --- |
 | `--also CMD` | Run `CMD` as another gate, concurrently. Repeatable. |
 | `--serial` | Run gates in order, stopping at the first failure |
+| `--list` | Print the gates that would run, and run nothing |
 | `--tail N` | Trailing lines to quote on failure (default 40) |
 | `--log PATH` | Write the log here instead of the default location |
 | `--quiet` | Print nothing when the command passes; failures still report |
@@ -60,6 +61,64 @@ to `gate`:
 ```console
 gate -- --my-weird-command
 ```
+
+## Bare `gate` — running a project's own gates
+
+With no command, `gate` reads the project and runs what it finds:
+
+```console
+$ gate --list
+project  /usr/local/src/com.github/Rethunk-Tech/rethunk-git-cli
+5 gate(s), 2 group(s) -- groups run concurrently, gates within a group in order
+  [go] build      make build
+        from Makefile target build
+  then [go] lint       make lint
+        from Makefile target lint
+  then [go] test       make test
+        from Makefile target test
+  then [go] vuln       govulncheck ./...
+        from convention: go
+  [other] ci         actionlint
+        from convention: .github/workflows
+```
+
+`--list` runs nothing. Use it whenever you want to see what `gate` decided
+before letting it act — a detector you cannot inspect is one you end up
+fighting.
+
+### What it looks at, in order
+
+1. **`Makefile` targets** — a target that exists is a deliberate wrapper, and
+   usually adds flags a convention would miss.
+2. **`turbo.json` tasks** — where a task graph is declared, `turbo run <task>`
+   is the real entry point, and turbo already handles caching and cross-package
+   ordering.
+3. **`package.json` scripts** — the project's own declared commands.
+4. **Conventions** — only for roles nothing above declares: `go build`/`go
+   test`/`golangci-lint`/`govulncheck`, `uv run pytest`/`ruff`/`pyrefly`,
+   `biome`/`tsc`, and `actionlint` where `.github/workflows` exists.
+
+The project's own declaration always wins. Across the fleet this was built for,
+55 of 71 `package.json` files declare a test script and 19 of 29 Makefiles
+declare lint — so inferring a command over a declared one would bypass the
+intended pipeline in the majority case, not an edge case.
+
+Tools are looked for in `node_modules/.bin` and `.venv/bin` before `PATH`, and
+the resolved path is what runs. Several of the best tools — `turbo`, `pyrefly`
+— are typically not on `PATH` at all.
+
+### When two manifests disagree
+
+If two declarations claim the same role with different commands, `gate` does
+**not** pick one quietly. It runs the higher-precedence one, and says so:
+
+```console
+gate: test is declared twice -- running make test (Makefile target test),
+      ignoring package.json scripts.test (vitest run)
+```
+
+A convention losing to a declaration is not a disagreement and is not
+reported — that is the design working.
 
 ## Several gates at once
 

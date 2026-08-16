@@ -29,6 +29,7 @@ type options struct {
 	logPath string
 	quiet   bool
 	serial  bool
+	list    bool
 	gates   []gateSpec
 }
 
@@ -37,6 +38,13 @@ type options struct {
 type gateSpec struct {
 	argv    []string
 	display string
+
+	// toolchain groups gates that share a build cache. Gates in one group
+	// run in sequence; groups run concurrently with each other. An empty
+	// toolchain means "unknown", and each such gate becomes its own group --
+	// which is what an explicitly named --also gate gets, since nothing
+	// about the command line says what it shares with anything else.
+	toolchain string
 }
 
 // gateResult is everything one gate produced. Running fills these in; nothing
@@ -75,15 +83,60 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) exitc
 		}
 	} else {
 		var wg sync.WaitGroup
-		for i, spec := range opts.gates {
+		for _, group := range groupByToolchain(opts.gates) {
 			wg.Go(func() {
-				results[i] = runOne(ctx, spec, opts)
+				// Sequential within a group, because these gates share a
+				// build cache: measured, three Go gates run together cost
+				// 1.11s against 0.62s in sequence, since concurrently they
+				// duplicate and contend for the same compilation instead of
+				// finding it warm. A failure stops the rest of its own
+				// group -- a test whose build just failed has nothing left
+				// to say -- but never touches the other groups.
+				for _, i := range group {
+					results[i] = runOne(ctx, opts.gates[i], opts)
+					if results[i].code != exitcode.Success {
+						break
+					}
+				}
 			})
 		}
 		wg.Wait()
 	}
 
+	// A group that stopped early leaves zero-valued results behind for the
+	// gates it never reached, which must not be reported as passes.
+	ran := results[:0]
+	for i := range results {
+		if results[i].spec.display != "" {
+			ran = append(ran, results[i])
+		}
+	}
+	results = ran
+
 	return report(results, opts, stdout, stderr)
+}
+
+// groupByToolchain returns index groups in first-seen order. Gates with no
+// toolchain each become their own group, so an explicitly named gate is never
+// serialised behind another one on a guess about what they share.
+func groupByToolchain(gates []gateSpec) [][]int {
+	var order []string
+	groups := map[string][]int{}
+	for i, g := range gates {
+		key := g.toolchain
+		if key == "" {
+			key = "\x00solo" + strconv.Itoa(i)
+		}
+		if _, seen := groups[key]; !seen {
+			order = append(order, key)
+		}
+		groups[key] = append(groups[key], i)
+	}
+	out := make([][]int, 0, len(order))
+	for _, key := range order {
+		out = append(out, groups[key])
+	}
+	return out
 }
 
 // report prints every gate's outcome in declaration order and returns the

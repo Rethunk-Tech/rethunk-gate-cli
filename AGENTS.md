@@ -61,6 +61,24 @@ Breaking one of these is silent.
 | A signalled command reports 128+signal | It has no exit status of its own; exec reports -1, which tells the caller nothing |
 | A log close error is reported, not deferred away | The complete log is the guarantee; losing it silently is the one failure nobody would notice |
 
+## Detection
+
+`internal/detect` reads manifests and stats files. **It never executes
+anything** — `make -p` would evaluate a Makefile, so targets are read
+textually instead, and there is a test asserting a fixture's target does not
+run.
+
+Precedence is Makefile target, then `turbo.json` task, then `package.json`
+script, then convention. The first three are *declarations* and the last is an
+*inference*, and only a declaration can shadow another: recording "the Makefile
+won over what we would otherwise have guessed" would fire on nearly every
+repository and turn a real signal into noise.
+
+Binaries resolve from `node_modules/.bin` and `.venv/bin` before `PATH`, and
+the **resolved path** goes into the gate's argv. A bare name would be found by
+detection and then fail to execute, since several of the best tools are not on
+`PATH` at all.
+
 ## Concurrency, and when it loses
 
 Gates named with `--also` run concurrently by default. Measured over 7 days of
@@ -85,9 +103,11 @@ This is why parallelism is **explicit and never inferred**. It is also why
 `--serial` is not only about ordering: `build` before `test` needs it for
 correctness, and same-toolchain gates may want it for speed.
 
-Anything that later chooses gates automatically has to respect this. Grouping
-every detected gate into one concurrent batch would be slower than a sequence
-on exactly the projects with the most gates to run.
+Detected gates therefore carry a toolchain, and scheduling follows it: gates
+sharing a toolchain run in sequence within one group, and groups run
+concurrently with each other. A gate named explicitly with `--also` has no
+known toolchain and becomes its own group, because nothing on the command line
+says what it shares with anything else.
 
 ## Exit codes
 

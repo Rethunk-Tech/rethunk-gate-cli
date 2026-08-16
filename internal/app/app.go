@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/detect"
 	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/exitcode"
 )
 
@@ -27,6 +28,7 @@ anything reading that status sees exactly what it would have without gate.
 Flags:
   --also CMD    run CMD as another gate, concurrently (repeatable; shell string)
   --serial      run gates in order and stop at the first failure
+  --list        print the gates that would run, and run nothing
   --tail N      trailing lines to quote on failure (default 40)
   --log PATH    write the log here instead of the default location
   --quiet       print nothing when the gates pass
@@ -77,6 +79,9 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		case "--serial":
 			opts.serial = true
 			i++
+		case "--list":
+			opts.list = true
+			i++
 		case "--also":
 			value, next, code := flagValue(args, i, name, inlineValue, hasInline, stderr)
 			if code != exitcode.Success {
@@ -126,11 +131,45 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		})
 	}
 
+	// With nothing named, gate reads the project instead. Detection never
+	// runs anything, and what it chose is printable with --list, because a
+	// detector you cannot inspect is one you end up fighting.
+	var project detect.Project
 	if len(opts.gates) == 0 {
-		fmt.Fprintln(stderr, "gate: no command given")
-		fmt.Fprint(stderr, gateHelp)
+		proj, err := detect.Detect(".")
+		if err != nil {
+			fmt.Fprintf(stderr, "gate: cannot inspect this directory: %v\n", err)
+			return exitcode.Fatal
+		}
+		project = proj
+		for _, g := range proj.Gates {
+			opts.gates = append(opts.gates, gateSpec{
+				argv:      g.Argv,
+				display:   g.Display(),
+				toolchain: string(g.Toolchain),
+			})
+		}
+	}
+
+	if opts.list {
+		writeListing(stdout, project, opts)
+		return exitcode.Success
+	}
+
+	if len(opts.gates) == 0 {
+		// Detection always resolves a root -- the working directory itself
+		// when no manifest is found above it -- so there is no second
+		// "nothing was given" case to report here.
+		fmt.Fprintf(stderr, "gate: no gates detected in %s\n", project.Root)
+		writeNotes(stderr, project)
+		fmt.Fprintln(stderr, "gate: name a command to run one anyway, or --help for the flags")
 		return exitcode.InvalidUsage
 	}
+
+	// Two manifests declaring the same role differently is reported, never
+	// resolved quietly: choosing silently between two stated intents is the
+	// one behaviour that would make this untrustworthy.
+	writeShadowWarnings(stderr, project)
 	if len(opts.gates) > 1 && opts.logPath != "" {
 		// One path cannot hold several gates' logs, and silently sharing it
 		// would destroy the output of every gate but the last.
