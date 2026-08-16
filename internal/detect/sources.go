@@ -255,6 +255,26 @@ func conventionGates(root string, proj *Project) []Gate {
 		case resolve(root, proj, "mypy") != "":
 			gates = append(gates, Gate{Name: "typecheck", Argv: []string{"uv", "run", "mypy", "."}, Source: "convention: python (pyrefly absent)", Toolchain: ToolchainPython})
 		}
+		// uv audits the lockfile, not the environment, so it sees a pinned
+		// dependency that is merely declared -- an optional extra nobody has
+		// installed still gets reported. pip-audit reads the installed
+		// environment instead and called a project clean that had 16
+		// advisories in its lock, which is the wrong direction for a gate to
+		// be wrong in. No lockfile means nothing to audit without resolving
+		// over the network, so that is a note rather than a silent skip.
+		//
+		// The preview flag only silences a warning about the subcommand being
+		// experimental. An unrecognised feature name is itself a warning and
+		// not an error, so this keeps working if uv stabilises audit and drops
+		// the name.
+		if exists(filepath.Join(root, "uv.lock")) {
+			gates = append(gates, Gate{
+				Name: "vuln", Argv: []string{"uv", "audit", "--preview-features", "audit-command"},
+				Source: "convention: python", Toolchain: ToolchainPython,
+			})
+		} else {
+			proj.Notes = append(proj.Notes, "no uv.lock; skipping the vuln gate (uv lock)")
+		}
 	}
 
 	if exists(filepath.Join(root, "package.json")) {

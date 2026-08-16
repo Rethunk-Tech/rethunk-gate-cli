@@ -8,6 +8,14 @@ Notable changes to `gate`. The format follows
 
 ### Added
 
+- A `vuln` gate for Python projects, `uv audit`, where a `uv.lock` exists.
+  Go had one and Python did not, so a Python project's known advisories were
+  nobody's job. It audits the lockfile rather than the installed environment,
+  which is the difference between finding a pinned-but-uninstalled optional
+  extra's advisories and reporting the project clean. A project with no
+  lockfile gets a note instead of a gate — auditing one would mean resolving
+  over the network.
+
 - `serial` in `.gate.toml`, at `[defaults]` for a whole run and per gate at
   `gates.<role>.serial`, which is now the only thing that sequences gates. An
   absent key and a deliberate `serial = false` are distinguishable, so a

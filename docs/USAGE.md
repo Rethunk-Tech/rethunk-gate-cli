@@ -165,8 +165,9 @@ command and runs the program.
    ordering.
 3. **`package.json` scripts** — the project's own declared commands.
 4. **Conventions** — only for roles nothing above declares: `go build`/`go
-   test`/`golangci-lint`/`govulncheck`, `uv run pytest`/`ruff`/`pyrefly`,
-   `biome`/`tsc`, and `actionlint` where `.github/workflows` exists.
+   test`/`golangci-lint`/`govulncheck`, `uv run pytest`/`ruff`/`pyrefly` plus
+   `uv audit` where a `uv.lock` exists, `biome`/`tsc`, and `actionlint` where
+   `.github/workflows` exists.
 
 The project's own declaration always wins. Across the fleet this was built for,
 55 of 71 `package.json` files declare a test script and 19 of 29 Makefiles

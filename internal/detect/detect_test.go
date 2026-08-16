@@ -227,6 +227,33 @@ func TestADeclaredVulnTargetBeatsTheConvention(t *testing.T) {
 	qt.Check(t, qt.Equals(vuln.Toolchain, ToolchainGo))
 }
 
+// The Python vuln gate audits the lockfile, so the lockfile is what decides
+// whether it exists. Both halves matter: without one, uv would have to resolve
+// over the network, and a gate that quietly did that -- or quietly vanished --
+// is the failure this note exists to prevent.
+func TestThePythonVulnGateFollowsTheLockfile(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	write(t, dir, "pyproject.toml", "[project]\nname = \"demo\"\n")
+	write(t, dir, "uv.lock", "version = 1\n")
+
+	vuln := gateNamed(t, detect(t, dir), "vuln")
+	qt.Check(t, qt.Equals(vuln.Toolchain, ToolchainPython))
+	// The preview flag is part of the contract, not decoration: without it
+	// every run writes a warning about the subcommand being experimental.
+	qt.Check(t, qt.Equals(vuln.Display(), "uv audit --preview-features audit-command"))
+
+	bare := t.TempDir()
+	write(t, bare, "pyproject.toml", "[project]\nname = \"demo\"\n")
+
+	proj := detect(t, bare)
+	qt.Check(t, qt.IsFalse(slices.ContainsFunc(proj.Gates, func(g Gate) bool {
+		return g.Name == "vuln"
+	})), qt.Commentf("a vuln gate was claimed with nothing to audit"))
+	qt.Check(t, qt.IsTrue(hasNote(proj, "uv.lock")), qt.Commentf("notes = %v", proj.Notes))
+}
+
 // "ci" meant two different things: the convention ladder's workflow linter,
 // and a project's own "run everything" target. Claiming the latter would run
 // every gate twice, so it is deliberately not a gate -- and the linter is
