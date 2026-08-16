@@ -91,6 +91,11 @@ func TestFallbackResolvesProjectLocalBinaryAbsentFromPath(t *testing.T) {
 	lint := gateNamed(t, detect(t, dir), "lint")
 	qt.Check(t, qt.Equals(lint.Argv[0], biome),
 		qt.Commentf("a bare name is not on PATH and would fail to execute"))
+	// Display() is the string the caller sees in --list and in the verdict, so
+	// it has to carry the resolved path too -- argv alone being right would
+	// still leave the reader unable to tell which biome ran.
+	qt.Check(t, qt.IsTrue(strings.HasPrefix(lint.Display(), biome)),
+		qt.Commentf("lint = %q", lint.Display()))
 }
 
 // Two manifests declaring the same role differently is the case that must
@@ -240,8 +245,10 @@ func TestTheWorkflowLinterIsNamedWorkflowsAndCiIsNotAGate(t *testing.T) {
 		return g.Name == "ci"
 	})), qt.Commentf("a ci gate was claimed"))
 	// ...but the decision is stated rather than left as silence.
-	qt.Check(t, qt.IsTrue(hasNote(proj, "aggregates")),
-		qt.Commentf("notes = %v", proj.Notes))
+	// Both halves: a note about aggregation that never names ci would not be
+	// this decision being explained.
+	qt.Check(t, qt.IsTrue(hasNote(proj, "aggregates")), qt.Commentf("notes = %v", proj.Notes))
+	qt.Check(t, qt.IsTrue(hasNote(proj, aggregateName)), qt.Commentf("notes = %v", proj.Notes))
 
 	// And the linter survived the rename. A role missing from gateOrder is
 	// dropped silently, which is exactly how this gate once disappeared.

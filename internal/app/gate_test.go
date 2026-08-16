@@ -14,6 +14,15 @@ import (
 	"github.com/go-quicktest/qt"
 )
 
+// write creates a fixture file, making its parents. Almost every case here
+// starts by planting a Makefile or a manifest.
+func write(t *testing.T, dir, name, body string) {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	qt.Assert(t, qt.IsNil(os.MkdirAll(filepath.Dir(path), 0o755)))
+	qt.Assert(t, qt.IsNil(os.WriteFile(path, []byte(body), 0o644)))
+}
+
 // exists reports whether a path is present. Almost every fixture here proves
 // a gate ran, or did not, by whether it created a marker file.
 func exists(path string) bool {
@@ -405,10 +414,7 @@ func TestGatesStoppedByAFailingGroupAreReportedAsSkipped(t *testing.T) {
 	root := t.TempDir()
 	// Both targets attribute to the same toolchain, so they land in one group
 	// and run in order: build first, per gateOrder.
-	if err := os.WriteFile(filepath.Join(root, "Makefile"),
-		[]byte("build:\n\texit 5\n\ntest:\n\ttouch "+filepath.Join(root, "test-ran")+"\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	write(t, root, "Makefile", "build:\n\texit 5\n\ntest:\n\ttouch "+filepath.Join(root, "test-ran")+"\n")
 	t.Setenv("TMPDIR", t.TempDir())
 
 	_, stderr, code := runGateTest(t, "-C", root)
@@ -443,8 +449,8 @@ func TestResolvedPathIsShortenedOnTheVerdictLineOnly(t *testing.T) {
 	bin := filepath.Join(root, "node_modules", ".bin", "biome")
 	qt.Assert(t, qt.IsNil(os.MkdirAll(filepath.Dir(bin), 0o755)))
 	qt.Assert(t, qt.IsNil(os.WriteFile(bin, []byte("#!/bin/sh\nexit 0\n"), 0o755)))
-	qt.Assert(t, qt.IsNil(os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"name":"app"}`), 0o644)))
-	qt.Assert(t, qt.IsNil(os.WriteFile(filepath.Join(root, "bun.lock"), nil, 0o644)))
+	write(t, root, "package.json", `{"name":"app"}`)
+	write(t, root, "bun.lock", "")
 	logs := t.TempDir()
 	t.Setenv("TMPDIR", logs)
 
@@ -491,10 +497,7 @@ func TestResolvedPathIsShortenedOnTheVerdictLineOnly(t *testing.T) {
 // project would run `make test` again, forever.
 func TestGateRefusesToDetectAProjectItIsAlreadyRunning(t *testing.T) {
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "Makefile"),
-		[]byte("test:\n\ttouch ran\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	write(t, root, "Makefile", "test:\n\ttouch ran\n")
 	t.Setenv("TMPDIR", t.TempDir())
 	t.Setenv(activeRootsVar, root)
 
@@ -542,11 +545,8 @@ func TestDoctorRendersFindingsAndNeverFailsTheBuild(t *testing.T) {
 	dir := t.TempDir()
 	wf := filepath.Join(dir, ".github", "workflows")
 	qt.Assert(t, qt.IsNil(os.MkdirAll(wf, 0o755)))
-	qt.Assert(t, qt.IsNil(os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module demo\n\ngo 1.26\n"), 0o644)))
-	if err := os.WriteFile(filepath.Join(wf, "ci.yml"),
-		[]byte("jobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-go@v1.7\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	write(t, dir, "go.mod", "module demo\n\ngo 1.26\n")
+	write(t, wf, "ci.yml", "jobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-go@v1.7\n")
 
 	stdout, stderr, code := runGateTest(t, "-C", dir, "doctor")
 
@@ -572,11 +572,8 @@ func TestDoctorRendersFindingsAndNeverFailsTheBuild(t *testing.T) {
 // reaches the program, which is what makes claiming the word acceptable.
 func TestABareRoleSelectsThatGateAndDashDashStillReachesTheProgram(t *testing.T) {
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "Makefile"),
-		[]byte("test:\n\ttouch "+filepath.Join(root, "test-ran")+"\n"+
-			"lint:\n\ttouch "+filepath.Join(root, "lint-ran")+"\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	write(t, root, "Makefile", "test:\n\ttouch "+filepath.Join(root, "test-ran")+"\n"+
+		"lint:\n\ttouch "+filepath.Join(root, "lint-ran")+"\n")
 	t.Setenv("TMPDIR", t.TempDir())
 
 	stdout, stderr, code := runGateTest(t, "-C", root, "test")
@@ -597,10 +594,7 @@ func TestABareRoleSelectsThatGateAndDashDashStillReachesTheProgram(t *testing.T)
 // mean different things in different repositories.
 func TestARoleWordWithArgumentsIsStillTheCallersCommand(t *testing.T) {
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "Makefile"),
-		[]byte("test:\n\ttouch "+filepath.Join(root, "test-ran")+"\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	write(t, root, "Makefile", "test:\n\ttouch "+filepath.Join(root, "test-ran")+"\n")
 
 	_, stderr, code := runGateTest(t, "-C", root, "--log", tempLog(t), "test", "-f", "Makefile")
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("gate test -f Makefile = %d, stderr = %q -- want the program", code, stderr))
@@ -612,7 +606,7 @@ func TestARoleWordWithArgumentsIsStillTheCallersCommand(t *testing.T) {
 // /usr/bin/test would be worst.
 func TestASelectedRoleWithNoGateRefusesRatherThanRunningAProgram(t *testing.T) {
 	root := t.TempDir()
-	qt.Assert(t, qt.IsNil(os.WriteFile(filepath.Join(root, "Makefile"), []byte("lint:\n\ttrue\n"), 0o644)))
+	write(t, root, "Makefile", "lint:\n\ttrue\n")
 	t.Setenv("TMPDIR", t.TempDir())
 
 	_, stderr, code := runGateTest(t, "-C", root, "test")
@@ -717,18 +711,12 @@ func TestGatesNotStartedWhenInterruptedSayTheRunWasInterrupted(t *testing.T) {
 // between two stated intents is the behaviour this exists to prevent.
 func TestAShadowWarningNamesItsFixOnceAndCannotBeSilenced(t *testing.T) {
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "Makefile"),
-		[]byte("test:\n\ttrue\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	write(t, root, "Makefile", "test:\n\ttrue\n")
 	// Written the way biome formats it: a package.json also attracts the
 	// convention lint gate on a machine that has biome, and a fixture that
 	// fails formatting would fail this test for an unrelated reason.
-	if err := os.WriteFile(filepath.Join(root, "package.json"),
-		[]byte("{\n\t\"scripts\": {\n\t\t\"test\": \"vitest run\"\n\t}\n}\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	qt.Assert(t, qt.IsNil(os.WriteFile(filepath.Join(root, "bun.lock"), nil, 0o644)))
+	write(t, root, "package.json", "{\n\t\"scripts\": {\n\t\t\"test\": \"vitest run\"\n\t}\n}\n")
+	write(t, root, "bun.lock", "")
 	t.Setenv("TMPDIR", t.TempDir())
 
 	// --quiet governs the pass line, not a disagreement about what to run.
@@ -758,15 +746,9 @@ func TestRunLogWithAlsoIsRefused(t *testing.T) {
 func TestListShowsChosenAndShadowedAndRunsNothing(t *testing.T) {
 	dir := t.TempDir()
 	marker := filepath.Join(dir, "SHOULD-NOT-EXIST")
-	if err := os.WriteFile(filepath.Join(dir, "Makefile"),
-		[]byte("test:\n\ttouch "+marker+"\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "package.json"),
-		[]byte(`{"scripts":{"test":"vitest run"}}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	qt.Assert(t, qt.IsNil(os.WriteFile(filepath.Join(dir, "bun.lock"), nil, 0o644)))
+	write(t, dir, "Makefile", "test:\n\ttouch "+marker+"\n")
+	write(t, dir, "package.json", `{"scripts":{"test":"vitest run"}}`)
+	write(t, dir, "bun.lock", "")
 	// supabase/ is found and deliberately not turned into a gate, which
 	// --list has to say: silence there reads as "nothing to report" rather
 	// than "a decision was made".
@@ -1008,10 +990,7 @@ func TestChdirRunsTheCommandThere(t *testing.T) {
 func TestDetectedGatesRunAtTheProjectRootNotTheCallerDirectory(t *testing.T) {
 	// t.Setenv below rules out t.Parallel.
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "Makefile"),
-		[]byte("test:\n\ttouch ran-at-root\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	write(t, root, "Makefile", "test:\n\ttouch ran-at-root\n")
 	sub := filepath.Join(root, "deep", "inside")
 	qt.Assert(t, qt.IsNil(os.MkdirAll(sub, 0o755)))
 	t.Setenv("TMPDIR", t.TempDir())
@@ -1052,7 +1031,7 @@ func TestChdirRepeatsAccumulateAndAbsoluteResets(t *testing.T) {
 		_, stderr, code := runGateTest(t, "-C", root, "-C", "",
 			"--log", tempLog(t), "touch", "noop")
 		qt.Assert(t, qt.Equals(code, Success), qt.Commentf("gate = %d, stderr = %q", code, stderr))
-		qt.Check(t, qt.IsTrue(exists(filepath.Join(root, "noop"))), qt.Commentf(`-C "" was not a no-op: %v`))
+		qt.Check(t, qt.IsTrue(exists(filepath.Join(root, "noop"))), qt.Commentf(`-C "" was not a no-op`))
 	})
 }
 

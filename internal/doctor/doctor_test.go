@@ -224,12 +224,10 @@ func TestARepositoryWithNoCIIsReported(t *testing.T) {
 	qt.Assert(t, qt.IsNil(err))
 	f, ok := findingNamed(findings, "no-ci")
 	qt.Assert(t, qt.IsTrue(ok), qt.Commentf("findings = %v, want no-ci", checkNames(findings)))
-	if !f.Warn {
-		t.Error("severity = advice, want warn: no CI is not a style preference")
-	}
-	if f.Why == "" || f.Fix == "" {
-		t.Errorf("finding carries no evidence or no fix: %+v", f)
-	}
+	qt.Check(t, qt.IsTrue(f.Warn),
+		qt.Commentf("severity = advice, want warn: no CI is not a style preference"))
+	qt.Check(t, qt.Not(qt.Equals(f.Why, "")), qt.Commentf("finding = %+v", f))
+	qt.Check(t, qt.Not(qt.Equals(f.Fix, "")), qt.Commentf("finding = %+v", f))
 
 	// A workspace member has no .github of its own. Judging from the package
 	// rather than the repository would fire on the majority shape in this
