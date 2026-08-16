@@ -6,24 +6,32 @@ Notable changes to `gate`. The format follows
 
 ## [Unreleased]
 
-### Added
+### Changed
 
-- `gate run <names...>`, which runs the named gates. It is the only way to
-  reach a gate that is not one of the roles: a `.gate.toml` `run` entry could
-  declare a gate detection could never infer, and then nothing could run it on
-  its own — naming it found a program of that name instead, so the only way to
-  reach it was to run every gate in the project.
+- **Breaking: gates are named with `gate run <names...>`, and a bare role word
+  no longer selects one.** `gate test` runs `/usr/bin/test` again; `gate run
+  test` runs the project's test gate. `gate run lint test` runs several, and
+  `gate run e2e` reaches a gate only `.gate.toml` declares — which nothing
+  could run before, since naming it found a program of that name and exited
+  127, leaving "run every gate in the project" as the only way to reach it.
 
-  Those names are not claimed bare the way `test` is. A role is a fixed list;
-  a config-declared gate's name is whatever the project chose, so claiming it
-  bare would let any project silently take over a word that is a program
-  somewhere else. `run` says which reading is meant. It is the one claimed
-  word that takes arguments, so `gate -- run x` still runs a program called
-  `run`.
+  Claiming bare words could not be extended to cover that. A role is a fixed
+  list of six, which is what made claiming those defensible; a config-declared
+  gate's name is whatever the project chose, and claiming those bare would let
+  any project silently take over a word that is a program somewhere else. One
+  spelling that covers every gate name beats a rule that covers six and cannot
+  reach the rest, so the bare-word form is gone rather than left as a second
+  way to do it.
+
+  `run` and `doctor` are now the only words gate takes as its own, and `run`
+  is the only one that takes arguments — so `gate -- run x` still runs a
+  program called `run`.
 
   Every name must resolve: one that does not fails the run without running
   anything, rather than running the subset that matched and reporting a pass
   that covers a gate which never ran.
+
+### Added
 
 - A `vuln` gate for Python projects, `uv audit`, where a `uv.lock` exists.
   Go had one and Python did not, so a Python project's known advisories were

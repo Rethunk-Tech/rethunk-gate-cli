@@ -50,28 +50,25 @@ the quoted tail is not enough.
 
 ### The words gate claims
 
-`doctor` and the roles in `gateOrder` — `build`, `typecheck`, `lint`,
-`workflows`, `test`, `vuln` — are gate's own when they appear as a **lone**
-argument. Anything with arguments beside it is the caller's command.
+Exactly two: **`doctor`** and **`run`**. Everything else on the command line
+is the caller's command, always.
 
-`run` is the one exception, and it is deliberate: it claims the word *and*
-the names after it. Every other claimed word is safe bare because it names a
-role, and a role is a fixed list. A gate's name is not — `.gate.toml` declares
-gates detection could never infer, so their names are whatever a project chose.
-Claiming those bare would mean any project could silently take over a word that
-is a program somewhere else, which is exactly the guess this boundary exists
-not to make. `gate run e2e` says which reading is meant, so the ambiguity never
-arises, and `--list` still answers where each name came from.
+Gates are named through `run` and nowhere else. Bare role words used to select
+gates too, and that is gone: a role is a fixed list of six, which is what made
+claiming those words defensible, but a gate's name is not a fixed list.
+`.gate.toml` declares gates detection could never infer, so their names are
+whatever a project chose — and claiming *those* bare would let any project
+silently take over a word that is a program somewhere else. The choice was one
+rule that covers every gate name, or a rule that covers six and cannot be
+extended to the rest. `gate run test` is the gate; `gate test` is
+`/usr/bin/test` again.
 
-That narrows the boundary above, and `--` is what pays for it: `gate -- test`
-runs `/usr/bin/test`, `gate -- doctor` runs a program called doctor, and
-`gate -- run x` runs a program called run. The escape is tested rather than
-assumed, because it is the entire argument for taking the words — the flag
-loop must not consume `--` and claim the word anyway. It matters most for
-`run`, which is the only one that would otherwise swallow its arguments too.
-
-`test` is why this exists: a real binary that evaluates the empty expression
-and exits 1, so `gate test` could only ever be a gate that cannot pass.
+`run` is therefore the only claimed word that takes arguments, which is what
+`--` pays for: `gate -- doctor` runs a program called doctor, `gate -- run x`
+runs a program called run. The escape is tested rather than assumed, because
+it is the entire argument for taking the words — the flag loop must not
+consume `--` and claim the word anyway. It matters most for `run`, the only
+one that would otherwise swallow its arguments too.
 
 A name that resolves to no gate fails the whole run rather than the one name:
 running the subset that matched would report a pass covering a gate that never

@@ -41,16 +41,24 @@ gate: ok  govulncheck  667ms  /var/tmp/gate/govulncheck-48211-5.log
 `gate --list` shows what it picked and where each gate came from, and runs
 nothing.
 
-A bare role name runs just that one:
+`gate run` runs just the ones you name:
 
 ```console
-$ gate test
+$ gate run test
+gate: ok  make test  1.9s  /var/tmp/gate/make-test-48211-1.log
+
+$ gate run lint test
+gate: ok  make lint  0.2s  /var/tmp/gate/make-lint-48211-2.log
 gate: ok  make test  1.9s  /var/tmp/gate/make-test-48211-1.log
 ```
 
-The roles are `build`, `typecheck`, `lint`, `workflows`, `test` and `vuln`.
-Those words are `gate`'s own, so `gate test` never runs `/usr/bin/test`. When
-you mean the program, put it after `--`: `gate -- test`.
+The names are `build`, `typecheck`, `lint`, `workflows`, `test` and `vuln`,
+plus anything `.gate.toml` declares — which is the only way to reach one of
+those. A name that matches no gate fails the run without running anything.
+
+`run` and `doctor` are the only words `gate` takes as its own, so `gate test`
+still runs `/usr/bin/test`. When you mean a program actually called `run`, put
+it after `--`: `gate -- run`.
 
 ## What it does not do
 

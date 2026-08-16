@@ -47,9 +47,8 @@ With no command, gate detects the project's gates and runs them.
 
 Commands:
   <command>     run that command as a gate
-  <role>        run one of this project's gates: build, typecheck, lint,
-                workflows, test, vuln
-  run NAME...   run the named gates, including ones only .gate.toml declares
+  run NAME...   run the named gates: build, typecheck, lint, workflows, test,
+                vuln, and any others .gate.toml declares
   doctor        report what is cheap to fix here (read-only)
 
 Global flags (before everything else):
@@ -69,10 +68,11 @@ Flags:
   -h, --help    show this help and exit
 
 The first non-flag argument begins the command, and everything after it --
-including its own flags -- belongs to the command. Use -- when the command's
-first token would otherwise look like a flag to gate, or when you mean the
-program that shares a name with a role or with run: 'gate -- test' runs
-/usr/bin/test, and 'gate -- run x' runs a program called run.
+including its own flags -- belongs to the command. 'gate test' runs the
+program, not the gate; 'gate run test' runs the gate. Use -- when the
+command's first token would otherwise look like a flag to gate, or when you
+mean a program named run or doctor: 'gate -- run x' runs a program called
+run.
 
 Run 'gate doctor --help' for what doctor checks.
 Full reference: docs/USAGE.md
@@ -118,9 +118,9 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	for i < len(args) {
 		arg := args[i]
 		if arg == "--" {
-			// Everything after this is the caller's, including a word that
-			// would otherwise name a role. That is the escape which makes
-			// claiming those words acceptable at all.
+			// Everything after this is the caller's, including a word gate
+			// would otherwise claim. That is the escape which makes claiming
+			// any word acceptable at all.
 			explicit = true
 			i++
 			break
@@ -213,8 +213,8 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		return Success
 	}
 
-	// "doctor" is the one word gate treats as its own rather than as a
-	// command to run. A real program by that name is still reachable as
+	// "doctor" and "run" are the only words gate treats as its own rather than
+	// as a command. A real program by either name is still reachable as
 	// `gate -- doctor`, which is what -- is for.
 	if rest := args[i:]; !explicit && len(rest) == 1 && rest[0] == "doctor" {
 		return runDoctor(dir, stdout, stderr)
@@ -227,24 +227,18 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		return Success
 	}
 
-	// A lone bare role word names one of the project's own gates rather than a
-	// program. `test` is the case that forces this: it is a real binary that
-	// evaluates the empty expression and exits 1, so `gate test` could only
-	// ever have been a gate that cannot pass. `gate -- test` still reaches it,
-	// the same escape `doctor` has had.
 	command := args[i:]
 	var roles []string
-	if !explicit && len(command) == 1 && detect.IsRole(command[0]) {
-		roles = []string{command[0]}
-		command = nil
-	}
 
-	// `run` names gates explicitly, and is the only claimed word that takes
-	// arguments -- every other one is gate's only when it stands alone. It
-	// exists because a gate's name is not always a role: config declares gates
-	// detection could never infer, and guessing whether a bare word meant one
-	// of those or a program of the same name is exactly the ambiguity this
-	// spelling removes. `gate -- run x` still reaches a program called run.
+	// `run` is how a gate is named, and the only word gate claims that takes
+	// arguments. Naming gates is deliberately not something a bare word does:
+	// a role is a fixed list, but a gate's name is not -- config declares gates
+	// detection could never infer, so their names are whatever a project chose,
+	// and claiming those bare would let a project silently take over a word
+	// that is a program somewhere else. One spelling for every gate beats a
+	// rule that holds for six names and cannot hold for the rest, so `gate
+	// test` is `/usr/bin/test` again and `gate run test` is the gate.
+	// `gate -- run x` still reaches a program called run.
 	if !explicit && len(command) > 0 && command[0] == "run" {
 		roles, command = command[1:], nil
 		if len(roles) == 0 {

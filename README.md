@@ -38,9 +38,9 @@ Prerequisites and full install notes: [HUMANS.md](HUMANS.md).
 - **A passing gate costs one line.** Measured on a real suite, output dropped
   94% — from ~242 tokens to ~16.
 - **It already knows your gates.** Bare `gate` reads the project — `Makefile`
-  targets, `package.json` scripts, `turbo.json` tasks — and runs them. A role
-  name runs one: `gate test`. `gate --list` shows what it chose and why, and
-  `.gate.toml` adjusts it without replacing it.
+  targets, `package.json` scripts, `turbo.json` tasks — and runs them. `gate
+  run test` runs one, `gate run lint test` runs two. `gate --list` shows what
+  it chose and why, and `.gate.toml` adjusts it without replacing it.
 - **Concurrent by default.** Every gate runs at once, each with its own log,
   reported in the order you named them — measured, 24–42% off a real run's
   wall clock. Order is never inferred: `--serial`, or `serial` in `.gate.toml`,

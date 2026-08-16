@@ -585,27 +585,31 @@ func TestDoctorRendersFindingsAndNeverFailsTheBuild(t *testing.T) {
 	qt.Check(t, qt.StringContains(stdout, "nothing to suggest"), qt.Commentf("silence instead of an answer: %q", stdout))
 }
 
-// `test` is a real program that evaluates the empty expression and exits 1,
-// so `gate test` could only ever have been a gate that cannot pass. A lone
-// role word now means the project's gate for that role -- and `--` still
-// reaches the program, which is what makes claiming the word acceptable.
-func TestABareRoleSelectsThatGateAndDashDashStillReachesTheProgram(t *testing.T) {
+// Gate names are reached through `run` and nowhere else. A bare role word is
+// the caller's command like any other, which is what makes one rule cover
+// every gate name rather than six of them.
+func TestOnlyRunSelectsGatesAndABareRoleIsTheProgram(t *testing.T) {
 	root := t.TempDir()
 	write(t, root, "Makefile", "test:\n\ttouch "+filepath.Join(root, "test-ran")+"\n"+
 		"lint:\n\ttouch "+filepath.Join(root, "lint-ran")+"\n")
 	t.Setenv("TMPDIR", t.TempDir())
 
-	stdout, stderr, code := runGateTest(t, "-C", root, "test")
-	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("gate test = %d, stderr = %q", code, stderr))
-	qt.Check(t, qt.IsTrue(exists(filepath.Join(root, "test-ran"))), qt.Commentf("gate test did not run the project's test gate"))
-	// One role selects one gate, not the whole project.
-	qt.Check(t, qt.IsFalse(exists(filepath.Join(root, "lint-ran"))), qt.Commentf("gate test ran the lint gate too"))
+	stdout, stderr, code := runGateTest(t, "-C", root, "run", "test")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("gate run test = %d, stderr = %q", code, stderr))
+	qt.Check(t, qt.IsTrue(exists(filepath.Join(root, "test-ran"))), qt.Commentf("gate run test did not run the project's test gate"))
+	// One name selects one gate, not the whole project.
+	qt.Check(t, qt.IsFalse(exists(filepath.Join(root, "lint-ran"))), qt.Commentf("gate run test ran the lint gate too"))
 	qt.Check(t, qt.StringContains(stdout, "make test"), qt.Commentf("verdict does not name the selected gate: %q", stdout))
 
-	// The escape hatch, and the reason claiming the word is not a removal.
-	// /usr/bin/test with no arguments is false, so this is exit 1.
-	_, _, code = runGateTest(t, "-C", root, "--log", tempLog(t), "--", "test")
-	qt.Check(t, qt.Equals(code, Code(1)), qt.Commentf("gate -- test = %d, want the program's own 1", code))
+	// The word itself is no longer gate's. /usr/bin/test with no arguments
+	// evaluates the empty expression and exits 1, and it must reach it without
+	// needing `--` at all. The sentinel from above has to go first, or the
+	// check below would pass on a file the previous phase wrote.
+	qt.Assert(t, qt.IsNil(os.Remove(filepath.Join(root, "test-ran"))))
+	_, _, code = runGateTest(t, "-C", root, "--log", tempLog(t), "test")
+	qt.Check(t, qt.Equals(code, Code(1)), qt.Commentf("gate test = %d, want the program's own 1", code))
+	qt.Check(t, qt.IsFalse(exists(filepath.Join(root, "test-ran"))),
+		qt.Commentf("a bare role word was still diverted to the project's gate"))
 }
 
 // A gate's name is not always a role: config declares gates detection could
@@ -658,47 +662,35 @@ func TestRunNamesGatesIncludingTheOnesOnlyConfigKnows(t *testing.T) {
 		qt.Commentf("`gate -- run` was still treated as gate's own word: %q", stderr))
 }
 
-// Only a lone bare word is a role. Anything with arguments is unambiguously
-// the caller's command, and second-guessing that would make one command line
-// mean different things in different repositories.
-func TestARoleWordWithArgumentsIsStillTheCallersCommand(t *testing.T) {
-	root := t.TempDir()
-	write(t, root, "Makefile", "test:\n\ttouch "+filepath.Join(root, "test-ran")+"\n")
-
-	_, stderr, code := runGateTest(t, "-C", root, "--log", tempLog(t), "test", "-f", "Makefile")
-	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("gate test -f Makefile = %d, stderr = %q -- want the program", code, stderr))
-	qt.Check(t, qt.IsFalse(exists(filepath.Join(root, "test-ran"))), qt.Commentf("a multi-argument command was diverted to the project's gate"))
-}
-
 // Refusing rather than falling through matters most exactly here: the caller
 // is least sure what the project has, which is where silently running
 // /usr/bin/test would be worst.
-func TestASelectedRoleWithNoGateRefusesRatherThanRunningAProgram(t *testing.T) {
+func TestANamedGateThatDoesNotExistRefusesRatherThanRunningAProgram(t *testing.T) {
 	root := t.TempDir()
 	write(t, root, "Makefile", "lint:\n\ttrue\n")
 	t.Setenv("TMPDIR", t.TempDir())
 
-	_, stderr, code := runGateTest(t, "-C", root, "test")
-	qt.Assert(t, qt.Equals(code, InvalidUsage), qt.Commentf("gate test = %d, want InvalidUsage -- stderr = %q", code, stderr))
+	_, stderr, code := runGateTest(t, "-C", root, "run", "test")
+	qt.Assert(t, qt.Equals(code, InvalidUsage), qt.Commentf("gate run test = %d, want InvalidUsage -- stderr = %q", code, stderr))
 	qt.Check(t, qt.StringContains(stderr, root), qt.Commentf("refusal does not name the project: %q", stderr))
 	qt.Check(t, qt.StringContains(stderr, "gate -- test"), qt.Commentf("refusal does not name the escape: %q", stderr))
 }
 
-// The help has to list exactly the words the parser claims, or it documents a
+// The help has to list exactly the names `run` accepts, or it documents a
 // vocabulary that does not exist -- in either direction.
-func TestHelpListsExactlyTheRolesThatSelect(t *testing.T) {
+func TestHelpListsExactlyTheNamesRunAccepts(t *testing.T) {
 	t.Parallel()
 	stdout, _, code := runGateTest(t, "--help")
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("gate --help = %d", code))
 	for _, role := range detect.Roles() {
-		qt.Check(t, qt.StringContains(stdout, role), qt.Commentf("help does not list the selectable role %q", role))
+		qt.Check(t, qt.StringContains(stdout, role), qt.Commentf("help does not list the runnable name %q", role))
 		if !detect.IsRole(role) {
-			t.Errorf("%q is listed but not selectable", role)
+			t.Errorf("%q is listed but is not a gate name", role)
 		}
 	}
 	// The word gate deliberately does not claim.
 	if detect.IsRole("ci") {
-		t.Error("ci is selectable; it aggregates the gates gate already runs")
+		t.Error("ci is a gate name; it aggregates the gates gate already runs")
 	}
 }
 
