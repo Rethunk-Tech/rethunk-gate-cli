@@ -23,6 +23,11 @@ type lineTracker struct {
 
 	partial bytes.Buffer
 	tail    []string
+
+	// saw records that the command wrote something, which an empty tail does
+	// not: with --tail 0 the tracker keeps nothing, and "no output" would be
+	// a false statement about a log that has plenty.
+	saw bool
 }
 
 func newLineTracker(tailN int) *lineTracker {
@@ -34,6 +39,9 @@ func newLineTracker(tailN int) *lineTracker {
 // the complete log is missing.
 func (t *lineTracker) Write(p []byte) (int, error) {
 	n := len(p)
+	if n > 0 {
+		t.saw = true
+	}
 	for len(p) > 0 {
 		i := bytes.IndexByte(p, '\n')
 		if i < 0 {
@@ -83,3 +91,7 @@ func (t *lineTracker) close() {
 
 // Tail returns the last lines seen, oldest first.
 func (t *lineTracker) Tail() []string { return t.tail }
+
+// sawOutput reports whether the command wrote anything at all, which an empty
+// Tail does not answer on its own.
+func (t *lineTracker) sawOutput() bool { return t.saw }

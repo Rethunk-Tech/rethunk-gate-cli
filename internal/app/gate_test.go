@@ -161,6 +161,37 @@ func TestRunLogKeepsEveryByteThatTheSummaryDrops(t *testing.T) {
 	}
 }
 
+// --tail 0 keeps nothing, which is not the same fact as the command having
+// written nothing. Reporting the wrong one sends the reader looking for a log
+// they have just been told is empty.
+func TestTailZeroSaysNothingWasQuotedNotThatNothingWasWritten(t *testing.T) {
+	t.Parallel()
+
+	log := tempLog(t)
+	_, stderr, code := runGateTest(t, "--tail", "0", "--log", log,
+		"sh", "-c", "echo real output here; exit 3")
+	if code != Code(3) {
+		t.Fatalf("gate = %d, want 3", code)
+	}
+	if strings.Contains(stderr, "no output") {
+		t.Errorf("claimed the command wrote nothing: %q", stderr)
+	}
+	if !strings.Contains(stderr, "--tail 0") {
+		t.Errorf("did not say why nothing was quoted: %q", stderr)
+	}
+	// And the log has it, which is the whole reason the claim mattered.
+	if output, _ := splitLog(t, log); !strings.Contains(output, "real output here") {
+		t.Errorf("log lost the output: %q", output)
+	}
+
+	// A command that really wrote nothing still says so.
+	quiet := tempLog(t)
+	_, stderr, _ = runGateTest(t, "--log", quiet, "sh", "-c", "exit 3")
+	if !strings.Contains(stderr, "no output") {
+		t.Errorf("a silent command was not reported as silent: %q", stderr)
+	}
+}
+
 // A bounded tail is a display choice, so it must bound the display and
 // nothing else -- the log above is already proven whole.
 func TestRunFailureQuotesOnlyTheRequestedTail(t *testing.T) {
