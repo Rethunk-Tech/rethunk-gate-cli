@@ -200,6 +200,24 @@ Concurrency pays when gates are genuinely independent, such as a linter and a
 type checker from different toolchains. It is never inferred, because nothing
 in the command line says which case you are in.
 
+### Gates that were stopped
+
+A failure stops the rest of its chain under `--serial`, and the rest of its
+group when gates share a toolchain. Those gates are named rather than left out:
+
+```console
+gate: FAIL exit 2  make build  1ms
+--- last 2 line(s) ---
+make: *** [Makefile:2: build] Error 5
+gate: full log  /var/tmp/gate/make-build-48211-1.log
+gate: SKIP  make test  (not run: an earlier gate failed)
+```
+
+A skipped gate has no verdict and never changes the exit status — the failing
+gate's own status is still what `gate` returns. Saying nothing about it would
+be worse than saying too much: a gate you asked for that vanishes from the
+output reads as one that passed.
+
 ## `gate doctor`
 
 Reports things about the project that are cheap to detect and worth fixing.

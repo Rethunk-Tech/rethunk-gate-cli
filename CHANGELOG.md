@@ -6,6 +6,15 @@ Notable changes to `gate`. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- A gate stopped by an earlier failure — the rest of a `--serial` chain, or
+  the rest of a group whose gates share a toolchain — is now reported as
+  `SKIP` instead of being left out of the output entirely. It carries no
+  verdict and does not affect the exit status. Silence about a gate you asked
+  for is indistinguishable from it having passed, which is the reading
+  `gate doctor`'s own `ci-no-final-gate` check exists to condemn.
+
 ### Fixed
 
 - Gates detected from a `turbo.json` task graph ran a bare `turbo`, so on any

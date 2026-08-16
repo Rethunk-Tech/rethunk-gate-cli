@@ -71,6 +71,12 @@ type gateResult struct {
 	notFound bool
 	timedOut bool
 	fatalErr error
+
+	// skipped marks a gate that never started, because one before it in its
+	// group failed. It is reported rather than dropped: a gate missing from
+	// the output reads as "not failing" rather than "not run", which is the
+	// reading doctor's own ci-no-final-gate check exists to condemn.
+	skipped bool
 }
 
 // runGates runs every gate and returns the aggregate status.
@@ -95,8 +101,8 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 			// --serial exists for gates that depend on each other -- build
 			// before test being the common one -- so a failure stops the
 			// chain rather than running steps whose premise is already gone.
+			// The gates it stopped are left zero-valued and named below.
 			if results[i].code != Success {
-				results = results[:i+1]
 				break
 			}
 		}
@@ -122,15 +128,15 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 		wg.Wait()
 	}
 
-	// A group that stopped early leaves zero-valued results behind for the
-	// gates it never reached, which must not be reported as passes.
-	ran := results[:0]
+	// A stopped chain or group leaves zero-valued results behind for the gates
+	// it never reached. They are named as skipped rather than dropped: the
+	// caller asked for these gates, and silence about one is indistinguishable
+	// from it having passed.
 	for i := range results {
-		if results[i].spec.display != "" {
-			ran = append(ran, results[i])
+		if results[i].spec.display == "" {
+			results[i] = gateResult{spec: opts.gates[i], skipped: true}
 		}
 	}
-	results = ran
 
 	return report(results, opts, stdout, stderr)
 }
@@ -164,6 +170,12 @@ func report(results []gateResult, opts options, stdout, stderr io.Writer) Code {
 	aggregate := Success
 	for _, res := range results {
 		switch {
+		case res.skipped:
+			// Never affects the aggregate: a gate that did not run has no
+			// verdict, and inventing one would be the lie this reports to
+			// avoid. It goes to stderr because it only ever accompanies a
+			// failure.
+			fmt.Fprintf(stderr, "gate: SKIP  %s  (not run: an earlier gate failed)\n", res.spec.display)
 		case res.fatalErr != nil:
 			fmt.Fprintf(stderr, "gate: %v\n", res.fatalErr)
 			if aggregate == Success {

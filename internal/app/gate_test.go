@@ -412,8 +412,45 @@ func TestRunSerialStopsAtFirstFailure(t *testing.T) {
 	if _, err := os.Stat(marker); err == nil {
 		t.Error("--serial ran the second gate after the first failed")
 	}
-	if strings.Contains(stderr, "touch") {
-		t.Errorf("second gate was reported despite never running: %q", stderr)
+	// Stopped, and said so. A gate the caller asked for that simply vanishes
+	// from the output is indistinguishable from one that passed -- the same
+	// reading doctor's ci-no-final-gate check exists to condemn.
+	if !strings.Contains(stderr, "SKIP") || !strings.Contains(stderr, "touch") {
+		t.Errorf("second gate was dropped rather than reported as skipped: %q", stderr)
+	}
+	// A skipped gate has no verdict, so it must not move the exit status.
+	if code != Code(5) {
+		t.Errorf("gate = %d, want the failing gate's own 5", code)
+	}
+}
+
+// The other way a gate is stopped, and the one --serial does not cover: gates
+// sharing a toolchain run in sequence inside one group, so a failure there
+// stops the rest of that group while other groups carry on. Those gates were
+// detected, listed, and then never ran -- reporting nothing about them is the
+// gap this covers.
+func TestGatesStoppedByAFailingGroupAreReportedAsSkipped(t *testing.T) {
+	root := t.TempDir()
+	// Both targets attribute to the same toolchain, so they land in one group
+	// and run in order: build first, per gateOrder.
+	if err := os.WriteFile(filepath.Join(root, "Makefile"),
+		[]byte("build:\n\texit 5\n\ntest:\n\ttouch "+filepath.Join(root, "test-ran")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TMPDIR", t.TempDir())
+
+	_, stderr, code := runGateTest(t, "-C", root)
+
+	// 2 is make's own status for a failed recipe, not the recipe's 5 -- which
+	// is the point: gate passes through what it ran, not what ran inside it.
+	if code != Code(2) {
+		t.Fatalf("gate = %d, want make's own 2 -- stderr = %q", code, stderr)
+	}
+	if _, err := os.Stat(filepath.Join(root, "test-ran")); err == nil {
+		t.Error("the test gate ran despite the build in its group failing")
+	}
+	if !strings.Contains(stderr, "SKIP") || !strings.Contains(stderr, "make test") {
+		t.Errorf("the stopped gate was dropped rather than named: %q", stderr)
 	}
 }
 
