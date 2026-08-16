@@ -1,0 +1,21 @@
+version: "2"
+
+# The default linter set (errcheck, govet, ineffassign, staticcheck, unused)
+# is kept as-is. The only tuning is below, and it is a deliberate exemption
+# rather than a preference.
+linters:
+  settings:
+    errcheck:
+      # Writes of the verdict to the caller's own stdout/stderr. There is no
+      # recovery available at these call sites: gate is reporting an outcome
+      # when it reaches them, and a second failure to report the first one
+      # has nowhere to go. Go's runtime already turns EPIPE on fd 1 or 2 into
+      # SIGPIPE, so a piped-and-closed reader terminates the process rather
+      # than silently losing output.
+      #
+      # This does NOT cover the log file: a write that fails there loses the
+      # output gate exists to preserve, so those errors are handled.
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln

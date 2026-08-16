@@ -1,0 +1,15 @@
+# The binary lands here when built without -o, which `go build ./...` does.
+/gate
+/dist/
+*.test
+*.out
+
+# go tool cover -html writes this by hand; the Makefile only ever runs -func,
+# but whoever runs the command shouldn't have to remember to keep it out of a
+# commit.
+coverage.html
+
+# Local agent/editor settings. Nothing here is shared.
+/.claude/settings.local.json
+/.idea/
+/.vscode/

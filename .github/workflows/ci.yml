@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Each check reports its own result rather than the job stopping at the
+  # first failure, so one run tells you everything that is wrong. The gate
+  # below is what actually fails the build.
+  check:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: test
+            run: go test ./...
+          - name: test-race
+            run: go test -race ./...
+          - name: build
+            run: go build ./...
+    steps:
+      - uses: actions/checkout@v5
+      - uses: Rethunk-Tech/gh-actions/setup-go@v1.7
+        with:
+          go-version-file: go.mod
+      - name: ${{ matrix.name }}
+        run: ${{ matrix.run }}
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      # govulncheck is on here, not merely available: this repo's own doctor
+      # flags Go projects that leave it off, and shipping a tool that gives
+      # advice it does not take would be the wrong kind of example.
+      - uses: Rethunk-Tech/gh-actions/setup-go@v1.7
+        with:
+          go-version-file: go.mod
+          run-lint: "true"
+          run-govulncheck: "true"
+
+  # One required check for branch protection to point at. Without it, a
+  # matrix leg that never ran reads as "not failing" rather than "not run".
+  gate:
+    if: always()
+    needs: [check, lint]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail if any check did not succeed
+        run: |
+          if [ "${{ needs.check.result }}" != "success" ] || [ "${{ needs.lint.result }}" != "success" ]; then
+            echo "check=${{ needs.check.result }} lint=${{ needs.lint.result }}"
+            exit 1
+          fi
+          echo "all checks passed"
