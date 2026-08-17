@@ -29,7 +29,7 @@ jobs:
           - name: build
             run: go build ./...
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: Rethunk-Tech/gh-actions/setup-go@v1.7
         with:
           go-version-file: go.mod
@@ -39,7 +39,7 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       # govulncheck is on here, not merely available: this repo's own doctor
       # flags Go projects that leave it off, and shipping a tool that gives
       # advice it does not take would be the wrong kind of example.
@@ -63,7 +63,7 @@ jobs:
   windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: Rethunk-Tech/gh-actions/setup-go@v1.7
         with:
           go-version-file: go.mod
