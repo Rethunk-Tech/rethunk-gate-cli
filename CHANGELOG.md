@@ -309,4 +309,4 @@ move some of these defaults.
 - `--serial` runs gates in order and stops at the first failure — for gates
   that depend on each other, and for gates on a shared build cache, which can
   be slower run concurrently. See
-  [`docs/USAGE.md`](docs/USAGE.md#when-to-use---serial).
+  [`docs/USAGE.md`](docs/USAGE.md#when-to-use-serial).
