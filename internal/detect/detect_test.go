@@ -149,8 +149,8 @@ func TestGatesCarryTheToolchainTheyBelongTo(t *testing.T) {
 			qt.Commentf("gate %s", name))
 	}
 	// actionlint is not a Go tool and must not be attributed as one. Named by
-	// its role rather than matched in a switch: a switch arm for a role that
-	// no longer exists matches nothing and checks nothing.
+	// its role rather than matched in a switch: a role absent from detection
+	// matches nothing and checks nothing.
 	qt.Check(t, qt.Equals(gateNamed(t, proj, "workflows").Toolchain, ToolchainOther))
 }
 

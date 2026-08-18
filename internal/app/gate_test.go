@@ -636,8 +636,8 @@ func TestRunNamesGatesIncludingTheOnesOnlyConfigKnows(t *testing.T) {
 	ran := func(name string) string { return filepath.Join(root, name+"-ran") }
 	write(t, root, "Makefile", "test:\n\ttouch "+ran("test")+"\n")
 	write(t, root, ".gate.toml", "[gates.e2e]\nrun = \"touch "+ran("e2e")+"\"\n")
-	// A sentinel left over from the previous phase would make the next check
-	// pass without the gate having run at all.
+	// Remove any sentinel from an earlier step so a pass cannot occur without
+	// the gate having run.
 	reset := func(names ...string) {
 		t.Helper()
 		for _, n := range names {
