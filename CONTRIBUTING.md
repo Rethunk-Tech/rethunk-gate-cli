@@ -97,6 +97,6 @@ flag, or new exit code. Refactors, tests and documentation edits do not earn
 one.
 
 An `@-reference` in `AGENTS.md` is a budget line, not a link: `CLAUDE.md`
-symlinks to it, so every `@path` is pulled into every agent session whether or
+is a one-line `@AGENTS.md` pointer, so every `@path` is pulled into every agent session whether or
 not the change touches that file. Only `@CONTRIBUTING.md` keeps one. Everything
 else is a markdown link, which also renders properly for humans.
