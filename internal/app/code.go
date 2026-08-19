@@ -2,34 +2,29 @@ package app
 
 // Code is a process exit status.
 //
-// gate is a wrapper, so most of the time it returns nothing of its own: the
-// wrapped command's status is passed through byte for byte, including the
-// values named here. A command that exits 129 makes gate exit 129, and gate
-// does not relabel it. The codes below apply only when gate itself could not
-// get as far as running the command, or could not run it at all -- the same
-// property a shell has, and for the same reason.
+// gate is a wrapper, so the wrapped command's status passes through byte for
+// byte, including values that collide with the ones named here: a command
+// exiting 129 makes gate exit 129. These apply only where gate could not run
+// the command at all -- the same property a shell has.
 type Code int
 
 const (
 	// Success is the wrapped command's own success.
 	Success Code = 0
 
-	// TimedOut is a gate killed for exceeding its timeout. 124 is what
-	// coreutils' timeout(1) reports, and it is deliberately not a status the
-	// command itself produced: a gate that was killed must never read as a
-	// gate that failed.
+	// TimedOut is a gate killed for exceeding its timeout. 124 is timeout(1)'s
+	// value: a gate that was killed must never read as one that failed.
 	TimedOut Code = 124
 
 	// Interrupted is a gate stopped because gate itself was signalled. 130 is
-	// 128+SIGINT, the shell's own value for a Ctrl-C, and it is what Run
-	// returns when its context is cancelled. `main` replaces it with
-	// 128+whatever signal actually arrived, so a SIGTERM reports 143 -- the
-	// signal that reached gate, never the SIGKILL gate sent the child.
+	// 128+SIGINT, what Run returns on a cancelled context; main replaces it
+	// with the signal that actually arrived, so a SIGTERM reports 143 -- never
+	// the SIGKILL gate sent the child.
 	Interrupted Code = 130
 
 	// NotFound is a command that could not be executed at all. 127 is the
-	// shell's own value for this, and gate matches it rather than inventing
-	// a second convention for a condition the platform already names.
+	// shell's value for it, rather than a second convention for a condition
+	// the platform already names.
 	NotFound Code = 127
 
 	// Fatal is gate's own failure before or around the command -- a log

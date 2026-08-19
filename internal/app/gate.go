@@ -15,12 +15,8 @@ import (
 
 // activeRootsVar names the project roots gate is already running gates for,
 // so a project gate that itself runs gate is caught instead of looping.
-//
-// Roots rather than a depth counter, because the loop is specific: a gate
-// detecting the project it is already inside. A gate that wraps a command in
-// another project is not recursion and must keep working. Newline-separated,
-// which cannot appear in a Windows path and is far rarer than the list
-// separator in a POSIX one.
+// Newline-separated: it cannot appear in a Windows path and is far rarer than
+// the list separator in a POSIX one. See AGENTS.md, Recursion.
 const activeRootsVar = "GATE_ACTIVE_ROOTS"
 
 // activeRoots reports the projects an enclosing gate is already running.
@@ -185,21 +181,14 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 }
 
 // schedule returns index groups: gates within a group run in sequence, and
-// groups run concurrently. Every gate is its own group unless it was
-// explicitly marked serial, and the serial ones share a single group so they
-// run in the order they were declared. A whole-run serial puts every gate in
-// that one group, which is why running a group and running --serial are the
-// same code path rather than two that have to agree.
+// groups run concurrently. Every gate is its own group unless it was marked
+// serial, and the serial ones share a single group. A whole-run --serial puts
+// every gate in that one group, which is why a group and --serial are the same
+// code path rather than two that have to agree.
 //
-// Concurrent by default because measured, it wins. Running a repository's own
-// gates fully concurrently against sequencing the ones that share a toolchain:
-// rethunk-git-cli 1.55s -> 0.97s, citadel-cli 1.23s -> 0.90s, Routed 1.22s ->
-// 0.71s -- 24% to 42% off the wall clock, with warm caches, which is the state
-// gates actually run in.
-//
-// Sharing a build cache is therefore not a reason to sequence: contention
-// costs less than the serialisation does. Depending on another gate's result
-// is a reason, and only the project knows that, so it has to say so.
+// Concurrency is the default because it measured 24-42% faster; only the
+// project knows when a gate depends on another's result. See AGENTS.md,
+// Concurrency.
 //
 // The chain keeps the position of its first gate, so --list reads in the order
 // the gates were declared rather than sorting the serial ones to the end.

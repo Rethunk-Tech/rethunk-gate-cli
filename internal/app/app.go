@@ -183,14 +183,8 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	var roles []string
 
 	// `run` is how a gate is named, and the only word gate claims that takes
-	// arguments. Naming gates is deliberately not something a bare word does:
-	// a role is a fixed list, but a gate's name is not -- config declares gates
-	// detection could never infer, so their names are whatever a project chose,
-	// and claiming those bare would let a project silently take over a word
-	// that is a program somewhere else. One spelling for every gate beats a
-	// rule that holds for six names and cannot hold for the rest, so `gate
-	// test` is `/usr/bin/test` and `gate run test` is the gate.
-	// `gate -- run x` still reaches a program called run.
+	// arguments: `gate test` is /usr/bin/test, `gate run test` is the gate.
+	// See AGENTS.md, The words gate claims.
 	if !explicit && len(command) > 0 && command[0] == "run" {
 		roles, command = command[1:], nil
 		if len(roles) == 0 {
