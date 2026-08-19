@@ -4,7 +4,7 @@ Notable changes to `gate`. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.0] — 2026-08-19
 
 ### Removed
 
@@ -35,6 +35,18 @@ Notable changes to `gate`. The format follows
   [gates.typecheck]
   serial = true
   ```
+
+### Changed
+
+- A refused flag value is reported by name through Go's flag package, so
+  `--timeout soon` answers `invalid value "soon" for flag -timeout: wants a
+  duration like 90s or 5m`. Single-dash spellings (`-tail 5`) are accepted
+  alongside the double-dash ones as a consequence.
+
+- Log filenames end in a random suffix rather than a pid and a counter, since
+  os.CreateTemp settles the collision that pairing was carrying. Nothing
+  should be parsing them; the path is printed on the verdict line and recorded
+  in the log's own trailer.
 
 ## [0.2.0] — 2026-08-16
 
