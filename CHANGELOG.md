@@ -4,6 +4,18 @@ Notable changes to `gate`. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- A turbo task and the `package.json` script of the same name are no longer
+  reported as competing declarations. turbo runs that very script, so the two
+  are one declaration written in two places; 12 of the fleet's 115
+  repositories carry both and printed a `declared twice` warning on every
+  invocation, whose named fix -- removing one of them -- would have broken the
+  project. A Makefile target competing with a package script is still
+  reported.
+
 ## [0.3.0] — 2026-08-19
 
 ### Removed
