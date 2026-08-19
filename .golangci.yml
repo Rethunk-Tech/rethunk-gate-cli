@@ -19,3 +19,11 @@ linters:
         - fmt.Fprint
         - fmt.Fprintf
         - fmt.Fprintln
+
+issues:
+  # Report every occurrence. golangci-lint otherwise caps repeats of one
+  # message at 3 and one linter at 50, which silently turns a real count
+  # into a much smaller one -- a gate that under-reports is a gate that
+  # hides the finding it exists to surface.
+  max-issues-per-linter: 0
+  max-same-issues: 0
