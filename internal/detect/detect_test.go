@@ -120,6 +120,26 @@ func TestCompetingDeclarationsAreReportedNotResolvedSilently(t *testing.T) {
 		qt.Commentf("the shadow does not name the ignored command"))
 }
 
+// turbo orchestrates the package script of the same name, so the two are one
+// declaration written twice rather than two that disagree. Measured: this is
+// the ordinary monorepo shape -- 12 of the fleet's repositories have both --
+// so reporting it would put a warning on every run of each of them, and the
+// fix a shadow warning names, removing one declaration, would break them.
+func TestTurboDoesNotShadowThePackageScriptItRuns(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	write(t, dir, "package.json", `{"scripts":{"build":"next build"}}`)
+	write(t, dir, "turbo.json", `{"tasks":{"build":{}}}`)
+	write(t, dir, "bun.lock", "")
+	writeExecutable(t, dir, "node_modules/.bin/turbo")
+
+	build := gateNamed(t, detect(t, dir), "build")
+	qt.Check(t, qt.StringContains(build.Display(), "turbo run build"),
+		qt.Commentf("turbo did not win the role it orchestrates"))
+	qt.Check(t, qt.HasLen(build.Shadowed, 0),
+		qt.Commentf("the script turbo runs was reported as a competing declaration: %v", build.Shadowed))
+}
+
 // Detection must never execute anything -- it reads manifests and stats
 // files. A fixture whose "tools" would fail loudly if run proves it.
 func TestDetectRunsNothing(t *testing.T) {

@@ -93,6 +93,14 @@ func Detect(dir string) (Project, error) {
 	byName := map[string]Gate{}
 	claim := func(g Gate) {
 		if existing, taken := byName[g.Name]; taken {
+			// turbo runs the package script of the same name, so those two are
+			// one declaration written in two places rather than two that
+			// disagree. Reporting it would fire on the ordinary monorepo shape
+			// -- and the fix a shadow warning names, removing one of them,
+			// would break the project.
+			if strings.HasPrefix(existing.Source, turboSource) && strings.HasPrefix(g.Source, packageSource) {
+				return
+			}
 			// Two declarations for one role. The winner was decided by the
 			// order these are collected in, and the loser is recorded rather
 			// than dropped: quietly choosing between two stated intents is the

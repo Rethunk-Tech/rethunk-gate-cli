@@ -21,6 +21,13 @@ var declaredNames = []string{"build", "typecheck", "lint", "test", "vuln"}
 // Found, deliberately not run, and said out loud rather than dropped.
 const aggregateName = "ci"
 
+// Source prefixes, so the shadow rule in Detect can tell a turbo task from
+// the package script it orchestrates without re-deriving either string.
+const (
+	turboSource   = "turbo.json task "
+	packageSource = "package.json scripts."
+)
+
 // makefileTarget matches a target definition at the start of a line. Targets
 // are read textually rather than by asking make: this must never run anything,
 // and `make -p` would evaluate the file.
@@ -88,7 +95,7 @@ func packageJSONGates(root, workspace string, proj *Project) []Gate {
 		return nil
 	}
 	if _, ok := pkg.Scripts[aggregateName]; ok && proj != nil {
-		proj.Notes = append(proj.Notes, "package.json scripts."+aggregateName+
+		proj.Notes = append(proj.Notes, packageSource+aggregateName+
 			" found but not run: it aggregates the gates gate is already scheduling")
 	}
 
@@ -106,7 +113,7 @@ func packageJSONGates(root, workspace string, proj *Project) []Gate {
 		gates = append(gates, Gate{
 			Name:     name,
 			Argv:     append(append([]string{}, runner...), name),
-			Source:   "package.json scripts." + name + " (" + body + ")",
+			Source:   packageSource + name + " (" + body + ")",
 			Declared: true,
 		})
 	}
@@ -303,7 +310,7 @@ func turboGates(workspace string, proj *Project) []Gate {
 		gates = append(gates, Gate{
 			Name:     name,
 			Argv:     []string{bin, "run", name},
-			Source:   "turbo.json task " + name,
+			Source:   turboSource + name,
 			Declared: true,
 		})
 	}
