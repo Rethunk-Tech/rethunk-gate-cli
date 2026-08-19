@@ -4,6 +4,8 @@ package app
 
 import (
 	"context"
+	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"maps"
@@ -100,82 +102,60 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	if !ok {
 		return code
 	}
+	argv := args
 	if code, ok := enterable(dir, stderr); !ok {
 		return code
 	}
 
-	i := 0
-	explicit := false
-	for i < len(args) {
-		arg := args[i]
-		if arg == "--" {
-			// Everything after this is the caller's, including a word gate
-			// would otherwise claim. That is the escape which makes claiming
-			// any word acceptable at all.
-			explicit = true
-			i++
-			break
+	flags := flag.NewFlagSet("gate", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	// flag would print the usage itself, to the same writer as the error. Help
+	// asked for is not a refusal and belongs on stdout, so both are printed
+	// here instead.
+	flags.Usage = func() {}
+	flags.BoolVar(&opts.quiet, "quiet", false, "")
+	flags.BoolVar(&opts.serial, "serial", false, "")
+	flags.BoolVar(&opts.list, "list", false, "")
+	flags.BoolVar(&showVersion, "version", false, "")
+	flags.StringVar(&opts.logPath, "log", "", "")
+	// Func rather than IntVar and DurationVar, so a refusal names what the
+	// flag takes. "invalid value for -timeout" is a worse message on the one
+	// path a caller only reaches by getting something wrong.
+	flags.Func("tail", "", func(value string) error {
+		n, err := strconv.Atoi(value)
+		if err != nil || n < 0 {
+			return fmt.Errorf("wants a non-negative number, got %q", value)
 		}
-		// The first token that is not one of gate's flags starts the
-		// command, so a command's own flags are never eaten here.
-		if !strings.HasPrefix(arg, "-") || arg == "-" {
-			break
+		opts.tail = n
+		return nil
+	})
+	flags.Func("timeout", "", func(value string) error {
+		d, err := time.ParseDuration(value)
+		if err != nil || d < 0 {
+			return fmt.Errorf("wants a duration like 90s or 5m, got %q", value)
 		}
+		timeout = d
+		return nil
+	})
 
-		name, inlineValue, hasInline := strings.Cut(arg, "=")
-		switch name {
-		case "-h", "--help":
+	if err := flags.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
 			fmt.Fprint(stdout, gateHelp)
 			return Success
-		case "--version":
-			showVersion = true
-			i++
-		case "--quiet":
-			opts.quiet = true
-			i++
-		case "--serial":
-			opts.serial = true
-			i++
-		case "--list":
-			opts.list = true
-			i++
-		case "--tail":
-			value, next, code := flagValue(args, i, name, inlineValue, hasInline, stderr)
-			if code != Success {
-				return code
-			}
-			n, err := strconv.Atoi(value)
-			if err != nil || n < 0 {
-				fmt.Fprintf(stderr, "gate: --tail wants a non-negative number, got %q\n", value)
-				return InvalidUsage
-			}
-			opts.tail = n
-			i = next
-		case "--timeout":
-			value, next, code := flagValue(args, i, name, inlineValue, hasInline, stderr)
-			if code != Success {
-				return code
-			}
-			d, err := time.ParseDuration(value)
-			if err != nil || d < 0 {
-				fmt.Fprintf(stderr, "gate: --timeout wants a duration like 90s or 5m, got %q\n", value)
-				return InvalidUsage
-			}
-			timeout = d
-			i = next
-		case "--log":
-			value, next, code := flagValue(args, i, name, inlineValue, hasInline, stderr)
-			if code != Success {
-				return code
-			}
-			opts.logPath = value
-			i = next
-		default:
-			fmt.Fprintf(stderr, "gate: unrecognized flag %q\n", arg)
-			fmt.Fprint(stderr, gateHelp)
-			return InvalidUsage
 		}
+		// flag has already named the offending flag on stderr.
+		fmt.Fprint(stderr, gateHelp)
+		return InvalidUsage
 	}
+
+	// Everything after a `--` is the caller's, including a word gate would
+	// otherwise claim -- `gate -- run x` runs a program called run. flag
+	// consumes the terminator without reporting it, so it is recovered from
+	// where parsing stopped: the token before the first argument left over.
+	// Scanning for it beforehand would mean knowing which flags take values,
+	// which is the parser this replaced.
+	args = flags.Args()
+	explicit := len(args) < len(argv) && argv[len(argv)-len(args)-1] == "--"
 
 	// Resolved after the flag loop rather than inside it, so
 	// `gate --timeout 5m --version` reports 5m instead of the default it
@@ -188,18 +168,18 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	// "doctor" and "run" are the only words gate treats as its own rather than
 	// as a command. A real program by either name is still reachable as
 	// `gate -- doctor`, which is what -- is for.
-	if rest := args[i:]; !explicit && len(rest) == 1 && rest[0] == "doctor" {
+	if !explicit && len(args) == 1 && args[0] == "doctor" {
 		return runDoctor(dir, stdout, stderr)
 	}
 	// Only these two spellings are gate's; `gate doctor <anything else>` still
 	// means the program named doctor, reachable as `gate -- doctor` too.
-	if rest := args[i:]; !explicit && len(rest) == 2 && rest[0] == "doctor" &&
-		(rest[1] == "-h" || rest[1] == "--help") {
+	if !explicit && len(args) == 2 && args[0] == "doctor" &&
+		(args[1] == "-h" || args[1] == "--help") {
 		fmt.Fprint(stdout, doctorHelp)
 		return Success
 	}
 
-	command := args[i:]
+	command := args
 	var roles []string
 
 	// `run` is how a gate is named, and the only word gate claims that takes
@@ -374,17 +354,4 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	}
 
 	return runGates(ctx, opts, stdout, stderr)
-}
-
-// flagValue reads a flag's value from either --flag=value or --flag value,
-// and reports the index to resume parsing from.
-func flagValue(args []string, i int, name, inline string, hasInline bool, stderr io.Writer) (string, int, Code) {
-	if hasInline {
-		return inline, i + 1, Success
-	}
-	if i+1 >= len(args) {
-		fmt.Fprintf(stderr, "gate: %s wants a value\n", name)
-		return "", 0, InvalidUsage
-	}
-	return args[i+1], i + 2, Success
 }
