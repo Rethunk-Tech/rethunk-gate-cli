@@ -4,6 +4,38 @@ Notable changes to `gate`. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Removed
+
+- `--also`. Two concurrent gates are two `gate` invocations, and no
+  invocation anywhere in the fleet used the flag.
+
+- `--keep` and log retention. systemd-tmpfiles already sweeps `/var/tmp`,
+  so gate was keeping a stamp file and an hourly directory scan to repeat what
+  the platform does.
+
+- `[defaults]`, `gates.<name>.timeout` and `gates.<name>.toolchain` in
+  `.gate.toml`. Measured across every `.gate.toml` in the fleet, `run` had 87
+  uses and `serial` 2; these three had none. `run` and `serial` are now the
+  whole config surface, and an unknown key is still an error rather than a
+  default, so a file using one of these is refused by name.
+
+- Toolchain labels in `--list`. They decided nothing and only printed.
+
+- Automatic serial detection for Next projects. It was the one order gate
+  inferred rather than being told. A Next project that needs `build` and
+  `typecheck` sequenced against each other now says so, the way every other
+  ordering is stated:
+
+  ```toml
+  [gates.build]
+  serial = true
+
+  [gates.typecheck]
+  serial = true
+  ```
+
 ## [0.2.0] — 2026-08-16
 
 ### Security
