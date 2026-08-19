@@ -22,7 +22,7 @@ func logDir() string {
 	return filepath.Join(base, "gate")
 }
 
-// shellArgv wraps a --also string for the platform's shell. --also takes one
+// shellArgv wraps a config `run` string for the platform's shell. It is one
 // string rather than an argv precisely so it can carry pipes and globs, which
 // means it has to reach a shell to be split.
 func shellArgv(command string) []string {

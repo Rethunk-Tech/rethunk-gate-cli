@@ -8,10 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -44,12 +42,6 @@ func markRoot(dir string) []string {
 	return append(os.Environ(), activeRootsVar+"="+strings.Join(append(activeRoots(), root), "\n"))
 }
 
-// logSeq disambiguates log filenames when several gates run in one process.
-// They share a pid, and two gates in the same project can easily reduce to
-// the same slug -- without this, concurrent gates would overwrite each
-// other's logs, losing the output this tool exists to keep.
-var logSeq atomic.Int64
-
 // options is one resolved invocation of gate.
 type options struct {
 	tail    int
@@ -57,33 +49,20 @@ type options struct {
 	quiet   bool
 	serial  bool
 	list    bool
-	// keepFor is how long gate's own logs survive. Zero disables pruning
-	// entirely, matching --timeout 0 rather than inventing a second spelling
-	// for "off" in the same tool.
-	keepFor time.Duration
 	gates   []gateSpec
 }
 
 // gateSpec is one command to run. argv is executed directly, without a shell,
-// unless the spec came from --also, which is a shell string by definition.
+// unless the spec came from a config `run`, which is a shell string by
+// definition.
 type gateSpec struct {
 	argv    []string
 	display string
 
-	// toolchain labels the gate in --list. It says what the gate belongs to,
-	// not when it runs: scheduling follows serial alone.
-	toolchain string
-
 	// serial sequences this gate against the other serial ones. Nothing else
-	// sequences a gate -- gates run concurrently unless --serial, a config
-	// default, this gate's own config entry, or detection finding two gates
-	// that provably write the same files asks for order.
+	// sequences a gate -- gates run concurrently unless --serial or this
+	// gate's own config entry asks for order.
 	serial bool
-
-	// serialReason says why a gate detection sequenced is sequenced. Empty
-	// when the caller asked, since --serial and a config entry already say
-	// so themselves.
-	serialReason string
 
 	// dir is where this gate runs. Set per gate rather than by chdir: gates
 	// run concurrently, and the working directory is process-global, so one
@@ -117,10 +96,10 @@ type gateSpec struct {
 // line whose whole job is to be short: a project-local tool otherwise spends
 // 100+ characters naming a directory the reader already knows.
 //
-// Only an absolute argv[0] is trimmed, which leaves --also gates alone: their
+// Only an absolute argv[0] is trimmed, which leaves shell gates alone: their
 // argv is `sh -c <string>` while display is the string itself. The full path
-// stays in --list, where the question is what exactly will run, and in the
-// log trailer, where the question is what exactly did.
+// stays in --list and in the log trailer, where the question is what exactly
+// ran.
 func (s gateSpec) short() string {
 	if len(s.argv) == 0 || !filepath.IsAbs(s.argv[0]) {
 		return s.display
@@ -163,12 +142,6 @@ type gateResult struct {
 // deterministic and explainable in a way "whichever failed first in wall
 // clock" would not be.
 func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code {
-	// Once per invocation, not per gate. Logs are the only thing gate leaves
-	// behind, and nothing else ever removes them.
-	if opts.logPath == "" {
-		pruneLogs(logDir(), opts.keepFor)
-	}
-
 	results := make([]gateResult, len(opts.gates))
 
 	var wg sync.WaitGroup
@@ -310,34 +283,10 @@ func report(results []gateResult, opts options, stdout, stderr io.Writer) Code {
 // keeping only a bounded summary in memory.
 func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 	res := gateResult{spec: spec, logPath: opts.logPath}
-	if res.logPath == "" {
-		res.logPath = defaultLogPath(spec.argv)
-	}
 
-	dir := filepath.Dir(res.logPath)
-	if dir == logDir() {
-		// gate's own directory is private: these logs hold whatever the
-		// command printed, which can include tokens and connection strings.
-		// MkdirAll leaves an existing directory's mode alone, so a looser one
-		// is tightened here.
-		if err := os.MkdirAll(dir, 0o700); err != nil {
-			res.fatalErr = fmt.Errorf("cannot create log directory: %w", err)
-			return res
-		}
-		if info, err := os.Stat(dir); err == nil && info.Mode().Perm() != 0o700 {
-			_ = os.Chmod(dir, 0o700)
-		}
-	} else if err := os.MkdirAll(dir, 0o755); err != nil {
-		// A path the caller chose with --log: create it, but do not impose
-		// gate's own privacy on a location it does not own.
-		res.fatalErr = fmt.Errorf("cannot create log directory: %w", err)
-		return res
-	}
-
-	// 0600 rather than os.Create's 0666-minus-umask, wherever the log lives.
-	logFile, err := os.OpenFile(res.logPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	logFile, err := openLog(&res, spec)
 	if err != nil {
-		res.fatalErr = fmt.Errorf("cannot create log %s: %w", res.logPath, err)
+		res.fatalErr = err
 		return res
 	}
 
@@ -420,6 +369,44 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 	return res
 }
 
+// openLog creates the file this gate's output goes to, and records its path.
+//
+// Both branches create it 0600 rather than os.Create's 0666-minus-umask: a log
+// holds whatever the command printed, which can include tokens and connection
+// strings.
+func openLog(res *gateResult, spec gateSpec) (*os.File, error) {
+	if res.logPath != "" {
+		// A path the caller chose with --log: create it, but do not impose
+		// gate's own privacy on a location it does not own.
+		if err := os.MkdirAll(filepath.Dir(res.logPath), 0o755); err != nil {
+			return nil, fmt.Errorf("cannot create log directory: %w", err)
+		}
+		f, err := os.OpenFile(res.logPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+		if err != nil {
+			return nil, fmt.Errorf("cannot create log %s: %w", res.logPath, err)
+		}
+		return f, nil
+	}
+
+	// gate's own directory is private. MkdirAll leaves an existing directory's
+	// mode alone, so a looser one is tightened here.
+	dir := logDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, fmt.Errorf("cannot create log directory: %w", err)
+	}
+	if info, err := os.Stat(dir); err == nil && info.Mode().Perm() != 0o700 {
+		_ = os.Chmod(dir, 0o700)
+	}
+	// CreateTemp settles the collision two gates with the same slug would
+	// otherwise have, and creates 0600 by definition.
+	f, err := os.CreateTemp(dir, slug(spec.argv)+"-*.log")
+	if err != nil {
+		return nil, fmt.Errorf("cannot create log in %s: %w", dir, err)
+	}
+	res.logPath = f.Name()
+	return f, nil
+}
+
 // trailerPrefix marks gate's own line in a log. Distinctive enough that a
 // reader, or a grep, can tell it from anything the command printed.
 const trailerPrefix = "[gate]"
@@ -492,64 +479,6 @@ func resolveCode(err error) Code {
 
 func isNotFound(err error) bool {
 	return errors.Is(err, exec.ErrNotFound) || errors.Is(err, os.ErrNotExist)
-}
-
-func defaultLogPath(argv []string) string {
-	name := slug(argv) + "-" + strconv.Itoa(os.Getpid()) + "-" + strconv.FormatInt(logSeq.Add(1), 10) + ".log"
-	return filepath.Join(logDir(), name)
-}
-
-// pruneInterval is how often the sweep below actually runs.
-//
-// Measured, this is not a micro-optimisation. A week of real use leaves
-// around 12,000 logs in one directory, and stat-ing all of them costs 15-20ms
-// -- against a median gate of 0.14s, so roughly 12% of the common case spent
-// deleting nothing, since on most runs nothing is old enough to delete. That
-// is the same argument AGENTS.md uses to justify Go over a scripting
-// language, applied to gate itself.
-//
-// The cost of the interval is that a log can outlive its retention by up to
-// an hour. Nothing depends on the deletion being prompt.
-const pruneInterval = time.Hour
-
-// stampName marks when the last sweep ran. It is deliberately not a *.log
-// file, so the sweep never considers its own bookkeeping.
-const stampName = ".last-prune"
-
-// pruneLogs removes gate's own logs older than keepFor, at most once per
-// pruneInterval.
-//
-// Errors are swallowed on purpose: housekeeping must never be able to fail a
-// gate. Only *.log files directly inside gate's own directory are considered,
-// so a path handed in with --log -- which the caller owns -- is never touched.
-func pruneLogs(dir string, keepFor time.Duration) {
-	if keepFor <= 0 {
-		return
-	}
-	stamp := filepath.Join(dir, stampName)
-	if info, err := os.Stat(stamp); err == nil && time.Since(info.ModTime()) < pruneInterval {
-		return
-	}
-	// Stamped before the sweep rather than after, so several gates starting at
-	// once do not all decide to sweep. A failure to write it only costs
-	// another sweep next time, which is why the error is not consulted.
-	_ = os.WriteFile(stamp, nil, 0o600)
-
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return
-	}
-	cutoff := time.Now().Add(-keepFor)
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".log") {
-			continue
-		}
-		info, err := entry.Info()
-		if err != nil || !info.ModTime().Before(cutoff) {
-			continue
-		}
-		_ = os.Remove(filepath.Join(dir, entry.Name()))
-	}
 }
 
 // slug reduces a command line to something safe and recognisable in a

@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/go-quicktest/qt"
 )
@@ -33,32 +32,27 @@ func TestNoConfigAnywhereIsNotAnError(t *testing.T) {
 	isolate(t)
 	cfg, err := Load(t.TempDir())
 	qt.Assert(t, qt.IsNil(err))
-	qt.Check(t, qt.IsFalse(cfg.HasTimeout))
 	qt.Check(t, qt.HasLen(cfg.Gates, 0))
 	qt.Check(t, qt.HasLen(cfg.Files, 0))
 }
 
-// The layers merge per KEY, not per file: a project that overrides one gate's
-// timeout still inherits the user's default for every other gate. Merging per
-// file would make the project file all-or-nothing.
+// The layers merge per KEY, not per file: a project that overrides one gate
+// still inherits the user's settings for every other gate. Merging per file
+// would make the project file all-or-nothing.
 func TestTheProjectFileWinsPerKeyNotPerFile(t *testing.T) {
 	home := isolate(t)
-	write(t, home, "gate/config.toml", "[defaults]\ntimeout = \"2m\"\n\n[gates.test]\ntimeout = \"5m\"\ntoolchain = \"go\"\n")
+	write(t, home, "gate/config.toml", "[gates.test]\nrun = \"user test\"\n\n[gates.lint]\nrun = \"user lint\"\n")
 
 	root := t.TempDir()
-	write(t, root, ProjectFile, "[gates.test]\ntimeout = \"10m\"\n")
+	write(t, root, ProjectFile, "[gates.test]\nrun = \"project test\"\n")
 
 	cfg, err := Load(root)
 	qt.Assert(t, qt.IsNil(err))
 
-	// The user's default survives, because the project said nothing about it.
-	qt.Check(t, qt.IsTrue(cfg.HasTimeout))
-	qt.Check(t, qt.Equals(cfg.Timeout, 2*time.Minute))
-
-	// The nearer file wins the key it set...
-	qt.Check(t, qt.Equals(cfg.Gates["test"].Timeout, 10*time.Minute))
-	// ...and leaves the keys it did not set alone.
-	qt.Check(t, qt.Equals(cfg.Gates["test"].Toolchain, "go"))
+	// The nearer file wins the gate it set...
+	qt.Check(t, qt.Equals(cfg.Gates["test"].Run, "project test"))
+	// ...and leaves the one it did not mention alone.
+	qt.Check(t, qt.Equals(cfg.Gates["lint"].Run, "user lint"))
 
 	qt.Check(t, qt.HasLen(cfg.Files, 2))
 }
@@ -69,17 +63,13 @@ func TestTheProjectFileWinsPerKeyNotPerFile(t *testing.T) {
 // indistinguishable from not writing it at all.
 func TestSerialFalseIsDistinguishableFromUnset(t *testing.T) {
 	home := isolate(t)
-	write(t, home, "gate/config.toml", "[defaults]\nserial = true\n\n[gates.test]\nserial = true\n")
+	write(t, home, "gate/config.toml", "[gates.test]\nserial = true\n")
 
 	root := t.TempDir()
 	write(t, root, ProjectFile, "[gates.test]\nserial = false\n")
 
 	cfg, err := Load(root)
 	qt.Assert(t, qt.IsNil(err))
-
-	// The user's run-wide default survives: the project said nothing about it.
-	qt.Check(t, qt.IsTrue(cfg.HasSerial))
-	qt.Check(t, qt.IsTrue(cfg.Serial))
 
 	// The project turned this one back off, which is a statement, not silence.
 	qt.Check(t, qt.IsTrue(cfg.Gates["test"].HasSerial))
@@ -97,27 +87,14 @@ func TestSerialFalseIsDistinguishableFromUnset(t *testing.T) {
 func TestUnknownKeysAreRefusedAllAtOnce(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
-	write(t, root, ProjectFile, "[defaults]\ntimout = \"10m\"\nkeepp = 3\n")
+	write(t, root, ProjectFile, "[gates.test]\nrunn = \"go test\"\nseriall = true\n")
 
 	_, err := Load(root)
 	qt.Assert(t, qt.IsNotNil(err))
-	for _, want := range []string{"timout", "keepp", ProjectFile} {
+	for _, want := range []string{"runn", "seriall", ProjectFile} {
 		qt.Check(t, qt.IsTrue(strings.Contains(err.Error(), want)),
 			qt.Commentf("error = %v", err))
 	}
-}
-
-// A duration that cannot be parsed names the key it came from, since "invalid
-// duration" alone would send the reader looking through the whole file.
-func TestABadDurationNamesItsKey(t *testing.T) {
-	isolate(t)
-	root := t.TempDir()
-	write(t, root, ProjectFile, "[gates.test]\ntimeout = \"soon\"\n")
-
-	_, err := Load(root)
-	qt.Assert(t, qt.IsNotNil(err))
-	qt.Check(t, qt.IsTrue(strings.Contains(err.Error(), "gates.test.timeout")),
-		qt.Commentf("error = %v", err))
 }
 
 // Malformed TOML refuses rather than falling back to defaults. Falling back
@@ -126,7 +103,7 @@ func TestABadDurationNamesItsKey(t *testing.T) {
 func TestMalformedTOMLRefusesAndNamesTheFile(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
-	write(t, root, ProjectFile, "[defaults\ntimeout = \"2m\"\n")
+	write(t, root, ProjectFile, "[gates.test\nrun = \"go test\"\n")
 
 	_, err := Load(root)
 	qt.Assert(t, qt.IsNotNil(err))

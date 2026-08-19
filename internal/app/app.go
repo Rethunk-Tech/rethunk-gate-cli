@@ -22,11 +22,6 @@ import (
 // it is not the thing this tool exists to avoid.
 const defaultTail = 40
 
-// defaultKeepDays is how long gate's own logs survive. They are the only
-// thing it leaves behind, and at real usage rates -- 12,500 gate invocations
-// in a measured week -- nothing else would ever remove them.
-const defaultKeepDays = 7
-
 // defaultTimeout bounds each gate. Chosen deliberately at one minute, with
 // the cost known: of 12,569 real gate invocations measured over a week, 141
 // (1.12%) ran longer than 60s and p99 was 65.0s -- so this sits almost
@@ -56,14 +51,12 @@ Global flags (before everything else):
   -C <path>     run as if gate had been started in <path>
 
 Flags:
-  --also CMD    run CMD as another gate, concurrently (repeatable; shell string)
   --serial      run every gate in order and stop at the first failure
                 (gates run concurrently unless this, or .gate.toml, says not to)
   --list        print the gates that would run, and run nothing
   --timeout D   kill a gate that runs longer than D (default 1m, 0 disables)
   --tail N      trailing lines to quote on failure (default 40)
   --log PATH    write the log here instead of the default location
-  --keep DAYS   how long gate's own logs survive (default 7, 0 keeps them all)
   --quiet       print nothing when the gates pass
   --version     print the version and the settings in force, then exit
   -h, --help    show this help and exit
@@ -99,12 +92,9 @@ Full reference: docs/USAGE.md
 
 // Run parses gate's own arguments and runs the gates that follow them.
 func Run(ctx context.Context, version string, args []string, stdout, stderr io.Writer) Code {
-	opts := options{tail: defaultTail, keepFor: defaultKeepDays * 24 * time.Hour}
+	opts := options{tail: defaultTail}
 	timeout := defaultTimeout
-	timeoutGiven := false
-	serialGiven := false
 	showVersion := false
-	var also []string
 
 	dir, args, code, ok := parseChdir(args, stderr)
 	if !ok {
@@ -144,18 +134,11 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 			opts.quiet = true
 			i++
 		case "--serial":
-			opts.serial, serialGiven = true, true
+			opts.serial = true
 			i++
 		case "--list":
 			opts.list = true
 			i++
-		case "--also":
-			value, next, code := flagValue(args, i, name, inlineValue, hasInline, stderr)
-			if code != Success {
-				return code
-			}
-			also = append(also, value)
-			i = next
 		case "--tail":
 			value, next, code := flagValue(args, i, name, inlineValue, hasInline, stderr)
 			if code != Success {
@@ -178,19 +161,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 				fmt.Fprintf(stderr, "gate: --timeout wants a duration like 90s or 5m, got %q\n", value)
 				return InvalidUsage
 			}
-			timeout, timeoutGiven = d, true
-			i = next
-		case "--keep":
-			value, next, code := flagValue(args, i, name, inlineValue, hasInline, stderr)
-			if code != Success {
-				return code
-			}
-			days, err := strconv.Atoi(value)
-			if err != nil || days < 0 {
-				fmt.Fprintf(stderr, "gate: --keep wants a non-negative number of days, got %q\n", value)
-				return InvalidUsage
-			}
-			opts.keepFor = time.Duration(days) * 24 * time.Hour
+			timeout = d
 			i = next
 		case "--log":
 			value, next, code := flagValue(args, i, name, inlineValue, hasInline, stderr)
@@ -210,7 +181,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	// `gate --timeout 5m --version` reports 5m instead of the default it
 	// would have printed had it exited on sight.
 	if showVersion {
-		writeVersion(stdout, version, timeout, opts.keepFor)
+		writeVersion(stdout, version, timeout)
 		return Success
 	}
 
@@ -256,17 +227,6 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 			dir:     dir,
 		})
 	}
-	for _, shellCommand := range also {
-		// --also takes one string rather than an argv, so it has to reach a
-		// shell to be split -- which also means it can carry pipes and
-		// globs, the way anyone writing a second gate would expect.
-		opts.gates = append(opts.gates, gateSpec{
-			argv:    shellArgv(shellCommand),
-			display: shellCommand,
-			dir:     dir,
-		})
-	}
-
 	// With nothing named, gate reads the project instead. Detection never
 	// runs anything, and what it chose is printable with --list, because a
 	// detector you cannot inspect is one you end up fighting.
@@ -304,14 +264,11 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 				continue
 			}
 			spec := gateSpec{
-				argv:         g.Argv,
-				display:      g.Display(),
-				toolchain:    string(g.Toolchain),
-				serial:       g.Serial,
-				serialReason: g.SerialReason,
-				role:         g.Name,
-				source:       g.Source,
-				shadowed:     g.Shadowed,
+				argv:     g.Argv,
+				display:  g.Display(),
+				role:     g.Name,
+				source:   g.Source,
+				shadowed: g.Shadowed,
 				// The project's own commands only work at its root, which
 				// is not necessarily where the caller stood.
 				dir: proj.Root,
@@ -328,13 +285,10 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 					// resolution is visible in --list as this gate's source.
 					spec.shadowed = nil
 				}
-				if c.Toolchain != "" {
-					spec.toolchain = c.Toolchain
-				}
 				// Only where the file actually said so: an absent key must
 				// not silently undo an order detection found for a reason.
 				if c.HasSerial {
-					spec.serial, spec.serialReason = c.Serial, ""
+					spec.serial = c.Serial
 				}
 				spec.source = g.Source + ", overridden by " + c.Source
 			}
@@ -355,13 +309,12 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 				continue
 			}
 			opts.gates = append(opts.gates, gateSpec{
-				argv:      shellArgv(c.Run),
-				display:   c.Run,
-				toolchain: c.Toolchain,
-				serial:    c.Serial,
-				role:      name,
-				source:    c.Source + " gates." + name,
-				dir:       proj.Root,
+				argv:    shellArgv(c.Run),
+				display: c.Run,
+				serial:  c.Serial,
+				role:    name,
+				source:  c.Source + " gates." + name,
+				dir:     proj.Root,
 			})
 		}
 
@@ -387,28 +340,8 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		}
 	}
 
-	// Timeout precedence, nearest statement of intent first: the flag, then
-	// this gate's own config entry, then the config default, then the value
-	// built in. The flag is checked first and unconditionally -- applying it
-	// only where config was silent would make it the weakest, not the
-	// strongest.
 	for i := range opts.gates {
-		d := timeout
-		if !timeoutGiven {
-			if c, ok := configured.Gates[opts.gates[i].role]; ok && c.HasTimeout {
-				d = c.Timeout
-			} else if configured.HasTimeout {
-				d = configured.Timeout
-			}
-		}
-		opts.gates[i].timeout = d
-	}
-
-	// A project can ask for the whole run to be sequenced, which --serial
-	// already spells. The flag still wins, on the same precedence as the
-	// timeout: the nearest statement of intent is the strongest.
-	if !serialGiven && configured.HasSerial {
-		opts.serial = configured.Serial
+		opts.gates[i].timeout = timeout
 	}
 
 	if opts.list {
@@ -436,7 +369,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	if len(opts.gates) > 1 && opts.logPath != "" {
 		// One path cannot hold several gates' logs, and silently sharing it
 		// would destroy the output of every gate but the last.
-		fmt.Fprintln(stderr, "gate: --log names a single file; with --also, set TMPDIR to choose where logs go")
+		fmt.Fprintln(stderr, "gate: --log names a single file; this run has several gates, so set TMPDIR to choose where their logs go")
 		return InvalidUsage
 	}
 

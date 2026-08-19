@@ -133,27 +133,6 @@ func TestDetectRunsNothing(t *testing.T) {
 	qt.Assert(t, qt.IsNotNil(err), qt.Commentf("Detect executed a Makefile target"))
 }
 
-// Every gate carries the toolchain it belongs to, which is what --list prints
-// beside it. Detection is where that attribution happens, so a gate that lost
-// it would leave the listing unreadable without saying anything had broken.
-func TestGatesCarryTheToolchainTheyBelongTo(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	write(t, dir, "go.mod", "module demo\n\ngo 1.26\n")
-	write(t, dir, ".github/workflows/ci.yml", "name: CI\n")
-	writeExecutable(t, dir, "node_modules/.bin/actionlint")
-
-	proj := detect(t, dir)
-	for _, name := range []string{"build", "test", "lint"} {
-		qt.Check(t, qt.Equals(gateNamed(t, proj, name).Toolchain, ToolchainGo),
-			qt.Commentf("gate %s", name))
-	}
-	// actionlint is not a Go tool and must not be attributed as one. Named by
-	// its role rather than matched in a switch: a role absent from detection
-	// matches nothing and checks nothing.
-	qt.Check(t, qt.Equals(gateNamed(t, proj, "workflows").Toolchain, ToolchainOther))
-}
-
 // A workspace member is the common shape: 71 package.json files against 32
 // lockfiles means most packages sit under a root that holds the lockfile.
 func TestWorkspaceRootIsFoundAboveThePackage(t *testing.T) {
@@ -222,9 +201,6 @@ func TestADeclaredVulnTargetBeatsTheConvention(t *testing.T) {
 	vuln := gateNamed(t, detect(t, dir), "vuln")
 	qt.Check(t, qt.Equals(vuln.Display(), "make vuln"))
 	qt.Check(t, qt.IsTrue(vuln.Declared))
-	// A Makefile in a Go repository shares the Go build cache, so it has to
-	// land in that group rather than becoming its own.
-	qt.Check(t, qt.Equals(vuln.Toolchain, ToolchainGo))
 }
 
 // The Python vuln gate audits the lockfile, so the lockfile is what decides
@@ -239,7 +215,6 @@ func TestThePythonVulnGateFollowsTheLockfile(t *testing.T) {
 	write(t, dir, "uv.lock", "version = 1\n")
 
 	vuln := gateNamed(t, detect(t, dir), "vuln")
-	qt.Check(t, qt.Equals(vuln.Toolchain, ToolchainPython))
 	// The preview flag is part of the contract, not decoration: without it
 	// every run writes a warning about the subcommand being experimental.
 	qt.Check(t, qt.Equals(vuln.Display(), "uv audit --preview-features audit-command"))
@@ -295,49 +270,4 @@ func TestSupabaseIsSkippedWithAStatedReason(t *testing.T) {
 
 	qt.Check(t, qt.IsTrue(hasNote(detect(t, dir), "supabase")),
 		qt.Commentf("supabase's omission was not explained"))
-}
-
-// The one ordering detection infers, and the reason it is allowed to: build
-// and typecheck both write .next, which is a shared FILE rather than a
-// dependency on another gate's result. Run concurrently they clobber each
-// other nondeterministically, so a lucky run proves nothing and the failure
-// blames the type checker for a build's timing.
-//
-// The member is where next lives, not the root: a Next monorepo declares
-// workspaces and keeps each app's dependency in that app's manifest, so a
-// check that read only the root manifest would answer no for exactly the
-// repository that needs this most.
-func TestNextBuildAndTypecheckAreSequencedAgainstEachOther(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	write(t, dir, "package.json", `{"workspaces":["apps/*"],"scripts":{"build":"turbo run build","typecheck":"turbo run typecheck","lint":"biome check ."}}`)
-	write(t, dir, "apps/web/package.json", `{"dependencies":{"next":"^15.0.0"}}`)
-	write(t, dir, "package-lock.json", "{}")
-
-	proj := detect(t, dir)
-	for _, name := range []string{"build", "typecheck"} {
-		g := gateNamed(t, proj, name)
-		qt.Check(t, qt.IsTrue(g.Serial), qt.Commentf("gate %s was left to race the other over .next", name))
-		qt.Check(t, qt.StringContains(g.SerialReason, ".next"),
-			qt.Commentf("gate %s is sequenced but does not say why: %q", name, g.SerialReason))
-	}
-	// Everything else still overlaps: the conflict is those two, and
-	// sequencing a gate that shares nothing is pure wall clock.
-	qt.Check(t, qt.IsFalse(gateNamed(t, proj, "lint").Serial),
-		qt.Commentf("lint was sequenced despite sharing nothing with build"))
-}
-
-// A node project that is not Next keeps every gate concurrent. Without this,
-// the check above would still pass if detection simply sequenced build and
-// typecheck everywhere.
-func TestANonNextProjectSequencesNothing(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	write(t, dir, "package.json", `{"scripts":{"build":"tsc","typecheck":"tsc --noEmit","lint":"biome check ."}}`)
-	write(t, dir, "package-lock.json", "{}")
-
-	proj := detect(t, dir)
-	for _, g := range proj.Gates {
-		qt.Check(t, qt.IsFalse(g.Serial), qt.Commentf("gate %s was sequenced with no shared output to justify it", g.Name))
-	}
 }

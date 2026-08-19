@@ -42,26 +42,19 @@ func writeListing(w io.Writer, project detect.Project, files []string, opts opti
 	for _, group := range groups {
 		for n, i := range group {
 			spec := opts.gates[i]
-			toolchain := spec.toolchain
-			if toolchain == "" {
-				toolchain = "given"
-			}
 			lead := "  "
 			if n > 0 {
 				lead = "  then "
 			}
 			if spec.role != "" {
-				fmt.Fprintf(w, "%s[%s] %-10s %s\n", lead, toolchain, spec.role, spec.display)
+				fmt.Fprintf(w, "%s%-10s %s\n", lead, spec.role, spec.display)
 				fmt.Fprintf(w, "        from %s\n", spec.source)
-				if spec.serialReason != "" {
-					fmt.Fprintf(w, "        serial: %s\n", spec.serialReason)
-				}
 				for _, shadowed := range spec.shadowed {
 					fmt.Fprintf(w, "        shadows %s\n", shadowed)
 				}
 				continue
 			}
-			fmt.Fprintf(w, "%s[%s] %s\n", lead, toolchain, spec.display)
+			fmt.Fprintf(w, "%s%s\n", lead, spec.display)
 		}
 	}
 

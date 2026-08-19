@@ -15,9 +15,9 @@ func logDir() string {
 	return filepath.Join(os.TempDir(), "gate")
 }
 
-// shellArgv wraps a --also string for the platform's shell. cmd.exe splits its
-// command line by rules that are not a POSIX shell's, so an --also string that
-// works on both platforms is not something gate can promise.
+// shellArgv wraps a config `run` string for the platform's shell. cmd.exe
+// splits its command line by rules that are not a POSIX shell's, so a `run`
+// string that works on both platforms is not something gate can promise.
 func shellArgv(command string) []string {
 	return []string{"cmd", "/c", command}
 }

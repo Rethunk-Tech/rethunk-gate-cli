@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -67,11 +66,14 @@ func Run(dir string) ([]Finding, error) {
 	checkDeclaredGates(root, proj, add)
 
 	// Stable order: worse first, then by check name so two runs agree.
-	sort.SliceStable(findings, func(i, j int) bool {
-		if findings[i].Warn != findings[j].Warn {
-			return findings[i].Warn
+	slices.SortStableFunc(findings, func(a, b Finding) int {
+		if a.Warn != b.Warn {
+			if a.Warn {
+				return -1
+			}
+			return 1
 		}
-		return findings[i].Check < findings[j].Check
+		return strings.Compare(a.Check, b.Check)
 	})
 	return findings, nil
 }

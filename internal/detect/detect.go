@@ -1,15 +1,12 @@
 // Package detect works out which gates a project has and how to run them.
 //
-// The shape of this package follows a measurement rather than a guess. Across
-// the fleet it was written for, declared gate scripts are the common case, not
-// the gap: of 71 package.json files, 55 declare a test script and 52 declare
-// typecheck; 19 of 29 Makefiles declare lint. So this is primarily a reader of
-// what a project already says about itself, and the built-in tool ladder is
-// only a fallback for the minority that declare nothing.
-//
-// That ordering is the whole safety argument. Inferring a command when the
-// project already declares one would silently bypass the pipeline its authors
-// intended, and the counts say that would be the majority case.
+// The shape follows a measurement. Across the fleet it was written for,
+// declared gate scripts are the common case, not the gap: of 71 package.json
+// files, 55 declare a test script and 52 declare typecheck; 19 of 29 Makefiles
+// declare lint. So this is primarily a reader of what a project already says
+// about itself, and the built-in tool ladder is only a fallback for the
+// minority that declare nothing. Inferring a command when the project already
+// declares one would silently bypass the pipeline its authors intended.
 package detect
 
 import (
@@ -17,24 +14,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-)
-
-// Toolchain says what a gate belongs to, and is reported by --list so a
-// listing can be read at a glance.
-//
-// It does not decide scheduling. Sharing a build cache sounds like a reason to
-// sequence and measured is not: running a repository's gates fully
-// concurrently beat sequencing the ones sharing a toolchain by 24-42%
-// (rethunk-git-cli 1.55s -> 0.97s, Routed 1.22s -> 0.71s). Cache contention
-// costs less than the serialisation used to. Only a project saying one gate
-// depends on another sequences anything -- see gates.<role>.serial.
-type Toolchain string
-
-const (
-	ToolchainGo     Toolchain = "go"
-	ToolchainNode   Toolchain = "node"
-	ToolchainPython Toolchain = "python"
-	ToolchainOther  Toolchain = "other"
 )
 
 // Gate is one runnable check.
@@ -49,25 +28,12 @@ type Gate struct {
 	// than trusted.
 	Source string
 
-	Toolchain Toolchain
-
-	// Serial asks for this gate to run in sequence with the other serial
-	// gates rather than concurrently. Set only where two gates provably
-	// contend for the same files -- see markSerial.
-	Serial bool
-
-	// SerialReason says why, so --list can explain an order gate chose
-	// rather than one the caller asked for.
-	SerialReason string
-
 	// Shadowed lists other DECLARATIONS found for the same role that this
 	// one outranks. Never resolved silently -- reported.
 	//
 	// Conventions never appear here. A convention is something gate inferred,
-	// not something the project said, so "the Makefile won over what we would
-	// otherwise have guessed" is not a disagreement -- it is the design
-	// working. Recording those would fire on nearly every repository and turn
-	// a real signal into noise nobody reads.
+	// not something the project said, so recording those would fire on nearly
+	// every repository and turn a real signal into noise nobody reads.
 	Shadowed []string
 
 	// Declared is true when this came from a manifest the project maintains,
@@ -84,9 +50,9 @@ type Project struct {
 	Root string
 
 	// Workspace is the nearest directory above Root holding a lockfile or
-	// turbo.json, when one exists. 71 package.json files against 32
-	// bun.lock in the fleet means most packages are workspace members, so
-	// "nearest manifest" and "workspace root" are usually different.
+	// turbo.json, when one exists. 71 package.json files against 32 bun.lock
+	// in the fleet means most packages are workspace members, so "nearest
+	// manifest" and "workspace root" are usually different.
 	Workspace string
 
 	Gates []Gate
@@ -95,17 +61,13 @@ type Project struct {
 	Notes []string
 }
 
-// gateOrder is the order gates run in within one toolchain. Build first
-// because a test that needs its artifact must not run before it exists;
-// vuln last because it is advisory rather than a compile-time answer.
+// gateOrder is the order gates run in. Build first because a test that needs
+// its artifact must not run before it exists; vuln last because it is advisory
+// rather than a compile-time answer.
 //
 // A role missing from this list never reaches Project.Gates, silently. Adding
-// or renaming one means editing here in the same change, or the gate vanishes.
+// or renaming one means editing here in the same change.
 var gateOrder = []string{"build", "typecheck", "lint", "workflows", "test", "vuln"}
-
-// Roles returns the gate roles, in the order they run. Callers use it to
-// recognise a role named on the command line, so the two can never drift.
-func Roles() []string { return slices.Clone(gateOrder) }
 
 // IsRole reports whether name is one of the gate roles. Role names carry no
 // path separator and no leading dash, so an exact match is enough to tell one
@@ -132,9 +94,9 @@ func Detect(dir string) (Project, error) {
 	claim := func(g Gate) {
 		if existing, taken := byName[g.Name]; taken {
 			// Two declarations for one role. The winner was decided by the
-			// order these are collected in, and the loser is recorded
-			// rather than dropped: quietly choosing between two stated
-			// intents is the one behaviour that would make this untrustable.
+			// order these are collected in, and the loser is recorded rather
+			// than dropped: quietly choosing between two stated intents is the
+			// one behaviour that would make this untrustable.
 			if g.Declared && existing.Display() != g.Display() {
 				existing.Shadowed = append(existing.Shadowed, g.Source+": "+g.Display())
 				byName[g.Name] = existing
@@ -150,10 +112,9 @@ func Detect(dir string) (Project, error) {
 	for _, g := range makefileGates(proj.Root, &proj) {
 		claim(g)
 	}
-	// Turbo outranks the package scripts it orchestrates: where a task graph
-	// is declared, `turbo run test` is the project's real entry point and
-	// already handles caching and cross-package ordering that calling one
-	// package's script directly would skip.
+	// Turbo outranks the package scripts it orchestrates: where a task graph is
+	// declared, `turbo run test` is the project's real entry point and already
+	// handles caching and cross-package ordering.
 	if gates := turboGates(proj.workspaceOrRoot(), &proj); len(gates) > 0 {
 		proj.Notes = append(proj.Notes, "turbo.json found; delegating to turbo rather than scheduling its tasks here")
 		for _, g := range gates {
@@ -173,38 +134,7 @@ func Detect(dir string) (Project, error) {
 		}
 	}
 
-	// The one ordering gate infers, and it is a shared FILE, not a dependency
-	// on another gate's result: build and typecheck both write .next. Two
-	// gates writing one directory is something detection can see, unlike
-	// "test needs the artifact build produced", which only the project knows.
-	// A project that disagrees sets gates.<role>.serial = false.
-	markSerial(&proj, "next writes .next in both build and typecheck", "build", "typecheck")
-
 	return proj, nil
-}
-
-// markSerial sequences the named gates against each other, but only when every
-// one of them is present: pairing a gate with one that does not exist would
-// serialise it against nothing and still say so in --list.
-func markSerial(proj *Project, reason string, names ...string) {
-	if !usesNext(proj.Root) {
-		return
-	}
-	found := 0
-	for i := range proj.Gates {
-		if slices.Contains(names, proj.Gates[i].Name) {
-			found++
-		}
-	}
-	if found < len(names) {
-		return
-	}
-	for i := range proj.Gates {
-		if slices.Contains(names, proj.Gates[i].Name) {
-			proj.Gates[i].Serial = true
-			proj.Gates[i].SerialReason = reason
-		}
-	}
 }
 
 func (p Project) workspaceOrRoot() string {

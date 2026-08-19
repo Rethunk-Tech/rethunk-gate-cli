@@ -10,9 +10,9 @@ import (
 )
 
 // version renders the version output for one set of settings.
-func version(ldflags string, timeout, keepFor time.Duration) string {
+func version(ldflags string, timeout time.Duration) string {
 	var out bytes.Buffer
-	writeVersion(&out, ldflags, timeout, keepFor)
+	writeVersion(&out, ldflags, timeout)
 	return out.String()
 }
 
@@ -21,7 +21,7 @@ func version(ldflags string, timeout, keepFor time.Duration) string {
 // -ldflags for that path.
 func TestVersionNamesTheToolAndTheBuild(t *testing.T) {
 	t.Parallel()
-	first := strings.SplitN(version("v1.2.3", defaultTimeout, 7*24*time.Hour), "\n", 2)[0]
+	first := strings.SplitN(version("v1.2.3", defaultTimeout), "\n", 2)[0]
 
 	qt.Check(t, qt.IsTrue(strings.HasPrefix(first, "gate v1.2.3 ")),
 		qt.Commentf("version line = %q, want it to name the tool and version", first))
@@ -39,21 +39,14 @@ func TestVersionSettingsLineReflectsOverrides(t *testing.T) {
 	for _, c := range []struct {
 		name    string
 		timeout time.Duration
-		keepFor time.Duration
-		wants   []string
+		want    string
 	}{
-		{name: "defaults", timeout: defaultTimeout, keepFor: 7 * 24 * time.Hour,
-			wants: []string{"timeout 1m", "kept 7d"}},
-		{name: "overridden", timeout: 5 * time.Minute, keepFor: 30 * 24 * time.Hour,
-			wants: []string{"timeout 5m", "kept 30d"}},
-		// Both spellings of "off", which are deliberately the same value.
-		{name: "disabled", timeout: 0, keepFor: 0,
-			wants: []string{"timeout off", "indefinitely"}},
+		{name: "default", timeout: defaultTimeout, want: "timeout 1m"},
+		{name: "overridden", timeout: 5 * time.Minute, want: "timeout 5m"},
+		{name: "disabled", timeout: 0, want: "timeout off"},
 	} {
-		got := version("v1", c.timeout, c.keepFor)
-		for _, want := range c.wants {
-			qt.Check(t, qt.StringContains(got, want), qt.Commentf("%s: %q", c.name, got))
-		}
+		got := version("v1", c.timeout)
+		qt.Check(t, qt.StringContains(got, c.want), qt.Commentf("%s: %q", c.name, got))
 	}
 }
 

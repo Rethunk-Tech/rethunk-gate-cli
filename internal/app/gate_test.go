@@ -313,15 +313,31 @@ func setLogDir(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 }
 
+// gateProject writes a fixture whose .gate.toml declares the given commands as
+// gates, in declaration order, and returns its root. The manifest is a Makefile
+// with no recognised target, so detection finds the root and contributes
+// nothing: the gates a case gets are exactly the ones it named.
+func gateProject(t *testing.T, commands ...string) string {
+	t.Helper()
+	root := t.TempDir()
+	write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
+	var b strings.Builder
+	for i, command := range commands {
+		fmt.Fprintf(&b, "[gates.g%d]\nrun = %q\n\n", i, command)
+	}
+	write(t, root, ".gate.toml", b.String())
+	return root
+}
+
 // Independent gates have no reason to wait for each other. Measured over 7
 // days, back-to-back gate chains cost 7.93h sequentially against 5.57h if
 // overlapped, so this is the single largest saving the tool offers.
-func TestRunAlsoOverlapsIndependentGates(t *testing.T) {
+func TestIndependentGatesOverlap(t *testing.T) {
 	setLogDir(t)
 
-	const sleep = "0.4"
+	root := gateProject(t, "sleep 0.4", "sleep 0.4")
 	started := time.Now()
-	_, stderr, code := runGateTest(t, "--also", "sleep "+sleep, "sleep", sleep)
+	_, stderr, code := runGateTest(t, "-C", root)
 	elapsed := time.Since(started)
 
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("gate = %d, stderr = %q", code, stderr))
@@ -335,12 +351,13 @@ func TestRunAlsoOverlapsIndependentGates(t *testing.T) {
 
 // A failing gate must not hide another gate's outcome: the whole reason to
 // run them together is to learn everything wrong in one pass.
-func TestRunAlsoReportsEveryGateAndPicksFirstFailure(t *testing.T) {
+func TestEveryGateIsReportedAndTheFirstFailureWins(t *testing.T) {
 	setLogDir(t)
 
-	_, stderr, code := runGateTest(t,
-		"--also", "echo second-problem >&2; exit 4",
-		"sh", "-c", "echo first-problem >&2; exit 3")
+	root := gateProject(t,
+		"echo first-problem >&2; exit 3",
+		"echo second-problem >&2; exit 4")
+	_, stderr, code := runGateTest(t, "-C", root)
 
 	qt.Assert(t, qt.Equals(code, Code(3)), qt.Commentf("aggregate = %d, want 3 (the first gate named)", code))
 	for _, want := range []string{"first-problem", "second-problem", "exit 3", "exit 4"} {
@@ -351,10 +368,11 @@ func TestRunAlsoReportsEveryGateAndPicksFirstFailure(t *testing.T) {
 // Concurrent gates finish in an order nobody controls, so the report is
 // ordered by declaration instead -- otherwise the same run would print
 // differently each time.
-func TestRunAlsoReportsInDeclarationOrderNotFinishOrder(t *testing.T) {
+func TestReportFollowsDeclarationOrderNotFinishOrder(t *testing.T) {
 	setLogDir(t)
 
-	stdout, stderr, code := runGateTest(t, "--also", "true", "sleep", "0.3")
+	root := gateProject(t, "sleep 0.3", "true")
+	stdout, stderr, code := runGateTest(t, "-C", root)
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("gate = %d, stderr = %q", code, stderr))
 	slow := strings.Index(stdout, "sleep 0.3")
 	fast := strings.Index(stdout, "true")
@@ -369,10 +387,11 @@ func TestRunAlsoReportsInDeclarationOrderNotFinishOrder(t *testing.T) {
 // Concurrent gates in one process share a pid, and two gates can reduce to
 // the same slug -- so without a disambiguator they would overwrite each
 // other's logs, losing exactly what this tool exists to keep.
-func TestRunAlsoGivesEachGateItsOwnLog(t *testing.T) {
+func TestEachGateGetsItsOwnLog(t *testing.T) {
 	setLogDir(t)
 
-	stdout, stderr, code := runGateTest(t, "--also", "echo bbb", "sh", "-c", "echo aaa")
+	root := gateProject(t, "echo aaa", "echo bbb")
+	stdout, stderr, code := runGateTest(t, "-C", root)
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("gate = %d, stderr = %q", code, stderr))
 
 	var logs []string
@@ -402,9 +421,8 @@ func TestRunSerialStopsAtFirstFailure(t *testing.T) {
 	setLogDir(t)
 
 	marker := filepath.Join(t.TempDir(), "second-ran")
-	_, stderr, code := runGateTest(t, "--serial",
-		"--also", "touch "+marker,
-		"sh", "-c", "exit 5")
+	root := gateProject(t, "exit 5", "touch "+marker)
+	_, stderr, code := runGateTest(t, "-C", root, "--serial")
 
 	qt.Assert(t, qt.Equals(code, Code(5)), qt.Commentf("gate = %d, want 5", code))
 	qt.Check(t, qt.IsFalse(exists(marker)), qt.Commentf("--serial ran the second gate after the first failed"))
@@ -464,7 +482,8 @@ func TestRunSerialRunsEveryGateWhenAllPass(t *testing.T) {
 	setLogDir(t)
 
 	marker := filepath.Join(t.TempDir(), "second-ran")
-	stdout, stderr, code := runGateTest(t, "--serial", "--also", "touch "+marker, "true")
+	root := gateProject(t, "true", "touch "+marker)
+	stdout, stderr, code := runGateTest(t, "-C", root, "--serial")
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("gate = %d, stderr = %q", code, stderr))
 	qt.Check(t, qt.IsTrue(exists(marker)), qt.Commentf("--serial skipped the second gate"))
 	if strings.Count(stdout, "gate: ok") != 2 {
@@ -694,7 +713,7 @@ func TestHelpListsExactlyTheNamesRunAccepts(t *testing.T) {
 	t.Parallel()
 	stdout, _, code := runGateTest(t, "--help")
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("gate --help = %d", code))
-	for _, role := range detect.Roles() {
+	for _, role := range []string{"build", "typecheck", "lint", "workflows", "test", "vuln"} {
 		qt.Check(t, qt.StringContains(stdout, role), qt.Commentf("help does not list the runnable name %q", role))
 		if !detect.IsRole(role) {
 			t.Errorf("%q is listed but is not a gate name", role)
@@ -760,12 +779,13 @@ func TestGatesNotStartedWhenInterruptedSayTheRunWasInterrupted(t *testing.T) {
 	// setLogDir uses t.Setenv, which rules out t.Parallel.
 	setLogDir(t)
 
+	root := gateProject(t, "sleep 10", "true")
 	ctx, cancel := context.WithCancel(context.Background())
 	var out, errBuf bytes.Buffer
 	done := make(chan Code, 1)
 	go func() {
-		done <- Run(ctx, "v0.0.0-test", []string{"--serial", "--timeout", "0",
-			"--also", "true", "sh", "-c", "sleep 10"}, &out, &errBuf)
+		done <- Run(ctx, "v0.0.0-test",
+			[]string{"-C", root, "--serial", "--timeout", "0"}, &out, &errBuf)
 	}()
 
 	time.Sleep(150 * time.Millisecond)
@@ -805,47 +825,6 @@ func TestAShadowWarningNamesItsFixOnceAndCannotBeSilenced(t *testing.T) {
 	}
 }
 
-// A timeout has no home in a Makefile or a package.json, so before config
-// existed every gate in a run shared one value against a measured p99 of
-// 65.0s. This is the whole point of the feature: one slow gate gets room
-// without raising the limit for everything else.
-func TestConfigSetsTimeoutsPerGate(t *testing.T) {
-	root := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("TMPDIR", t.TempDir())
-	write(t, root, "Makefile", "test:\n\tsleep 5\n\nlint:\n\ttrue\n")
-	// The default is generous; only the test gate is held to a short one.
-	write(t, root, ".gate.toml", "[defaults]\ntimeout = \"5m\"\n\n[gates.test]\ntimeout = \"120ms\"\n")
-
-	_, stderr, code := runGateTest(t, "-C", root)
-
-	qt.Assert(t, qt.Equals(code, TimedOut), qt.Commentf("stderr = %q", stderr))
-	qt.Check(t, qt.StringContains(stderr, "TIMEOUT"), qt.Commentf("stderr = %q", stderr))
-	qt.Check(t, qt.StringContains(stderr, "120ms"),
-		qt.Commentf("the gate was not held to its own timeout: %q", stderr))
-	// lint shares the run and must not have been killed by the test gate's
-	// limit -- a per-gate timeout that leaked would defeat the feature.
-	qt.Check(t, qt.Not(qt.StringContains(stderr, "make lint")),
-		qt.Commentf("a second gate was affected: %q", stderr))
-}
-
-// A flag is the most local statement of intent, so it beats every config
-// layer. Applying it only where config was silent would make it the weakest
-// rather than the strongest, and config would become unreachable the other
-// way round.
-func TestTheTimeoutFlagBeatsEveryConfigLayer(t *testing.T) {
-	root := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("TMPDIR", t.TempDir())
-	write(t, root, "Makefile", "test:\n\tsleep 5\n")
-	write(t, root, ".gate.toml", "[gates.test]\ntimeout = \"5m\"\n")
-
-	_, stderr, code := runGateTest(t, "-C", root, "--timeout", "120ms")
-
-	qt.Assert(t, qt.Equals(code, TimedOut),
-		qt.Commentf("the flag did not beat the config timeout: %q", stderr))
-}
-
 // Config adds and overrides; it never replaces. A file that mentions one gate
 // must leave the rest of detection intact, or a single override would quietly
 // become the whole gate list.
@@ -855,7 +834,7 @@ func TestConfigCannotRemoveADetectedGate(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	write(t, root, "Makefile", "test:\n\ttouch "+filepath.Join(root, "test-ran")+"\n"+
 		"lint:\n\ttouch "+filepath.Join(root, "lint-ran")+"\n")
-	write(t, root, ".gate.toml", "[gates.test]\ntimeout = \"5m\"\n")
+	write(t, root, ".gate.toml", "[gates.test]\nserial = true\n")
 
 	_, stderr, code := runGateTest(t, "-C", root)
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
@@ -871,7 +850,7 @@ func TestConfigComesFromTheProjectNotTheCaller(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("TMPDIR", t.TempDir())
 	write(t, other, "Makefile", "test:\n\ttrue\n")
-	write(t, other, ".gate.toml", "[gates.e2e]\nrun = \"true\"\ntoolchain = \"node\"\n")
+	write(t, other, ".gate.toml", "[gates.e2e]\nrun = \"true\"\n")
 
 	stdout, stderr, code := runGateTest(t, "-C", other, "--list")
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
@@ -929,8 +908,9 @@ func TestAConfigRunSettlesAShadowConflict(t *testing.T) {
 
 // One path cannot hold several gates' logs, and silently sharing it would
 // destroy every gate's output but the last.
-func TestRunLogWithAlsoIsRefused(t *testing.T) {
-	_, stderr, code := runGateTest(t, "--log", tempLog(t), "--also", "true", "true")
+func TestRunLogWithSeveralGatesIsRefused(t *testing.T) {
+	root := gateProject(t, "true", "true")
+	_, stderr, code := runGateTest(t, "-C", root, "--log", tempLog(t))
 	qt.Assert(t, qt.Equals(code, InvalidUsage), qt.Commentf("gate = %d, want %d", code, InvalidUsage))
 	qt.Check(t, qt.StringContains(stderr, "--log names a single file"), qt.Commentf("stderr = %q", stderr))
 }
@@ -1009,93 +989,8 @@ func TestExistingLooseLogDirectoryIsTightened(t *testing.T) {
 	}
 }
 
-// Nothing else ever removes these. At the measured rate -- 12,500 gate
-// invocations in a week -- unbounded is not a temp file, it is a leak.
-func TestOldLogsArePrunedAndRecentOnesSurvive(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("TMPDIR", dir)
-	gateDir := filepath.Join(dir, "gate")
-	qt.Assert(t, qt.IsNil(os.MkdirAll(gateDir, 0o700)))
-
-	old := filepath.Join(gateDir, "ancient-1-1.log")
-	recent := filepath.Join(gateDir, "recent-1-1.log")
-	for _, path := range []string{old, recent} {
-		qt.Assert(t, qt.IsNil(os.WriteFile(path, []byte("x\n"), 0o600)))
-	}
-	long := time.Now().Add(-30 * 24 * time.Hour)
-	qt.Assert(t, qt.IsNil(os.Chtimes(old, long, long)))
-
-	_, stderr, code := runGateTest(t, "true")
-	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("gate = %d, stderr = %q", code, stderr))
-
-	qt.Check(t, qt.IsFalse(exists(old)), qt.Commentf("a 30-day-old log survived the default 7-day retention"))
-	qt.Check(t, qt.IsTrue(exists(recent)), qt.Commentf("a fresh log was pruned"))
-}
-
-// The sweep stats every file in the directory, and a week of real use leaves
-// around 12,000 of them -- 15-20ms against a median gate of 0.14s, spent on a
-// run where nothing is usually old enough to delete. A recent sweep therefore
-// suppresses the next one.
-func TestPruningIsSkippedSoonAfterASweep(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("TMPDIR", dir)
-	gateDir := filepath.Join(dir, "gate")
-	qt.Assert(t, qt.IsNil(os.MkdirAll(gateDir, 0o700)))
-
-	old := filepath.Join(gateDir, "ancient-1-1.log")
-	qt.Assert(t, qt.IsNil(os.WriteFile(old, []byte("x\n"), 0o600)))
-	long := time.Now().Add(-30 * 24 * time.Hour)
-	qt.Assert(t, qt.IsNil(os.Chtimes(old, long, long)))
-	// A sweep that just happened.
-	qt.Assert(t, qt.IsNil(os.WriteFile(filepath.Join(gateDir, stampName), nil, 0o600)))
-
-	_, stderr, code := runGateTest(t, "true")
-	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("gate = %d, stderr = %q", code, stderr))
-
-	qt.Check(t, qt.IsTrue(exists(old)), qt.Commentf("the sweep ran despite a fresh stamp"))
-
-	// And an old stamp lets it run again, so the interval defers work rather
-	// than dropping it.
-	qt.Assert(t, qt.IsNil(os.Chtimes(filepath.Join(gateDir, stampName), long, long)))
-	_, stderr, code = runGateTest(t, "true")
-	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("gate = %d, stderr = %q", code, stderr))
-	qt.Check(t, qt.IsFalse(exists(old)), qt.Commentf("a stale stamp did not allow the sweep to run"))
-}
-
-func TestKeepZeroKeepsEverything(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("TMPDIR", dir)
-	gateDir := filepath.Join(dir, "gate")
-	qt.Assert(t, qt.IsNil(os.MkdirAll(gateDir, 0o700)))
-	old := filepath.Join(gateDir, "ancient-1-1.log")
-	qt.Assert(t, qt.IsNil(os.WriteFile(old, []byte("x\n"), 0o600)))
-	long := time.Now().Add(-30 * 24 * time.Hour)
-	qt.Assert(t, qt.IsNil(os.Chtimes(old, long, long)))
-
-	_, stderr, code := runGateTest(t, "--keep", "0", "true")
-	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("gate = %d, stderr = %q", code, stderr))
-	qt.Check(t, qt.IsTrue(exists(old)), qt.Commentf("--keep 0 still pruned"))
-}
-
-// A path given with --log belongs to the caller. Pruning it would delete
-// files gate never created.
-func TestPruningNeverTouchesACallerChosenLogDirectory(t *testing.T) {
-	tmp := t.TempDir()
-	t.Setenv("TMPDIR", tmp)
-
-	owned := t.TempDir()
-	stranger := filepath.Join(owned, "someone-elses-1-1.log")
-	qt.Assert(t, qt.IsNil(os.WriteFile(stranger, []byte("x\n"), 0o600)))
-	long := time.Now().Add(-30 * 24 * time.Hour)
-	qt.Assert(t, qt.IsNil(os.Chtimes(stranger, long, long)))
-
-	_, stderr, code := runGateTest(t, "--log", filepath.Join(owned, "mine.log"), "true")
-	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("gate = %d, stderr = %q", code, stderr))
-	qt.Check(t, qt.IsTrue(exists(stranger)), qt.Commentf("pruned a file in a caller-owned directory"))
-}
-
-// Housekeeping must never be able to fail a gate.
-func TestPruningAMissingDirectoryIsHarmless(t *testing.T) {
+// gate's own log directory is created on use, however deep it sits.
+func TestAMissingLogDirectoryIsCreated(t *testing.T) {
 	t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "does", "not", "exist", "yet"))
 	_, stderr, code := runGateTest(t, "true")
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("gate = %d, stderr = %q", code, stderr))

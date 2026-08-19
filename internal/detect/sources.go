@@ -54,76 +54,19 @@ func makefileGates(root string, proj *Project) []Gate {
 			continue
 		}
 		gates = append(gates, Gate{
-			Name:      name,
-			Argv:      []string{"make", name},
-			Source:    "Makefile target " + name,
-			Toolchain: makefileToolchain(root),
-			Declared:  true,
+			Name:     name,
+			Argv:     []string{"make", name},
+			Source:   "Makefile target " + name,
+			Declared: true,
 		})
 	}
 	return gates
-}
-
-// makefileToolchain attributes make targets to whatever the repository
-// actually builds, since a Makefile is a wrapper and shares the cache of the
-// thing it wraps. 18 of the fleet's 29 Makefiles sit beside a go.mod.
-func makefileToolchain(root string) Toolchain {
-	switch {
-	case exists(filepath.Join(root, "go.mod")):
-		return ToolchainGo
-	case exists(filepath.Join(root, "package.json")):
-		return ToolchainNode
-	case exists(filepath.Join(root, "pyproject.toml")):
-		return ToolchainPython
-	}
-	return ToolchainOther
 }
 
 type packageJSON struct {
 	Scripts      map[string]string `json:"scripts"`
 	Dependencies map[string]string `json:"dependencies"`
 	DevDeps      map[string]string `json:"devDependencies"`
-	// Workspaces is npm/bun's array form or yarn's object form, so it is held
-	// raw and decoded by usesNext, which is the only caller that needs it.
-	Workspaces json.RawMessage `json:"workspaces"`
-}
-
-// usesNext reports whether this project builds a Next application.
-//
-// It exists for one scheduling decision: `next build` and `next typegen` both
-// write the app's .next directory, and typecheck runs typegen. Left to overlap
-// they clobber each other, and the failure is nondeterministic -- a build
-// clearing .next while typegen writes .next/types surfaces as a missing
-// type file, or as "Unexpected error while generating route types", or not
-// at all on a lucky run.
-//
-// Members are read rather than walked: a monorepo declares where its packages
-// are, and caldera keeps every next.config.ts under apps/*, so the root
-// manifest alone would answer no.
-func usesNext(root string) bool {
-	pkg, ok := readPackageJSON(filepath.Join(root, "package.json"))
-	if !ok {
-		return false
-	}
-	if dependsOnNext(pkg) {
-		return true
-	}
-
-	for _, pattern := range workspacePatterns(pkg) {
-		// A member pattern is relative to the root that declared it, and a
-		// glob is as deep as this goes: a workspace that hides members
-		// somewhere undeclared is not something detection can see.
-		matches, err := filepath.Glob(filepath.Join(root, filepath.FromSlash(pattern), "package.json"))
-		if err != nil {
-			continue
-		}
-		for _, path := range matches {
-			if member, ok := readPackageJSON(path); ok && dependsOnNext(member) {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func readPackageJSON(path string) (packageJSON, bool) {
@@ -136,31 +79,6 @@ func readPackageJSON(path string) (packageJSON, bool) {
 		return packageJSON{}, false
 	}
 	return pkg, true
-}
-
-func dependsOnNext(pkg packageJSON) bool {
-	_, dep := pkg.Dependencies["next"]
-	_, dev := pkg.DevDeps["next"]
-	return dep || dev
-}
-
-// workspacePatterns accepts both spellings: npm and bun write an array, yarn
-// writes an object with a packages key. Neither is rare enough to ignore.
-func workspacePatterns(pkg packageJSON) []string {
-	if len(pkg.Workspaces) == 0 {
-		return nil
-	}
-	var list []string
-	if err := json.Unmarshal(pkg.Workspaces, &list); err == nil {
-		return list
-	}
-	var object struct {
-		Packages []string `json:"packages"`
-	}
-	if err := json.Unmarshal(pkg.Workspaces, &object); err == nil {
-		return object.Packages
-	}
-	return nil
 }
 
 // packageJSONGates reads the scripts a project declares.
@@ -186,11 +104,10 @@ func packageJSONGates(root, workspace string, proj *Project) []Gate {
 		// "package.json scripts.test" alone does not say that -- the runner
 		// invocation is identical whatever the script contains.
 		gates = append(gates, Gate{
-			Name:      name,
-			Argv:      append(append([]string{}, runner...), name),
-			Source:    "package.json scripts." + name + " (" + body + ")",
-			Toolchain: ToolchainNode,
-			Declared:  true,
+			Name:     name,
+			Argv:     append(append([]string{}, runner...), name),
+			Source:   "package.json scripts." + name + " (" + body + ")",
+			Declared: true,
 		})
 	}
 	return gates
@@ -222,21 +139,21 @@ func conventionGates(root string, proj *Project) []Gate {
 
 	if exists(filepath.Join(root, "go.mod")) {
 		gates = append(gates,
-			Gate{Name: "build", Argv: []string{"go", "build", "./..."}, Source: "convention: go", Toolchain: ToolchainGo},
-			Gate{Name: "test", Argv: []string{"go", "test", "./..."}, Source: "convention: go", Toolchain: ToolchainGo},
+			Gate{Name: "build", Argv: []string{"go", "build", "./..."}, Source: "convention: go"},
+			Gate{Name: "test", Argv: []string{"go", "test", "./..."}, Source: "convention: go"},
 		)
 		// golangci-lint (153 uses) subsumes go vet (220), so it wins where
 		// it is installed and vet is the fallback rather than both running.
 		if bin := resolve(root, proj, "golangci-lint"); bin != "" {
-			gates = append(gates, Gate{Name: "lint", Argv: []string{bin, "run", "./..."}, Source: "convention: go", Toolchain: ToolchainGo})
+			gates = append(gates, Gate{Name: "lint", Argv: []string{bin, "run", "./..."}, Source: "convention: go"})
 		} else {
-			gates = append(gates, Gate{Name: "lint", Argv: []string{"go", "vet", "./..."}, Source: "convention: go", Toolchain: ToolchainGo})
+			gates = append(gates, Gate{Name: "lint", Argv: []string{"go", "vet", "./..."}, Source: "convention: go"})
 		}
 		// On by default. The fleet's shared setup-go action ships
 		// govulncheck opt-in and OFF, so running it here surfaces a
 		// vulnerability earlier than CI currently would.
 		if bin := resolve(root, proj, "govulncheck"); bin != "" {
-			gates = append(gates, Gate{Name: "vuln", Argv: []string{bin, "./..."}, Source: "convention: go", Toolchain: ToolchainGo})
+			gates = append(gates, Gate{Name: "vuln", Argv: []string{bin, "./..."}, Source: "convention: go"})
 		} else {
 			proj.Notes = append(proj.Notes, "govulncheck not installed; skipping the vuln gate (go install golang.org/x/vuln/cmd/govulncheck@latest)")
 		}
@@ -244,16 +161,16 @@ func conventionGates(root string, proj *Project) []Gate {
 
 	if exists(filepath.Join(root, "pyproject.toml")) {
 		gates = append(gates,
-			Gate{Name: "test", Argv: []string{"uv", "run", "pytest"}, Source: "convention: python", Toolchain: ToolchainPython},
-			Gate{Name: "lint", Argv: []string{"uv", "run", "ruff", "check", "."}, Source: "convention: python", Toolchain: ToolchainPython},
+			Gate{Name: "test", Argv: []string{"uv", "run", "pytest"}, Source: "convention: python"},
+			Gate{Name: "lint", Argv: []string{"uv", "run", "ruff", "check", "."}, Source: "convention: python"},
 		)
 		// pyrefly (99 uses) against mypy (4): the fleet has already moved,
 		// so the newer checker leads and mypy is the fallback.
 		switch {
 		case resolve(root, proj, "pyrefly") != "":
-			gates = append(gates, Gate{Name: "typecheck", Argv: []string{"uv", "run", "pyrefly", "check"}, Source: "convention: python", Toolchain: ToolchainPython})
+			gates = append(gates, Gate{Name: "typecheck", Argv: []string{"uv", "run", "pyrefly", "check"}, Source: "convention: python"})
 		case resolve(root, proj, "mypy") != "":
-			gates = append(gates, Gate{Name: "typecheck", Argv: []string{"uv", "run", "mypy", "."}, Source: "convention: python (pyrefly absent)", Toolchain: ToolchainPython})
+			gates = append(gates, Gate{Name: "typecheck", Argv: []string{"uv", "run", "mypy", "."}, Source: "convention: python (pyrefly absent)"})
 		}
 		// uv audits the lockfile, not the environment, so it sees a pinned
 		// dependency that is merely declared -- an optional extra nobody has
@@ -270,7 +187,7 @@ func conventionGates(root string, proj *Project) []Gate {
 		if exists(filepath.Join(root, "uv.lock")) {
 			gates = append(gates, Gate{
 				Name: "vuln", Argv: []string{"uv", "audit", "--preview-features", "audit-command"},
-				Source: "convention: python", Toolchain: ToolchainPython,
+				Source: "convention: python",
 			})
 		} else {
 			proj.Notes = append(proj.Notes, "no uv.lock; skipping the vuln gate (uv lock)")
@@ -282,10 +199,10 @@ func conventionGates(root string, proj *Project) []Gate {
 		// node_modules/.bin and are absent from PATH, so a bare name would be
 		// found by detection and then fail to execute.
 		if bin := resolve(root, proj, "biome"); bin != "" {
-			gates = append(gates, Gate{Name: "lint", Argv: []string{bin, "check", "."}, Source: "convention: node", Toolchain: ToolchainNode})
+			gates = append(gates, Gate{Name: "lint", Argv: []string{bin, "check", "."}, Source: "convention: node"})
 		}
 		if bin := resolve(root, proj, "tsc"); bin != "" {
-			gates = append(gates, Gate{Name: "typecheck", Argv: []string{bin, "--noEmit"}, Source: "convention: node", Toolchain: ToolchainNode})
+			gates = append(gates, Gate{Name: "typecheck", Argv: []string{bin, "--noEmit"}, Source: "convention: node"})
 		}
 	}
 
@@ -297,7 +214,7 @@ func conventionGates(root string, proj *Project) []Gate {
 				// "workflows", not "ci": this lints the workflow files, which
 				// is not what a project means by a ci target.
 				Name: "workflows", Argv: []string{bin},
-				Source: "convention: .github/workflows", Toolchain: ToolchainOther,
+				Source: "convention: .github/workflows",
 			})
 		}
 	}
@@ -384,11 +301,10 @@ func turboGates(workspace string, proj *Project) []Gate {
 			continue
 		}
 		gates = append(gates, Gate{
-			Name:      name,
-			Argv:      []string{bin, "run", name},
-			Source:    "turbo.json task " + name,
-			Toolchain: ToolchainNode,
-			Declared:  true,
+			Name:     name,
+			Argv:     []string{bin, "run", name},
+			Source:   "turbo.json task " + name,
+			Declared: true,
 		})
 	}
 	return gates

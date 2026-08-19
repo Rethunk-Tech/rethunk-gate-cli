@@ -1,12 +1,9 @@
 // Package config reads gate's per-project configuration.
 //
-// This is a deliberate reversal of a stated design. gate had no configuration
-// file because a project's own Makefile targets and package.json scripts
-// already are its config, and internal/detect reads them. Two gaps outgrew
-// that: a timeout has no home in either manifest, so every gate in a run
-// shared one value against a measured p99 of 65.0s; and a project cannot
-// declare a check detection could never infer -- an e2e suite, a migration
-// check, a schema diff.
+// A project's manifests are its config for WHAT to run, and internal/detect
+// reads them. What they cannot express is a check detection could never infer
+// -- an e2e suite, a migration check -- or an order one gate needs against
+// another.
 //
 // Config therefore ADDS and OVERRIDES, and never replaces. Detection always
 // runs, so `--list` keeps answering why each gate is there, and a config file
@@ -19,7 +16,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/pelletier/go-toml/v2"
 )
@@ -34,16 +30,6 @@ type Gate struct {
 	// Run is a shell command for a gate detection could not infer. Empty
 	// means this entry only overrides a detected gate.
 	Run string
-
-	// Timeout bounds this gate alone. HasTimeout distinguishes "not set"
-	// from a deliberate 0, which means no limit.
-	Timeout    time.Duration
-	HasTimeout bool
-
-	// Toolchain labels this gate in --list. It does not decide scheduling:
-	// only Serial does, because sharing a build cache is not the same claim
-	// as depending on another gate's result.
-	Toolchain string
 
 	// Serial sequences this gate against the other serial ones instead of
 	// running it concurrently. HasSerial distinguishes "not set" from a
@@ -60,36 +46,19 @@ type Gate struct {
 
 // Config is the merged result of every layer that was found.
 type Config struct {
-	// Timeout is the default for gates with no timeout of their own.
-	Timeout    time.Duration
-	HasTimeout bool
-
-	// Serial runs every gate one after another, as --serial does. It is the
-	// project-level statement of "these depend on each other"; per-gate
-	// Serial is the narrower one.
-	Serial    bool
-	HasSerial bool
-
 	Gates map[string]Gate
 
 	// Files lists what was read, nearest last, for --list to report.
 	Files []string
 }
 
-// file is the on-disk shape. Durations are strings so a bad one can name the
-// key it came from rather than failing as a type error.
-// A bool is a pointer so an absent key is distinguishable from a deliberate
-// false, which is what lets a project turn off a user-level default.
+// file is the on-disk shape. A bool is a pointer so an absent key is
+// distinguishable from a deliberate false, which is what lets a project turn
+// off a user-level default.
 type file struct {
-	Defaults struct {
-		Timeout string `toml:"timeout"`
-		Serial  *bool  `toml:"serial"`
-	} `toml:"defaults"`
 	Gates map[string]struct {
-		Run       string `toml:"run"`
-		Timeout   string `toml:"timeout"`
-		Toolchain string `toml:"toolchain"`
-		Serial    *bool  `toml:"serial"`
+		Run    string `toml:"run"`
+		Serial *bool  `toml:"serial"`
 	} `toml:"gates"`
 }
 
@@ -153,35 +122,14 @@ func (c *Config) merge(path string, data []byte) error {
 		return fmt.Errorf("%s: %w", path, err)
 	}
 
-	if f.Defaults.Timeout != "" {
-		d, err := time.ParseDuration(f.Defaults.Timeout)
-		if err != nil || d < 0 {
-			return fmt.Errorf("%s: defaults.timeout wants a duration like 90s or 5m, got %q", path, f.Defaults.Timeout)
-		}
-		c.Timeout, c.HasTimeout = d, true
-	}
-	if f.Defaults.Serial != nil {
-		c.Serial, c.HasSerial = *f.Defaults.Serial, true
-	}
-
 	for name, g := range f.Gates {
 		merged := c.Gates[name]
 		merged.Source = path
 		if g.Run != "" {
 			merged.Run = g.Run
 		}
-		if g.Toolchain != "" {
-			merged.Toolchain = g.Toolchain
-		}
 		if g.Serial != nil {
 			merged.Serial, merged.HasSerial = *g.Serial, true
-		}
-		if g.Timeout != "" {
-			d, err := time.ParseDuration(g.Timeout)
-			if err != nil || d < 0 {
-				return fmt.Errorf("%s: gates.%s.timeout wants a duration like 90s or 5m, got %q", path, name, g.Timeout)
-			}
-			merged.Timeout, merged.HasTimeout = d, true
 		}
 		c.Gates[name] = merged
 	}
