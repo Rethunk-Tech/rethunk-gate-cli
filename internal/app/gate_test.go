@@ -115,13 +115,13 @@ func TestRunPassEmitsOneLineAndKeepsOutputOffStdout(t *testing.T) {
 	// itself reaching stdout, not the individual words.
 	output, trailer := splitLog(t, log)
 	qt.Check(t, qt.Not(qt.StringContains(stdout, output)), qt.Commentf("passing verdict leaked command output: %q", stdout))
-	qt.Check(t, qt.StringContains(stdout, log), qt.Commentf("passing verdict = %q, want it to name the log %s", stdout, log))
+	qt.Check(t, qt.StringContains(stdout, log))
 	if want := "hello\nworld\n"; output != want {
 		t.Errorf("log output = %q, want %q", output, want)
 	}
 	// A log that recorded output but not outcome would answer the wrong
 	// question when read later.
-	qt.Check(t, qt.StringContains(trailer, "exit 0"), qt.Commentf("trailer = %q, want it to record exit 0", trailer))
+	qt.Check(t, qt.StringContains(trailer, "exit 0"))
 }
 
 // The exit status is the verdict, so it is passed through exactly. Asserting
@@ -133,14 +133,14 @@ func TestRunFailPropagatesExactExitCode(t *testing.T) {
 	log := tempLog(t)
 
 	_, stderr, code := runGateTest(t, "--log", log, "sh", "-c", "echo boom >&2; exit 3")
-	qt.Assert(t, qt.Equals(code, Code(3)), qt.Commentf("gate = %d, want 3", code))
+	qt.Assert(t, qt.Equals(code, Code(3)))
 	qt.Check(t, qt.StringContains(stderr, "boom"), qt.Commentf("failure did not quote the output: %q", stderr))
 	qt.Check(t, qt.StringContains(stderr, log), qt.Commentf("failure did not name the log %s: %q", log, stderr))
 	output, trailer := splitLog(t, log)
 	if want := "boom\n"; output != want {
 		t.Errorf("log output = %q, want %q", output, want)
 	}
-	qt.Check(t, qt.StringContains(trailer, "exit 3"), qt.Commentf("trailer = %q, want it to record exit 3", trailer))
+	qt.Check(t, qt.StringContains(trailer, "exit 3"))
 }
 
 // The guarantee the whole tool rests on. The summary is deliberately bounded
@@ -184,7 +184,7 @@ func TestTailZeroSaysNothingWasQuotedNotThatNothingWasWritten(t *testing.T) {
 	log := tempLog(t)
 	_, stderr, code := runGateTest(t, "--tail", "0", "--log", log,
 		"sh", "-c", "echo real output here; exit 3")
-	qt.Assert(t, qt.Equals(code, Code(3)), qt.Commentf("gate = %d, want 3", code))
+	qt.Assert(t, qt.Equals(code, Code(3)))
 	qt.Check(t, qt.Not(qt.StringContains(stderr, "no output")), qt.Commentf("claimed the command wrote nothing: %q", stderr))
 	qt.Check(t, qt.StringContains(stderr, "--tail 0"), qt.Commentf("did not say why nothing was quoted: %q", stderr))
 	// And the log has it, which is the whole reason the claim mattered.
@@ -206,7 +206,7 @@ func TestRunFailureQuotesOnlyTheRequestedTail(t *testing.T) {
 
 	script := `i=1; while [ $i -le 100 ]; do echo "line$i"; i=$((i+1)); done; exit 1`
 	_, stderr, code := runGateTest(t, "--tail", "3", "--log", log, "sh", "-c", script)
-	qt.Assert(t, qt.Equals(code, Code(1)), qt.Commentf("gate = %d, want 1", code))
+	qt.Assert(t, qt.Equals(code, Code(1)))
 	qt.Check(t, qt.StringContains(stderr, "line100"), qt.Commentf("tail omitted the last line: %q", stderr))
 	qt.Check(t, qt.Not(qt.StringContains(stderr, "line50")), qt.Commentf("tail of 3 quoted line50: %q", stderr))
 	output, _ := splitLog(t, log)
@@ -223,8 +223,8 @@ func TestRunReportsNotFoundAndSignalDistinctly(t *testing.T) {
 	t.Run("command that cannot be executed", func(t *testing.T) {
 		t.Parallel()
 		_, stderr, code := runGateTest(t, "--log", tempLog(t), "gate-test-no-such-command")
-		qt.Assert(t, qt.Equals(code, NotFound), qt.Commentf("gate = %d, want %d", code, NotFound))
-		qt.Check(t, qt.StringContains(stderr, "gate-test-no-such-command"), qt.Commentf("stderr = %q, want it to name the command", stderr))
+		qt.Assert(t, qt.Equals(code, NotFound))
+		qt.Check(t, qt.StringContains(stderr, "gate-test-no-such-command"))
 	})
 
 	t.Run("command killed by a signal", func(t *testing.T) {
@@ -254,20 +254,20 @@ func TestRunUsage(t *testing.T) {
 	t.Run("no command and nothing detectable", func(t *testing.T) {
 		t.Chdir(t.TempDir())
 		_, stderr, code := runGateTest(t)
-		qt.Assert(t, qt.Equals(code, InvalidUsage), qt.Commentf("gate = %d, want %d", code, InvalidUsage))
-		qt.Check(t, qt.StringContains(stderr, "no gates detected"), qt.Commentf("stderr = %q", stderr))
+		qt.Assert(t, qt.Equals(code, InvalidUsage))
+		qt.Check(t, qt.StringContains(stderr, "no gates detected"))
 	})
 
 	t.Run("unrecognized gate flag", func(t *testing.T) {
 		t.Parallel()
 		_, _, code := runGateTest(t, "--nope", "true")
-		qt.Assert(t, qt.Equals(code, InvalidUsage), qt.Commentf("gate = %d, want %d", code, InvalidUsage))
+		qt.Assert(t, qt.Equals(code, InvalidUsage))
 	})
 
 	t.Run("--tail wants a number", func(t *testing.T) {
 		t.Parallel()
 		_, _, code := runGateTest(t, "--tail", "many", "true")
-		qt.Assert(t, qt.Equals(code, InvalidUsage), qt.Commentf("gate = %d, want %d", code, InvalidUsage))
+		qt.Assert(t, qt.Equals(code, InvalidUsage))
 	})
 
 	// -- has to stop gate's own parsing, or a command whose first token
@@ -282,11 +282,11 @@ func TestRunUsage(t *testing.T) {
 	t.Run("--version before a command is gate's own", func(t *testing.T) {
 		t.Parallel()
 		stdout, _, code := runGateTest(t, "--version")
-		qt.Assert(t, qt.Equals(code, Success), qt.Commentf("gate --version = %d", code))
+		qt.Assert(t, qt.Equals(code, Success))
 		if !strings.HasPrefix(stdout, "gate v0.0.0-test ") {
 			t.Errorf("stdout = %q, want it to name the tool and version", stdout)
 		}
-		qt.Check(t, qt.StringContains(stdout, "defaults:"), qt.Commentf("stdout = %q, want the settings line", stdout))
+		qt.Check(t, qt.StringContains(stdout, "defaults:"))
 	})
 }
 
@@ -301,7 +301,7 @@ func TestRunQuietSuppressesOnlyThePassLine(t *testing.T) {
 	qt.Check(t, qt.Equals(stderr, ""), qt.Commentf("a quiet pass wrote to stderr"))
 
 	_, stderr, code = runGateTest(t, "--quiet", "--log", tempLog(t), "sh", "-c", "echo bad >&2; exit 2")
-	qt.Assert(t, qt.Equals(code, Code(2)), qt.Commentf("quiet failure = %d, want 2", code))
+	qt.Assert(t, qt.Equals(code, Code(2)))
 	qt.Check(t, qt.StringContains(stderr, "bad"), qt.Commentf("quiet failure stayed silent: %q", stderr))
 }
 
@@ -361,7 +361,7 @@ func TestEveryGateIsReportedAndTheFirstFailureWins(t *testing.T) {
 
 	qt.Assert(t, qt.Equals(code, Code(3)), qt.Commentf("aggregate = %d, want 3 (the first gate named)", code))
 	for _, want := range []string{"first-problem", "second-problem", "exit 3", "exit 4"} {
-		qt.Check(t, qt.StringContains(stderr, want), qt.Commentf("stderr missing %q: %q", want, stderr))
+		qt.Check(t, qt.StringContains(stderr, want))
 	}
 }
 
@@ -424,12 +424,12 @@ func TestRunSerialStopsAtFirstFailure(t *testing.T) {
 	root := gateProject(t, "exit 5", "touch "+marker)
 	_, stderr, code := runGateTest(t, "-C", root, "--serial")
 
-	qt.Assert(t, qt.Equals(code, Code(5)), qt.Commentf("gate = %d, want 5", code))
+	qt.Assert(t, qt.Equals(code, Code(5)))
 	qt.Check(t, qt.IsFalse(exists(marker)), qt.Commentf("--serial ran the second gate after the first failed"))
 	// Stopped, and said so. A gate the caller asked for that simply vanishes
 	// from the output is indistinguishable from one that passed -- the same
 	// reading doctor's ci-no-final-gate check exists to condemn.
-	qt.Check(t, qt.StringContains(stderr, "SKIP"), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.StringContains(stderr, "SKIP"))
 	qt.Check(t, qt.StringContains(stderr, "touch"),
 		qt.Commentf("the second gate was dropped rather than named: %q", stderr))
 	// A skipped gate has no verdict, so it must not move the exit status.
@@ -473,7 +473,7 @@ func TestGatesStoppedByAFailingGroupAreReportedAsSkipped(t *testing.T) {
 
 	qt.Assert(t, qt.Equals(code, Code(2)), qt.Commentf("gate = %d, want make's own 2 -- stderr = %q", code, stderr))
 	qt.Check(t, qt.IsFalse(exists(filepath.Join(root, "test-ran"))), qt.Commentf("the test gate ran despite the build in its group failing"))
-	qt.Check(t, qt.StringContains(stderr, "SKIP"), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.StringContains(stderr, "SKIP"))
 	qt.Check(t, qt.StringContains(stderr, "make test"),
 		qt.Commentf("the stopped gate was dropped rather than named: %q", stderr))
 }
@@ -606,13 +606,13 @@ func TestDoctorRendersFindingsAndNeverFailsTheBuild(t *testing.T) {
 	// Every finding carries what, why and fix; a check that cannot say why it
 	// fired is a preference, and the renderer is what makes that visible.
 	for _, field := range []string{"what", "why", "fix", "[warn]"} {
-		qt.Check(t, qt.StringContains(stdout, field), qt.Commentf("rendered finding is missing %q: %q", field, stdout))
+		qt.Check(t, qt.StringContains(stdout, field))
 	}
 
 	// And a project with nothing to say says so, rather than printing nothing.
 	clean := t.TempDir()
 	stdout, _, code = runGateTest(t, "-C", clean, "doctor")
-	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("doctor on a bare directory = %d, want 0", code))
+	qt.Assert(t, qt.Equals(code, Success))
 	qt.Check(t, qt.StringContains(stdout, "nothing to suggest"), qt.Commentf("silence instead of an answer: %q", stdout))
 }
 
@@ -681,7 +681,7 @@ func TestRunNamesGatesIncludingTheOnesOnlyConfigKnows(t *testing.T) {
 	// subset that matched would report a pass covering a gate that never ran.
 	reset("test", "e2e")
 	_, stderr, code = runGateTest(t, "-C", root, "run", "test", "nosuch")
-	qt.Assert(t, qt.Equals(code, InvalidUsage), qt.Commentf("gate run test nosuch = %d", code))
+	qt.Assert(t, qt.Equals(code, InvalidUsage))
 	qt.Check(t, qt.StringContains(stderr, "nosuch"), qt.Commentf("stderr does not name what was missing: %q", stderr))
 	qt.Check(t, qt.IsFalse(exists(ran("test"))), qt.Commentf("a partly-resolvable selection still ran a gate"))
 
@@ -712,9 +712,9 @@ func TestANamedGateThatDoesNotExistRefusesRatherThanRunningAProgram(t *testing.T
 func TestHelpListsExactlyTheNamesRunAccepts(t *testing.T) {
 	t.Parallel()
 	stdout, _, code := runGateTest(t, "--help")
-	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("gate --help = %d", code))
+	qt.Assert(t, qt.Equals(code, Success))
 	for _, role := range []string{"build", "typecheck", "lint", "workflows", "test", "vuln"} {
-		qt.Check(t, qt.StringContains(stdout, role), qt.Commentf("help does not list the runnable name %q", role))
+		qt.Check(t, qt.StringContains(stdout, role))
 		if !detect.IsRole(role) {
 			t.Errorf("%q is listed but is not a gate name", role)
 		}
@@ -759,7 +759,7 @@ func TestAnInterruptedGateIsStoppedNotFailedAndKeepsItsLog(t *testing.T) {
 
 	qt.Assert(t, qt.Equals(code, Interrupted), qt.Commentf("gate = %d, want %d (128+SIGINT) -- stderr = %q", code, Interrupted, stderr))
 	// Stopped, not judged. 137 would be the SIGKILL gate itself sent.
-	qt.Check(t, qt.StringContains(stderr, "INTERRUPTED"), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.StringContains(stderr, "INTERRUPTED"))
 	qt.Check(t, qt.Not(qt.StringContains(stderr, "FAIL")),
 		qt.Commentf("an interrupt was reported as a failure: %q", stderr))
 
@@ -770,7 +770,7 @@ func TestAnInterruptedGateIsStoppedNotFailedAndKeepsItsLog(t *testing.T) {
 	// The log is the guarantee: an interrupted run still finishes its file.
 	output, trailer := splitLog(t, log)
 	qt.Check(t, qt.StringContains(output, "before-the-interrupt"), qt.Commentf("log lost what the command wrote: %q", output))
-	qt.Check(t, qt.StringContains(trailer, "interrupted"), qt.Commentf("trailer = %q, want it to record the interrupt", trailer))
+	qt.Check(t, qt.StringContains(trailer, "interrupted"))
 }
 
 // Gates the interrupt stopped from starting are reported as not run, and say
@@ -793,7 +793,7 @@ func TestGatesNotStartedWhenInterruptedSayTheRunWasInterrupted(t *testing.T) {
 	<-done
 
 	stderr := errBuf.String()
-	qt.Check(t, qt.StringContains(stderr, "SKIP"), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.StringContains(stderr, "SKIP"))
 	qt.Check(t, qt.StringContains(stderr, "interrupted"),
 		qt.Commentf("the gate that never started did not say why: %q", stderr))
 	qt.Check(t, qt.Not(qt.StringContains(stderr, "an earlier gate failed")), qt.Commentf("an interrupted run blamed a failing gate: %q", stderr))
@@ -858,7 +858,7 @@ func TestConfigComesFromTheProjectNotTheCaller(t *testing.T) {
 		qt.Commentf("the other project's config was not read: %q", stdout))
 	// --list exists to answer "why is this running", so a config-supplied
 	// gate has to name the file that supplied it.
-	qt.Check(t, qt.StringContains(stdout, ".gate.toml"), qt.Commentf("%q", stdout))
+	qt.Check(t, qt.StringContains(stdout, ".gate.toml"))
 }
 
 // An unparseable file refuses rather than falling back to defaults, and the
@@ -872,7 +872,7 @@ func TestABrokenConfigRefusesInsteadOfIgnoringItself(t *testing.T) {
 
 	_, stderr, code := runGateTest(t, "-C", root)
 	qt.Assert(t, qt.Equals(code, InvalidUsage), qt.Commentf("stderr = %q", stderr))
-	qt.Check(t, qt.StringContains(stderr, "timout"), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.StringContains(stderr, "timout"))
 }
 
 // The conflict warning fires on every invocation until someone acts, and the
@@ -891,7 +891,7 @@ func TestAConfigRunSettlesAShadowConflict(t *testing.T) {
 	// Unresolved, it warns.
 	_, stderr, code := runGateTest(t, "-C", root, "--quiet")
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
-	qt.Assert(t, qt.StringContains(stderr, "declared twice"), qt.Commentf("stderr = %q", stderr))
+	qt.Assert(t, qt.StringContains(stderr, "declared twice"))
 
 	// Settled, it does not -- and --list names the file that settled it,
 	// rather than the conflict simply disappearing.
@@ -911,8 +911,8 @@ func TestAConfigRunSettlesAShadowConflict(t *testing.T) {
 func TestRunLogWithSeveralGatesIsRefused(t *testing.T) {
 	root := gateProject(t, "true", "true")
 	_, stderr, code := runGateTest(t, "-C", root, "--log", tempLog(t))
-	qt.Assert(t, qt.Equals(code, InvalidUsage), qt.Commentf("gate = %d, want %d", code, InvalidUsage))
-	qt.Check(t, qt.StringContains(stderr, "--log names a single file"), qt.Commentf("stderr = %q", stderr))
+	qt.Assert(t, qt.Equals(code, InvalidUsage))
+	qt.Check(t, qt.StringContains(stderr, "--log names a single file"))
 }
 
 // --list is the trust escape hatch for detection: a tool that picks commands
@@ -934,7 +934,7 @@ func TestListShowsChosenAndShadowedAndRunsNothing(t *testing.T) {
 	stdout, stderr, code := runGateTest(t, "--list")
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("gate --list = %d, stderr = %q", code, stderr))
 	for _, want := range []string{"make test", "Makefile target test", "shadows", "vitest run", "note: supabase"} {
-		qt.Check(t, qt.StringContains(stdout, want), qt.Commentf("--list output missing %q:\n%s", want, stdout))
+		qt.Check(t, qt.StringContains(stdout, want))
 	}
 	qt.Assert(t, qt.IsFalse(exists(marker)), qt.Commentf("--list executed a gate"))
 }
@@ -1006,8 +1006,8 @@ func TestTimeoutReportsKilledNotFailed(t *testing.T) {
 	_, stderr, code := runGateTest(t, "--timeout", "300ms", "--log", log,
 		"sh", "-c", "echo before-the-kill; sleep 10")
 
-	qt.Assert(t, qt.Equals(code, TimedOut), qt.Commentf("gate = %d, want %d", code, TimedOut))
-	qt.Check(t, qt.StringContains(stderr, "TIMEOUT"), qt.Commentf("stderr = %q", stderr))
+	qt.Assert(t, qt.Equals(code, TimedOut))
+	qt.Check(t, qt.StringContains(stderr, "TIMEOUT"))
 	qt.Check(t, qt.Not(qt.StringContains(stderr, "FAIL")),
 		qt.Commentf("a kill was reported as a failure: %q", stderr))
 
@@ -1016,7 +1016,7 @@ func TestTimeoutReportsKilledNotFailed(t *testing.T) {
 	output, trailer := splitLog(t, log)
 	qt.Check(t, qt.StringContains(output, "before-the-kill"), qt.Commentf("log lost output written before the kill: %q", output))
 	// The trailer must not claim an exit status the command never produced.
-	qt.Check(t, qt.StringContains(trailer, "killed on timeout"), qt.Commentf("trailer = %q, want it to record the timeout", trailer))
+	qt.Check(t, qt.StringContains(trailer, "killed on timeout"))
 }
 
 func TestGateInsideItsTimeoutIsUnaffected(t *testing.T) {
@@ -1047,7 +1047,7 @@ func TestTimeoutKillsTheWholeProcessGroup(t *testing.T) {
 	// this test passes whether or not the kill works.
 	script := "(touch " + started + "; sleep 0.4; touch " + orphan + ") & sleep 10"
 	_, _, code := runGateTest(t, "--timeout", "150ms", "--log", tempLog(t), "sh", "-c", script)
-	qt.Assert(t, qt.Equals(code, TimedOut), qt.Commentf("gate = %d, want %d", code, TimedOut))
+	qt.Assert(t, qt.Equals(code, TimedOut))
 	qt.Assert(t, qt.IsTrue(exists(started)), qt.Commentf("the background child never ran, so nothing here is proven"))
 
 	// Long enough that a survivor would have fired -- it was due 400ms after
@@ -1059,8 +1059,8 @@ func TestTimeoutKillsTheWholeProcessGroup(t *testing.T) {
 func TestTimeoutWantsADuration(t *testing.T) {
 	t.Parallel()
 	_, stderr, code := runGateTest(t, "--timeout", "soon", "true")
-	qt.Assert(t, qt.Equals(code, InvalidUsage), qt.Commentf("gate = %d, want %d", code, InvalidUsage))
-	qt.Check(t, qt.StringContains(stderr, "duration"), qt.Commentf("stderr = %q", stderr))
+	qt.Assert(t, qt.Equals(code, InvalidUsage))
+	qt.Check(t, qt.StringContains(stderr, "duration"))
 }
 
 // -C runs the command in that directory. Proven by a marker the gate writes
@@ -1153,7 +1153,7 @@ func TestChdirRefusalsUseDistinctCodes(t *testing.T) {
 		file := filepath.Join(t.TempDir(), "regular")
 		qt.Assert(t, qt.IsNil(os.WriteFile(file, nil, 0o644)))
 		_, _, code := runGateTest(t, "-C", file, "true")
-		qt.Assert(t, qt.Equals(code, Fatal), qt.Commentf("gate = %d, want %d", code, Fatal))
+		qt.Assert(t, qt.Equals(code, Fatal))
 	})
 }
 
@@ -1249,7 +1249,7 @@ func TestHelpSpellingsAgreeAndDoctorHasItsOwn(t *testing.T) {
 	}
 
 	doctorText, _, code := runGateTest(t, "doctor", "--help")
-	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("gate doctor --help = %d", code))
+	qt.Assert(t, qt.Equals(code, Success))
 	qt.Check(t, qt.StringContains(doctorText, "Read-only"), qt.Commentf("doctor help does not state its central guarantee: %q", doctorText))
 	if doctorText == short {
 		t.Error("gate doctor --help printed the top-level help")
