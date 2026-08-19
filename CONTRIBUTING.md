@@ -3,45 +3,7 @@
 Read [`AGENTS.md`](AGENTS.md) first — it holds the one invariant every change
 is measured against, and the list of things that break silently.
 
-## Before you change behaviour
-
-Two properties are not negotiable, and a change that touches either has to
-argue for it explicitly:
-
-1. The wrapped command's **exit status is the verdict**, passed through
-   unchanged. Nothing reads the output to decide whether a gate passed.
-2. The **log is complete**. The summary is bounded on purpose; the log is not.
-
-## Commits
-
-Conventional commits: `type(scope): subject`.
-
-- Subject is imperative and under ~72 characters.
-- Body explains **why**, not which files changed.
-- One logical unit per commit.
-- No AI attribution trailers.
-
 ## Tests
-
-**Least tests, highest coverage.** Each file holds one happy path plus the
-edge cases that have actually bitten — no permutation laundry lists.
-
-Tests call `app.Run` directly with buffers rather than building and exec'ing
-the binary, which is why `internal/app` exists outside `main` at all. They
-spawn real processes (`sh`, `true`) rather than faking an exec boundary: a
-double would encode what its author believed `os/exec` did and then stop
-tracking it, and this tool's whole contract is what a real process's status
-and output do.
-
-Assertions use [`go-quicktest/qt`](https://github.com/go-quicktest/qt):
-`qt.Assert` where the old code called `t.Fatalf`, `qt.Check` where it called
-`t.Errorf`. It prints got and want itself, so `qt.Commentf` carries only what
-the values do not say — the reason the assertion exists. This is the only
-third-party dependency, it is test-only, and nothing third-party is linked
-into the binary.
-
-Every test passes `--log` into `t.TempDir()`. A test that used the default
-location would write into `/var/tmp` and leave litter behind.
 
 ```bash
 make test          # full suite
@@ -49,54 +11,55 @@ make test-short    # unit lane
 make lint
 ```
 
-Two cases carry more weight than the rest, and must not be weakened:
+**Least tests, highest coverage.** One happy path per file plus the edge cases
+that have actually bitten.
 
-- **Exact exit status.** Assert a status that is neither 0 nor 1. An
-  implementation that collapsed every failure to 1 would still satisfy a
-  "non-zero" assertion, and callers branching on a specific status would break
-  silently.
+Tests call `app.Run` directly with buffers rather than exec'ing the binary,
+which is why `internal/app` exists outside `main`. They spawn real processes
+(`sh`, `true`) rather than faking an exec boundary: this tool's whole contract
+is what a real process's status and output do, and a double would encode what
+its author believed `os/exec` did and then stop tracking it.
+
+Assertions use [`go-quicktest/qt`](https://github.com/go-quicktest/qt) —
+`qt.Assert` where you would call `t.Fatalf`, `qt.Check` for `t.Errorf`. It
+prints got and want itself, so `qt.Commentf` carries only the reason the
+assertion exists.
+
+Every test passes `--log` into `t.TempDir()`. A test using the default location
+writes into `/var/tmp` and leaves litter behind.
+
+Two cases must not be weakened:
+
+- **Exact exit status.** Assert a status that is neither 0 nor 1 — an
+  implementation collapsing every failure to 1 still satisfies "non-zero", and
+  callers branching on a specific status break silently.
 - **The log keeps every byte.** Drive output past *both* summary bounds — more
-  lines than `--tail` keeps, and a single line longer than `maxTrackedLine` —
-  and require the log to match byte for byte.
+  lines than `--tail` keeps, and one line longer than `maxTrackedLine` — and
+  require the log to match byte for byte.
 
-## Hooks
+## Commits and hooks
 
-`lefthook.yml` runs `gate` on the commit path — `gate run lint` before a commit
-(0.14s) and every gate before a push (2.88s). Hooks are not committed by git,
-so enabling them is a per-clone step:
-
-```bash
-lefthook install
-```
-
-One interaction is worth knowing rather than discovering. Gates carry
-`GATE_ACTIVE_ROOTS` to their children, and bare `gate` — or `gate run lint` —
-refuses to detect a project whose gates are already running. So a `git commit`
-issued from inside a gate-run command will have its hook refused. That is the
-recursion guard working, but it blocks the commit; if it ever bites, name the
-command instead (`gate make lint`), which is not detection and is never
-refused.
-
-## Modernization
+Conventional commits, `type(scope): subject`, body explaining why. No AI
+attribution trailers.
 
 ```bash
-make fix-diff   # preview
-make fix        # apply, then run again — fixes can unlock fixes
+lefthook install     # per clone; hooks are not committed by git
 ```
 
-Read what it produces rather than committing it blind.
+`gate run lint` runs before a commit, every gate before a push. Gates carry
+`GATE_ACTIVE_ROOTS` to their children and bare `gate` refuses to detect a
+project whose gates are already running, so a `git commit` issued from inside a
+gate-run command has its hook refused. Name the command instead
+(`gate make lint`), which is never refused.
+
+`CHANGELOG.md` gets an entry in the same commit as any behaviour change, new
+flag, or new exit code. Refactors, tests and documentation edits do not.
 
 ## Documentation
 
-Tiered layout, no content repeated between tiers: README orients and links,
-`HUMANS.md` covers running and using it, `docs/` holds the authoritative
-reference, `AGENTS.md` holds internals, this file holds process.
-
-`CHANGELOG.md` gets an entry in the same commit as any behaviour change, new
-flag, or new exit code. Refactors, tests and documentation edits do not earn
-one.
-
-An `@-reference` in `AGENTS.md` is a budget line, not a link: `CLAUDE.md`
-is a one-line `@AGENTS.md` pointer, so every `@path` is pulled into every agent session whether or
-not the change touches that file. Only `@CONTRIBUTING.md` keeps one. Everything
-else is a markdown link, which also renders properly for humans.
+Tiered, nothing repeated between tiers: README orients and links, `HUMANS.md`
+covers running it, `docs/` holds the reference, `AGENTS.md` holds internals,
+this file holds process. Anything `gate --help` already says belongs in none of
+them. An `@-reference` in `AGENTS.md` is pulled into every agent session
+whether or not a change touches that file, so only `@CONTRIBUTING.md` keeps
+one; everything else is a markdown link.

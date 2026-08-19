@@ -25,9 +25,9 @@ complete, and quotes from the output only when something failed.
 
 A passing gate goes from ~242 tokens to ~16, measured on a real suite. Gates
 that ran back-to-back overlap instead: 7.93h of measured session time became
-5.57h. Both figures have a floor worth knowing — a failing gate still quotes a
-bounded tail, and concurrency wins nothing where one slow gate already sets the
-pace. The per-repository spread, 48% down to 0.3%, is in
+5.57h. Both have a floor — a failing gate still quotes a bounded tail, and
+concurrency wins nothing where one slow gate already sets the pace. The
+per-repository spread, 48% down to 0.3%, is in
 [AGENTS.md](AGENTS.md#concurrency-and-who-asks-for-order).
 
 ## Quick start
@@ -44,13 +44,12 @@ Prerequisites and full install notes: [HUMANS.md](HUMANS.md).
   gate passed, and the status is passed through exactly — 3 stays 3.
 - **The log is complete.** The on-screen summary is bounded on purpose; the log
   never is. A trailer line records the outcome, so an old log answers "what
-  happened", not just "what was printed".
-- **A passing gate costs one line.** A failure quotes a bounded tail — enough
-  to act on without opening anything — and names the log holding the rest.
+  happened", not just "what was printed". A failure quotes a bounded tail and
+  names the log holding the rest.
 - **It already knows your gates.** Bare `gate` reads the project — `Makefile`
   targets, `package.json` scripts, `turbo.json` tasks — and runs them. `gate
-  run test` runs one, `gate run lint test` runs two. `gate --list` shows what
-  it chose and why, and `.gate.toml` adjusts it without replacing it.
+  run test` runs one, `gate --list` shows what it chose and why, and
+  `.gate.toml` adjusts it without replacing it.
 - **Concurrent by default.** Every gate runs at once, each with its own log,
   reported in the order you named them, so a run costs its slowest gate rather
   than the sum of all of them. Order is never inferred: `--serial`, or `serial`
@@ -68,11 +67,9 @@ Prerequisites and full install notes: [HUMANS.md](HUMANS.md).
 | Doc | Audience |
 | --- | --- |
 | [HUMANS.md](HUMANS.md) | Running and using `gate` |
-| [docs/USAGE.md](docs/USAGE.md) | Flags, argument rules, log locations |
-| [docs/CODES.md](docs/CODES.md) | Exit codes and output shapes — the machine contract |
+| [docs/USAGE.md](docs/USAGE.md) | Detection, configuration, exit codes |
 | [AGENTS.md](AGENTS.md) | Internals, invariants, and why this exists |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Process — commits, tests, docs |
-| [SECURITY.md](SECURITY.md) | Reporting a vulnerability |
 | [CHANGELOG.md](CHANGELOG.md) | Release notes |
 
 ## License
