@@ -304,7 +304,13 @@ func turboGates(workspace string, proj *Project) []Gate {
 
 	var gates []Gate
 	for _, name := range declaredNames {
-		if _, ok := tasks[name]; !ok {
+		// A root-only task is declared "//#name" but still answers to
+		// `turbo run name`, so it covers the gate exactly as a package task does.
+		_, ok := tasks[name]
+		if !ok {
+			_, ok = tasks["//#"+name]
+		}
+		if !ok {
 			continue
 		}
 		gates = append(gates, Gate{

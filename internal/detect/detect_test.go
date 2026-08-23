@@ -140,6 +140,23 @@ func TestTurboDoesNotShadowThePackageScriptItRuns(t *testing.T) {
 		qt.Commentf("the script turbo runs was reported as a competing declaration: %v", build.Shadowed))
 }
 
+// A task that only ever runs at the repository root is declared "//#lint", but
+// `turbo run lint` still resolves and caches it. Keying detection on the bare
+// name alone left those projects reporting the raw package script, so the gate
+// ran uncached beside a warm turbo cache.
+func TestTurboRootTaskCoversTheGate(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	write(t, dir, "package.json", `{"scripts":{"lint":"biome check ."}}`)
+	write(t, dir, "turbo.json", `{"tasks":{"//#lint":{}}}`)
+	write(t, dir, "bun.lock", "")
+	writeExecutable(t, dir, "node_modules/.bin/turbo")
+
+	lint := gateNamed(t, detect(t, dir), "lint")
+	qt.Check(t, qt.StringContains(lint.Display(), "turbo run lint"),
+		qt.Commentf("a root-only task did not claim the role turbo runs for it"))
+}
+
 // Detection must never execute anything -- it reads manifests and stats
 // files. A fixture whose "tools" would fail loudly if run proves it.
 func TestDetectRunsNothing(t *testing.T) {
