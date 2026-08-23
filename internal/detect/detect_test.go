@@ -157,6 +157,44 @@ func TestTurboRootTaskCoversTheGate(t *testing.T) {
 		qt.Commentf("a root-only task did not claim the role turbo runs for it"))
 }
 
+// A Next project's typecheck runs next typegen and its build clears and rewrites
+// .next, so the two race when overlapped. The project already states that edge as
+// turbo `dependsOn`, and stating it twice -- once more in .gate.toml -- is the
+// duplication this reads away.
+func TestTurboDependsOnBetweenRolesSerialisesBoth(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	write(t, dir, "package.json", `{"scripts":{"build":"next build","typecheck":"tsc --noEmit","lint":"biome check ."}}`)
+	write(t, dir, "turbo.json",
+		`{"tasks":{"build":{},"typecheck":{"dependsOn":["build"]},"lint":{}}}`)
+	write(t, dir, "bun.lock", "")
+	writeExecutable(t, dir, "node_modules/.bin/turbo")
+
+	proj := detect(t, dir)
+	qt.Check(t, qt.IsTrue(gateNamed(t, proj, "build").Serial),
+		qt.Commentf("the depended-on gate must join the ordered group"))
+	qt.Check(t, qt.IsTrue(gateNamed(t, proj, "typecheck").Serial),
+		qt.Commentf("the dependent gate must join the ordered group"))
+	qt.Check(t, qt.IsFalse(gateNamed(t, proj, "lint").Serial),
+		qt.Commentf("a gate in no dependsOn edge must still run concurrently"))
+}
+
+// "^build" orders a package against its dependencies inside one turbo run. It
+// says nothing about this project's build gate racing its typecheck gate, so
+// reading it as an ordering would serialise runs that never needed it.
+func TestTurboTopologicalDependsOnDoesNotSerialise(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	write(t, dir, "package.json", `{"scripts":{"build":"tsc","typecheck":"tsc --noEmit"}}`)
+	write(t, dir, "turbo.json", `{"tasks":{"build":{"dependsOn":["^build"]},"typecheck":{}}}`)
+	write(t, dir, "bun.lock", "")
+	writeExecutable(t, dir, "node_modules/.bin/turbo")
+
+	proj := detect(t, dir)
+	qt.Check(t, qt.IsFalse(gateNamed(t, proj, "build").Serial),
+		qt.Commentf("a topological edge was read as a gate ordering"))
+}
+
 // Detection must never execute anything -- it reads manifests and stats
 // files. A fixture whose "tools" would fail loudly if run proves it.
 func TestDetectRunsNothing(t *testing.T) {

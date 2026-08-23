@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strings"
 )
 
 // declaredNames are the roles worth looking for in a project's own manifests.
@@ -274,9 +275,12 @@ func turboGates(workspace string, proj *Project) []Gate {
 	if err != nil {
 		return nil
 	}
+	type turboTask struct {
+		DependsOn []string `json:"dependsOn"`
+	}
 	var cfg struct {
-		Tasks    map[string]any `json:"tasks"`
-		Pipeline map[string]any `json:"pipeline"`
+		Tasks    map[string]turboTask `json:"tasks"`
+		Pipeline map[string]turboTask `json:"pipeline"`
 	}
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil
@@ -284,6 +288,15 @@ func turboGates(workspace string, proj *Project) []Gate {
 	tasks := cfg.Tasks
 	if tasks == nil {
 		tasks = cfg.Pipeline
+	}
+	// A root-only task is declared "//#name" but still answers to
+	// `turbo run name`, so it covers the gate exactly as a package task does.
+	lookup := func(name string) (turboTask, bool) {
+		if t, ok := tasks[name]; ok {
+			return t, true
+		}
+		t, ok := tasks["//#"+name]
+		return t, ok
 	}
 
 	// The same rule the rest of this file follows: the resolved path, not the
@@ -303,15 +316,27 @@ func turboGates(workspace string, proj *Project) []Gate {
 	}
 
 	var gates []Gate
+	serial := map[string]bool{}
 	for _, name := range declaredNames {
-		// A root-only task is declared "//#name" but still answers to
-		// `turbo run name`, so it covers the gate exactly as a package task does.
-		_, ok := tasks[name]
-		if !ok {
-			_, ok = tasks["//#"+name]
-		}
+		task, ok := lookup(name)
 		if !ok {
 			continue
+		}
+		// A dependsOn edge between two roles is the project saying one gate
+		// needs the other's result -- the one thing that has to be sequenced,
+		// and stated rather than inferred. "^build" is turbo's topological
+		// form: it orders packages within a single run, not these two gates.
+		for _, dep := range task.DependsOn {
+			if strings.HasPrefix(dep, "^") {
+				continue
+			}
+			dep = strings.TrimPrefix(dep, "//#")
+			if dep == name || !IsRole(dep) {
+				continue
+			}
+			if _, ok := lookup(dep); ok {
+				serial[name], serial[dep] = true, true
+			}
 		}
 		gates = append(gates, Gate{
 			Name:     name,
@@ -319,6 +344,9 @@ func turboGates(workspace string, proj *Project) []Gate {
 			Source:   turboSource + name,
 			Declared: true,
 		})
+	}
+	for i := range gates {
+		gates[i].Serial = serial[gates[i].Name]
 	}
 	return gates
 }

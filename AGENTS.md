@@ -176,12 +176,21 @@ The saving is bounded by the slowest gate, so the spread is the point rather
 than the average. Sharing a build cache sounds like a reason to sequence and,
 measured warm, is not: contention costs less than the serialisation does.
 
-Depending on another gate's *result* is a real reason, and not something
-detection can see. `build` before `test` is a property of the project, so the
-project states it: `--serial` for a whole run, `gates.<role>.serial` for the
-gates that genuinely chain. A Next project needs it on `build` and `typecheck`,
-which both write `.next` — `typecheck` runs `next typegen`, `build` clears and
-rewrites it — and race nondeterministically when overlapped.
+Depending on another gate's *result* is a real reason, and never inferred:
+`build` before `test` is a property of the project, so the project has to state
+it. A Next project needs it on `build` and `typecheck`, which both write
+`.next` — `typecheck` runs `next typegen`, `build` clears and rewrites it — and
+race nondeterministically when overlapped.
+
+There are three ways to state it, and detection reads the first: a turbo
+`dependsOn` edge between two roles (`"typecheck": {"dependsOn": ["build"]}`),
+`gates.<role>.serial` in `.gate.toml`, or `--serial` for a whole run. Reading
+the turbo edge matters because a project that needs the ordering has already
+written it there — turbo would not build in the right order otherwise — so
+repeating it in `.gate.toml` is one fact in two files, and the copy that drifts
+is the one nothing executes. Turbo's topological `"^build"` is not such an
+edge: it orders a package against its dependencies inside a single run and says
+nothing about two gates overlapping.
 
 `schedule` holds the whole rule: a gate marked serial joins one group, every
 other gate becomes a group of its own, and groups run concurrently. A whole-run

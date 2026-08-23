@@ -243,6 +243,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 				role:     g.Name,
 				source:   g.Source,
 				shadowed: g.Shadowed,
+				serial:   g.Serial,
 				// The project's own commands only work at its root, which
 				// is not necessarily where the caller stood.
 				dir: proj.Root,

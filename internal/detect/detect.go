@@ -36,6 +36,11 @@ type Gate struct {
 	// every repository and turn a real signal into noise nobody reads.
 	Shadowed []string
 
+	// Serial is true when the project declared that this gate depends on
+	// another gate's result, so the two cannot overlap. Detection never infers
+	// this -- it reads an ordering the project already wrote down.
+	Serial bool
+
 	// Declared is true when this came from a manifest the project maintains,
 	// rather than from the fallback ladder. Only declared gates can shadow.
 	Declared bool
