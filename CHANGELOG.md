@@ -6,6 +6,21 @@ Notable changes to `gate`. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `gates.<name>.timeout` in `.gate.toml`, bounding one gate rather than the
+  whole run: `timeout = "5m"` on the gate that is genuinely slow, `"0"` to run
+  it with no limit, and every other gate left on the one-minute default. This
+  reverses its removal in 0.3.0, which was made on zero fleet usage of the
+  key -- the shape it is coming back in is different in two ways: the value is
+  read by the same parser `--timeout` uses, so the two spellings cannot
+  diverge, and an absent key is distinguishable from `"0"`, which the removed
+  version did not need to express. `[defaults]` and `toolchain`, removed
+  alongside it, stay removed.
+
+  An unusable duration refuses the file the way an unknown key does, and every
+  one in the file is reported at once.
+
 ### Fixed
 
 - A turbo task and the `package.json` script of the same name are no longer

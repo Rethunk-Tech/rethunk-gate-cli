@@ -16,6 +16,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
+	"time"
 
 	"github.com/pelletier/go-toml/v2"
 )
@@ -39,6 +42,12 @@ type Gate struct {
 	Serial    bool
 	HasSerial bool
 
+	// Timeout bounds this gate alone; zero means no limit. HasTimeout
+	// distinguishes "not set" from a deliberate 0, which mean opposite
+	// things: inherit the default, versus run with no limit at all.
+	Timeout    time.Duration
+	HasTimeout bool
+
 	// Source is the file this gate's settings came from, so --list can name
 	// it. A gate that loses its source silently undoes the point of --list.
 	Source string
@@ -52,14 +61,28 @@ type Config struct {
 	Files []string
 }
 
-// file is the on-disk shape. A bool is a pointer so an absent key is
-// distinguishable from a deliberate false, which is what lets a project turn
-// off a user-level default.
+// file is the on-disk shape. Both optional settings are pointers so an absent
+// key is distinguishable from a deliberate false or 0, which is what lets a
+// project turn off a user-level default. Timeout stays a string here so a
+// malformed duration is reported like an unknown key rather than decoded into
+// something that silently means "no limit".
 type file struct {
 	Gates map[string]struct {
-		Run    string `toml:"run"`
-		Serial *bool  `toml:"serial"`
+		Run     string  `toml:"run"`
+		Serial  *bool   `toml:"serial"`
+		Timeout *string `toml:"timeout"`
 	} `toml:"gates"`
+}
+
+// ParseTimeout reads a timeout wherever one is written -- the --timeout flag
+// and a gate's own `timeout` key both come through here, so `5m`, `90s` and a
+// disabling `0` mean the same thing in either place.
+func ParseTimeout(value string) (time.Duration, error) {
+	d, err := time.ParseDuration(value)
+	if err != nil || d < 0 {
+		return 0, fmt.Errorf("wants a duration like 90s or 5m, got %q", value)
+	}
+	return d, nil
 }
 
 // Load reads the user-level config, then the project's, layering the nearer
@@ -122,6 +145,11 @@ func (c *Config) merge(path string, data []byte) error {
 		return fmt.Errorf("%s: %w", path, err)
 	}
 
+	// Collected rather than returned at the first one, so a file with two bad
+	// durations is fixed in one pass -- the same reason unknown keys are
+	// reported all at once.
+	var unusable []string
+
 	for name, g := range f.Gates {
 		merged := c.Gates[name]
 		merged.Source = path
@@ -131,7 +159,22 @@ func (c *Config) merge(path string, data []byte) error {
 		if g.Serial != nil {
 			merged.Serial, merged.HasSerial = *g.Serial, true
 		}
+		if g.Timeout != nil {
+			d, err := ParseTimeout(*g.Timeout)
+			if err != nil {
+				unusable = append(unusable, fmt.Sprintf("gates.%s.timeout %v", name, err))
+			} else {
+				merged.Timeout, merged.HasTimeout = d, true
+			}
+		}
 		c.Gates[name] = merged
+	}
+
+	if len(unusable) > 0 {
+		// Sorted because map iteration is not: the same file must report the
+		// same message every time.
+		slices.Sort(unusable)
+		return fmt.Errorf("%s: unusable setting(s):\n%s", path, strings.Join(unusable, "\n"))
 	}
 	return nil
 }

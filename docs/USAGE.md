@@ -101,14 +101,19 @@ run = "bun run e2e"
 
 [gates.build]
 serial = true
+timeout = "5m"
 
 [gates.test]
 serial = true
 ```
 
-`run` and `serial` are the only keys. `run` takes a shell string, so it can
-carry pipes and globs; the shell is `sh` on unix and `cmd` on Windows, which
-split their command lines by different rules.
+`run`, `serial` and `timeout` are the only keys. `run` takes a shell string, so
+it can carry pipes and globs; the shell is `sh` on unix and `cmd` on Windows,
+which split their command lines by different rules. `timeout` takes the same
+value `--timeout` does — `5m`, `90s`, `1m30s`, or `0` to run that gate with no
+limit — and bounds only the gate it sits on. A value that is not a duration
+refuses the file, alongside any other unusable one, the same way a misspelled
+key does.
 
 Configuration **adds and overrides, never replaces**. Detection always runs, so
 a file mentioning one gate cannot remove the others, and `--list` still names
@@ -201,6 +206,25 @@ The default is aggressive deliberately. Measured over 12,569 real invocations
 in a week, 141 (1.12%) ran longer than 60s and p99 was 65.0s — so roughly one
 working gate in ninety will be killed by it, which is why a timeout is reported
 so distinctly. Raise it with `--timeout 5m`, or disable it with `--timeout 0`.
+
+`--timeout` applies to every gate in the run, which is the wrong shape for the
+usual case: one slow gate in a project of fast ones. That gate says so itself,
+and the rest keep the default:
+
+```toml
+[gates.e2e]
+run = "bun run e2e"
+timeout = "10m"
+
+[gates.build]
+timeout = "0"
+```
+
+Precedence is the same as every other key — `--timeout` on the command line
+beats the project file, which beats your user config — and the layers still
+merge per key, so a project raising one gate's timeout leaves the others alone.
+An absent `timeout` and `timeout = "0"` are deliberately different: the first
+inherits, the second removes the limit from that one gate.
 
 ## Interrupting a run
 

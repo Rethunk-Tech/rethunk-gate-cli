@@ -1063,6 +1063,83 @@ func TestTimeoutWantsADuration(t *testing.T) {
 	qt.Check(t, qt.StringContains(stderr, "duration"))
 }
 
+// timeoutProject writes a fixture whose .gate.toml is the given body, with a
+// Makefile that declares no recognised target so the gates are exactly the
+// ones the body names.
+func timeoutProject(t *testing.T, body string) string {
+	t.Helper()
+	root := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	setLogDir(t)
+	write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
+	write(t, root, ".gate.toml", body)
+	return root
+}
+
+// One slow gate in a project of fast ones is the case --timeout is the wrong
+// shape for: raising it for the run raises it for everything.
+func TestAGatesOwnTimeoutBoundsIt(t *testing.T) {
+	root := timeoutProject(t, "[gates.slow]\nrun = \"sleep 10\"\ntimeout = \"200ms\"\n")
+
+	_, stderr, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, TimedOut), qt.Commentf("gate = %d, stderr = %q", code, stderr))
+	// The gate's own limit, not the default, is what the report names.
+	qt.Check(t, qt.StringContains(stderr, "TIMEOUT after 200ms"))
+}
+
+// An absent key and a deliberate 0 mean opposite things, and the difference
+// has to survive all the way to the runner: inherit the limit, versus run with
+// none. It is per gate, so the sibling keeps its own.
+func TestAGateTimeoutOfZeroDisablesTheLimitForThatGateAlone(t *testing.T) {
+	root := t.TempDir()
+	finished := filepath.Join(root, "unbounded-finished")
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	setLogDir(t)
+	write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
+	write(t, root, ".gate.toml", "[gates.bounded]\nrun = \"sleep 10\"\ntimeout = \"150ms\"\n\n"+
+		"[gates.unbounded]\nrun = \"sleep 0.4; touch "+finished+"\"\ntimeout = \"0\"\n")
+
+	_, stderr, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, TimedOut), qt.Commentf("gate = %d, stderr = %q", code, stderr))
+	qt.Check(t, qt.StringContains(stderr, "TIMEOUT after 150ms"))
+	// It outlived the sibling's limit by a wide margin, so a limit that leaked
+	// across gates would have killed it.
+	qt.Check(t, qt.IsTrue(exists(finished)),
+		qt.Commentf("a gate with timeout = 0 was killed anyway: %q", stderr))
+}
+
+// Flags are the most local statement of intent, so --timeout beats a gate's
+// own key -- in both directions, which is why the file is proven to bite first.
+func TestTheTimeoutFlagBeatsAGatesOwnTimeout(t *testing.T) {
+	root := timeoutProject(t, "[gates.slow]\nrun = \"sleep 0.4\"\ntimeout = \"100ms\"\n")
+
+	_, stderr, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, TimedOut), qt.Commentf("the file's own timeout did not fire: %d, %q", code, stderr))
+
+	_, stderr, code = runGateTest(t, "-C", root, "--timeout", "0")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("the flag did not lift the file's timeout: %d, %q", code, stderr))
+}
+
+// A duration that cannot be read refuses the file, the same as a misspelled
+// key: falling back to the default would run the gate under a limit its author
+// deliberately changed, and say nothing.
+func TestAMalformedGateTimeoutRefusesTheFile(t *testing.T) {
+	root := t.TempDir()
+	ran := filepath.Join(root, "test-ran")
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	setLogDir(t)
+	write(t, root, "Makefile", "test:\n\ttouch "+ran+"\n")
+	write(t, root, ".gate.toml", "[gates.test]\ntimeout = \"soon\"\n")
+
+	_, stderr, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, InvalidUsage), qt.Commentf("stderr = %q", stderr))
+	for _, want := range []string{"gates.test.timeout", "soon", "duration"} {
+		qt.Check(t, qt.StringContains(stderr, want))
+	}
+	// Refused, not ignored: nothing ran under a limit nobody chose.
+	qt.Check(t, qt.IsFalse(exists(ran)), qt.Commentf("a gate ran despite an unusable config"))
+}
+
 // -C runs the command in that directory. Proven by a marker the gate writes
 // into its own working directory, rather than by parsing `pwd` output.
 func TestChdirRunsTheCommandThere(t *testing.T) {

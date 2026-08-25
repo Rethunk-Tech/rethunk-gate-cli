@@ -29,8 +29,8 @@ const defaultTail = 40
 // (1.12%) ran longer than 60s and p99 was 65.0s -- so this sits almost
 // exactly on the 99th percentile and will kill roughly one working gate in
 // ninety. That is why a timeout reports 124 and says "killed", never
-// "failed", and why --timeout exists to raise it per run until per-project
-// configuration can set it per gate.
+// "failed", why --timeout raises it for a whole run, and why a gate that is
+// genuinely slower says so itself with `timeout` in .gate.toml.
 const defaultTimeout = time.Minute
 
 const gateHelp = `usage: gate [-C <path>] [flags] [<command> [args...]]
@@ -56,7 +56,8 @@ Flags:
   --serial      run every gate in order and stop at the first failure
                 (gates run concurrently unless this, or .gate.toml, says not to)
   --list        print the gates that would run, and run nothing
-  --timeout D   kill a gate that runs longer than D (default 1m, 0 disables)
+  --timeout D   kill a gate that runs longer than D (default 1m, 0 disables;
+                .gate.toml can set it per gate, and this beats that)
   --tail N      trailing lines to quote on failure (default 40)
   --log PATH    write the log here instead of the default location
   --quiet       print nothing when the gates pass
@@ -96,6 +97,7 @@ Full reference: docs/USAGE.md
 func Run(ctx context.Context, version string, args []string, stdout, stderr io.Writer) Code {
 	opts := options{tail: defaultTail}
 	timeout := defaultTimeout
+	timeoutSet := false
 	showVersion := false
 
 	dir, args, code, ok := parseChdir(args, stderr)
@@ -130,11 +132,11 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		return nil
 	})
 	flags.Func("timeout", "", func(value string) error {
-		d, err := time.ParseDuration(value)
-		if err != nil || d < 0 {
-			return fmt.Errorf("wants a duration like 90s or 5m, got %q", value)
+		d, err := config.ParseTimeout(value)
+		if err != nil {
+			return err
 		}
-		timeout = d
+		timeout, timeoutSet = d, true
 		return nil
 	})
 
@@ -265,6 +267,11 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 				if c.HasSerial {
 					spec.serial = c.Serial
 				}
+				// Same rule for the same reason: an absent key inherits, and
+				// a deliberate 0 disables the limit for this gate only.
+				if c.HasTimeout {
+					spec.timeout, spec.hasTimeout = c.Timeout, true
+				}
 				spec.source = g.Source + ", overridden by " + c.Source
 			}
 			opts.gates = append(opts.gates, spec)
@@ -284,12 +291,14 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 				continue
 			}
 			opts.gates = append(opts.gates, gateSpec{
-				argv:    shellArgv(c.Run),
-				display: c.Run,
-				serial:  c.Serial,
-				role:    name,
-				source:  c.Source + " gates." + name,
-				dir:     proj.Root,
+				argv:       shellArgv(c.Run),
+				display:    c.Run,
+				serial:     c.Serial,
+				timeout:    c.Timeout,
+				hasTimeout: c.HasTimeout,
+				role:       name,
+				source:     c.Source + " gates." + name,
+				dir:        proj.Root,
 			})
 		}
 
@@ -315,8 +324,12 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		}
 	}
 
+	// The flag is the most local statement of intent, so it beats a gate's own
+	// key; a gate that names none takes the default.
 	for i := range opts.gates {
-		opts.gates[i].timeout = timeout
+		if timeoutSet || !opts.gates[i].hasTimeout {
+			opts.gates[i].timeout = timeout
+		}
 	}
 
 	if opts.list {

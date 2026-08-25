@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-quicktest/qt"
 )
@@ -78,6 +79,57 @@ func TestSerialFalseIsDistinguishableFromUnset(t *testing.T) {
 	// A gate nobody mentioned is not serial, and does not claim to have said so.
 	qt.Check(t, qt.IsFalse(cfg.Gates["lint"].HasSerial))
 	qt.Check(t, qt.IsFalse(cfg.Gates["lint"].Serial))
+}
+
+// The per-key merge is what Load promises: a project that sets one gate's
+// timeout still inherits the user's settings for every other gate.
+func TestAProjectTimeoutLeavesOtherGatesOnTheirDefaults(t *testing.T) {
+	home := isolate(t)
+	write(t, home, "gate/config.toml", "[gates.e2e]\ntimeout = \"10m\"\n")
+
+	root := t.TempDir()
+	write(t, root, ProjectFile, "[gates.test]\ntimeout = \"5m\"\n")
+
+	cfg, err := Load(root)
+	qt.Assert(t, qt.IsNil(err))
+
+	qt.Check(t, qt.Equals(cfg.Gates["test"].Timeout, 5*time.Minute))
+	qt.Check(t, qt.Equals(cfg.Gates["e2e"].Timeout, 10*time.Minute))
+	// A gate nobody mentioned takes the default, and does not claim to have
+	// said so -- which is what the runner reads to leave it alone.
+	qt.Check(t, qt.IsFalse(cfg.Gates["lint"].HasTimeout))
+}
+
+// Zero is a statement -- run this gate with no limit -- and an absent key is
+// silence. A plain duration cannot tell them apart, and they mean opposite
+// things.
+func TestATimeoutOfZeroIsDistinguishableFromUnset(t *testing.T) {
+	home := isolate(t)
+	write(t, home, "gate/config.toml", "[gates.test]\ntimeout = \"5m\"\n")
+
+	root := t.TempDir()
+	write(t, root, ProjectFile, "[gates.test]\ntimeout = \"0\"\n")
+
+	cfg, err := Load(root)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsTrue(cfg.Gates["test"].HasTimeout))
+	qt.Check(t, qt.Equals(cfg.Gates["test"].Timeout, time.Duration(0)))
+}
+
+// A duration that cannot be read is reported like an unknown key -- refused,
+// named, and all at once, so a file with two bad values is fixed in one pass
+// rather than one run per mistake.
+func TestUnusableTimeoutsAreRefusedAllAtOnce(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	write(t, root, ProjectFile, "[gates.test]\ntimeout = \"soon\"\n\n[gates.lint]\ntimeout = \"-1m\"\n")
+
+	_, err := Load(root)
+	qt.Assert(t, qt.IsNotNil(err))
+	for _, want := range []string{"gates.test.timeout", "soon", "gates.lint.timeout", "-1m", ProjectFile} {
+		qt.Check(t, qt.IsTrue(strings.Contains(err.Error(), want)),
+			qt.Commentf("error = %v", err))
+	}
 }
 
 // A typo must not degrade to defaults. `timout = "10m"` silently ignored is

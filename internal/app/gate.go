@@ -67,8 +67,11 @@ type gateSpec struct {
 
 	// timeout bounds this gate alone. It sits here rather than on options
 	// so per-project configuration can set it per gate without the runner
-	// changing shape. Zero means no limit.
-	timeout time.Duration
+	// changing shape. Zero means no limit, which is why hasTimeout is
+	// separate: a gate that set nothing takes the default, and a gate that
+	// set 0 runs unbounded.
+	timeout    time.Duration
+	hasTimeout bool
 
 	// role is the gate's name -- build, test, and so on -- for detected and
 	// configured gates, and empty for a command the caller named. It is what
