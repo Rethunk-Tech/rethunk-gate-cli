@@ -16,9 +16,9 @@ func version(ldflags string, timeout time.Duration) string {
 	return out.String()
 }
 
-// The old --version printed a bare "53984be-dirty": no tool name, and a
-// `go install` build reported the "dev" placeholder because nothing sets
-// -ldflags for that path.
+// --version must name the tool and the build. A bare hash like "53984be-dirty"
+// gives no tool identity, and a `go install` build without -ldflags must not
+// print the "dev" placeholder.
 func TestVersionNamesTheToolAndTheBuild(t *testing.T) {
 	t.Parallel()
 	first := strings.SplitN(version("v1.2.3", defaultTimeout), "\n", 2)[0]

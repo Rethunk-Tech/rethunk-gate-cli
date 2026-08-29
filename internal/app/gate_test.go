@@ -940,8 +940,8 @@ func TestListShowsChosenAndShadowedAndRunsNothing(t *testing.T) {
 }
 
 // Logs hold whatever the command printed, which can include tokens and
-// connection strings. They were world-readable until this was fixed, so the
-// modes are asserted rather than assumed.
+// connection strings, so log directories and files must be private. The modes
+// are asserted rather than assumed.
 func TestLogsArePrivate(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("TMPDIR", dir)

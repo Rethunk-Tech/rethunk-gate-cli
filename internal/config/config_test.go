@@ -134,8 +134,8 @@ func TestUnusableTimeoutsAreRefusedAllAtOnce(t *testing.T) {
 
 // A typo must not degrade to defaults. `timout = "10m"` silently ignored is
 // the classic configuration failure, and reporting only the first unknown key
-// would make fixing a file a game of whack-a-mole -- which is the whole reason
-// this TOML library was chosen over the alternative.
+// would make fixing a file a game of whack-a-mole -- which is why
+// DisallowUnknownFields must refuse every unknown key in one pass.
 func TestUnknownKeysAreRefusedAllAtOnce(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
