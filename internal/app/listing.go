@@ -1,11 +1,89 @@
 package app
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 
 	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/detect"
 )
+
+// listing is the machine-readable form of what writeListing prints. It exists
+// because a consumer that has to column-parse the text layout is broken by any
+// cosmetic change to it, and the text is written for a person.
+type listing struct {
+	Root      string       `json:"root"`
+	Workspace string       `json:"workspace,omitempty"`
+	Gates     []listedGate `json:"gates"`
+	Config    []string     `json:"config"`
+
+	// Notes is the record of what detection deliberately did not turn into a
+	// gate. A machine consumer needs it for the same reason a person does:
+	// silence there reads as "nothing to say" rather than "a decision was
+	// made".
+	Notes []string `json:"notes"`
+}
+
+// listedGate is one gate as it will actually run.
+type listedGate struct {
+	// Name is the role, empty for a command the caller named.
+	Name string `json:"name"`
+
+	// Argv is the RESOLVED command -- node_modules/.bin/tsc rather than tsc
+	// -- which is what execution uses and what a consumer has to reproduce.
+	Argv []string `json:"argv"`
+
+	// Display is the same string the text listing shows for this gate.
+	Display string `json:"display"`
+
+	// Source is why this gate is here, surviving the config merge.
+	Source string `json:"source"`
+
+	// Shadows lists competing declarations this gate outranks.
+	Shadows []string `json:"shadows"`
+
+	// Group is the scheduling group. Gates sharing a group run one after
+	// another; groups run concurrently.
+	Group int `json:"group"`
+}
+
+// writeListingJSON prints the same facts writeListing does, in a shape a
+// program can read. Output only: it never changes detection, scheduling or
+// the exit status.
+func writeListingJSON(w io.Writer, project detect.Project, files []string, opts options) error {
+	out := listing{
+		Root:      project.Root,
+		Workspace: project.Workspace,
+		Gates:     make([]listedGate, 0, len(opts.gates)),
+		Config:    array(files),
+		Notes:     array(project.Notes),
+	}
+	for group, indexes := range schedule(opts.gates, opts.serial) {
+		for _, i := range indexes {
+			spec := opts.gates[i]
+			out.Gates = append(out.Gates, listedGate{
+				Name:    spec.role,
+				Argv:    array(spec.argv),
+				Display: spec.display,
+				Source:  spec.source,
+				Shadows: array(spec.shadowed),
+				Group:   group,
+			})
+		}
+	}
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(out)
+}
+
+// array keeps an empty list an empty list. A nil slice marshals to null, and
+// no consumer should have to tell "no notes" from "notes absent".
+func array(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
+}
 
 // writeListing prints what gate would run and why, and runs nothing.
 //

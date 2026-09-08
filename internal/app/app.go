@@ -56,6 +56,7 @@ Flags:
   --serial      run every gate in order and stop at the first failure
                 (gates run concurrently unless this, or .gate.toml, says not to)
   --list        print the gates that would run, and run nothing
+  --json        the same listing as JSON, for a program to read
   --timeout D   kill a gate that runs longer than D (default 1m, 0 disables;
                 .gate.toml can set it per gate, and this beats that)
   --tail N      trailing lines to quote on failure (default 40)
@@ -118,6 +119,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	flags.BoolVar(&opts.quiet, "quiet", false, "")
 	flags.BoolVar(&opts.serial, "serial", false, "")
 	flags.BoolVar(&opts.list, "list", false, "")
+	flags.BoolVar(&opts.jsonList, "json", false, "")
 	flags.BoolVar(&showVersion, "version", false, "")
 	flags.StringVar(&opts.logPath, "log", "", "")
 	// Func rather than IntVar and DurationVar, so a refusal names what the
@@ -332,6 +334,15 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		}
 	}
 
+	// JSON first: both flags name the same listing, and a consumer that asked
+	// for the machine shape must not be handed the human one.
+	if opts.jsonList {
+		if err := writeListingJSON(stdout, project, configured.Files, opts); err != nil {
+			fmt.Fprintf(stderr, "gate: cannot write the listing: %v\n", err)
+			return Fatal
+		}
+		return Success
+	}
 	if opts.list {
 		writeListing(stdout, project, configured.Files, opts)
 		return Success

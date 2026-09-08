@@ -46,7 +46,10 @@ type options struct {
 	quiet   bool
 	serial  bool
 	list    bool
-	gates   []gateSpec
+	// jsonList prints the listing as JSON instead of as text. Output only:
+	// it changes nothing about detection, scheduling or the exit status.
+	jsonList bool
+	gates    []gateSpec
 }
 
 // gateSpec is one command to run. argv is executed directly, without a shell,

@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -565,6 +566,72 @@ func TestResolvedPathIsShortenedOnTheVerdictLineOnly(t *testing.T) {
 			names = append(names, e.Name())
 		}
 		t.Errorf("no log named for the command; got %v", names)
+	}
+}
+
+// --list is written for a person, so a program that reads it is broken by any
+// cosmetic change to the layout. --json carries the same facts in a shape
+// that cannot be reformatted out from under a consumer.
+//
+// The shape is asserted against a real detected project rather than a
+// hand-built struct: a fixture exercises the resolved argv, the serial
+// grouping, a source that survived the config merge, and a note. Every gate's
+// argv is tied back to what --list shows for the same fixture, so the two
+// listings cannot drift apart.
+func TestJSONListingCarriesWhatListDoes(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	tsc := plantBin(t, root, "tsc")
+	plantBin(t, root, "biome")
+	testutil.Write(t, root, "package.json", `{"name":"app","scripts":{"ci":"echo all"}}`)
+	testutil.Write(t, root, "bun.lock", "")
+	// typecheck and lint are declared serial, so they share one group while
+	// the config-only gate runs as its own.
+	testutil.Write(t, root, ".gate.toml",
+		"[gates.typecheck]\nserial = true\n\n[gates.lint]\nserial = true\n\n[gates.e2e]\nrun = \"echo e2e\"\n")
+
+	stdout, stderr, code := runGateTest(t, "-C", root, "--json")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("gate --json = %d, stderr = %q", code, stderr))
+	qt.Check(t, qt.Equals(stderr, ""), qt.Commentf("--json wrote to stderr: %q", stderr))
+
+	var got listing
+	qt.Assert(t, qt.IsNil(json.Unmarshal([]byte(stdout), &got)), qt.Commentf("stdout is not JSON: %q", stdout))
+
+	qt.Assert(t, qt.Equals(got.Root, root))
+	var names []string
+	for _, g := range got.Gates {
+		names = append(names, g.Name)
+	}
+	qt.Assert(t, qt.DeepEquals(names, []string{"typecheck", "lint", "e2e"}))
+
+	// Gates sharing a group run one after another; groups run concurrently.
+	qt.Check(t, qt.Equals(got.Gates[0].Group, got.Gates[1].Group), qt.Commentf("the two serial gates were not grouped together"))
+	qt.Check(t, qt.Not(qt.Equals(got.Gates[2].Group, got.Gates[0].Group)), qt.Commentf("a gate that asked for no order joined the serial group"))
+
+	// The RESOLVED path is what execution uses, so it is what a consumer has
+	// to be given.
+	qt.Check(t, qt.DeepEquals(got.Gates[0].Argv, []string{tsc, "--noEmit"}))
+	// A gate's source survives the config merge, naming both where it was
+	// detected and what changed it.
+	qt.Check(t, qt.StringContains(got.Gates[0].Source, "convention: node"))
+	qt.Check(t, qt.StringContains(got.Gates[0].Source, ".gate.toml"))
+
+	qt.Check(t, qt.DeepEquals(got.Config, []string{filepath.Join(root, ".gate.toml")}))
+	// A note is the record of a gate deliberately not created.
+	qt.Assert(t, qt.Equals(len(got.Notes), 1), qt.Commentf("notes = %v", got.Notes))
+	qt.Check(t, qt.StringContains(got.Notes[0], "scripts.ci"))
+
+	// The tie to the text listing, in both directions: every gate's argv is
+	// either the display itself or the shell invocation of it, and every
+	// display is a line --list prints.
+	listOut, _, _ := runGateTest(t, "-C", root, "--list")
+	for _, g := range got.Gates {
+		if strings.Join(g.Argv, " ") != g.Display {
+			qt.Check(t, qt.DeepEquals(g.Argv, []string{"sh", "-c", g.Display}),
+				qt.Commentf("%s: argv %q is neither the display nor a shell running it", g.Name, g.Argv))
+		}
+		qt.Check(t, qt.StringContains(listOut, g.Display),
+			qt.Commentf("--list does not show %q", g.Display))
 	}
 }
 

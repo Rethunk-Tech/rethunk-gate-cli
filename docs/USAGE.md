@@ -43,6 +43,33 @@ project  /usr/local/src/com.github/Rethunk-Tech/rethunk-git-cli
         from convention: go
 ```
 
+`--json` prints the same listing for a program to read, so nothing has to
+column-parse the text above — that layout is written for a person and is free
+to change. Each gate carries its `name`, the resolved `argv`, the `display`
+the text listing shows, the `source` it came from, anything it `shadows`, and
+its scheduling `group`; gates sharing a group run one after another, and
+groups run concurrently. The document also carries the project `root`, the
+`config` files in force, and the `notes`. It runs nothing and changes nothing:
+
+```console
+$ gate --json
+{
+  "root": "/usr/local/src/com.github/Rethunk-Tech/rethunk-git-cli",
+  "gates": [
+    {
+      "name": "build",
+      "argv": ["make", "build"],
+      "display": "make build",
+      "source": "Makefile target build",
+      "shadows": [],
+      "group": 0
+    }
+  ],
+  "config": [],
+  "notes": []
+}
+```
+
 ### What it looks at, in order
 
 1. **`Makefile` targets** — a target that exists is a deliberate wrapper, and
