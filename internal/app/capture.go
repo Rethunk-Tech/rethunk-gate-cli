@@ -22,7 +22,9 @@ type lineTracker struct {
 	tailN int
 
 	partial bytes.Buffer
-	tail    []string
+
+	// tail holds the last tailN lines seen, oldest first.
+	tail []string
 
 	// saw records that the command wrote something, which an empty tail does
 	// not: with --tail 0 the tracker keeps nothing, and "no output" would be
@@ -88,10 +90,3 @@ func (t *lineTracker) close() {
 		t.finishLine()
 	}
 }
-
-// Tail returns the last lines seen, oldest first.
-func (t *lineTracker) Tail() []string { return t.tail }
-
-// sawOutput reports whether the command wrote anything at all, which an empty
-// Tail does not answer on its own.
-func (t *lineTracker) sawOutput() bool { return t.saw }

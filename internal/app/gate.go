@@ -430,13 +430,13 @@ func writeFailureRegion(w io.Writer, tracker *lineTracker) {
 	if tracker == nil {
 		return
 	}
-	tail := tracker.Tail()
+	tail := tracker.tail
 	if len(tail) == 0 {
 		// "no output" and "none kept" are different facts, and only one of
 		// them is true under --tail 0. The log is complete either way, so
 		// saying the wrong one sends the reader looking for a log they have
 		// been told is empty.
-		if tracker.sawOutput() {
+		if tracker.saw {
 			fmt.Fprintln(w, "--- output not quoted (--tail 0) ---")
 		} else {
 			fmt.Fprintln(w, "--- no output ---")

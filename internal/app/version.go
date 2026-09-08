@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"fmt"
 	"io"
 	"runtime"
@@ -23,7 +24,7 @@ func resolveVersion(ldflags string) string {
 
 	info, ok := debug.ReadBuildInfo()
 	if !ok {
-		return fallbackVersion(ldflags)
+		return cmp.Or(ldflags, "unknown")
 	}
 
 	// A tagged install reports its own version, which is what we want. An
@@ -47,7 +48,7 @@ func resolveVersion(ldflags string) string {
 		}
 	}
 	if revision == "" {
-		return fallbackVersion(ldflags)
+		return cmp.Or(ldflags, "unknown")
 	}
 	if len(revision) > 12 {
 		revision = revision[:12]
@@ -56,13 +57,6 @@ func resolveVersion(ldflags string) string {
 		revision += "-dirty"
 	}
 	return revision
-}
-
-func fallbackVersion(ldflags string) string {
-	if ldflags == "" {
-		return "unknown"
-	}
-	return ldflags
 }
 
 // writeVersion prints what this binary is and how it will behave.

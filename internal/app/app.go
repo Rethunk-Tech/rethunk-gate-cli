@@ -100,13 +100,13 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	timeoutSet := false
 	showVersion := false
 
-	dir, args, code, ok := parseChdir(args, stderr)
+	dir, args, ok := parseChdir(args, stderr)
 	if !ok {
-		return code
+		return InvalidUsage
 	}
 	argv := args
-	if code, ok := enterable(dir, stderr); !ok {
-		return code
+	if !enterable(dir, stderr) {
+		return Fatal
 	}
 
 	flags := flag.NewFlagSet("gate", flag.ContinueOnError)
