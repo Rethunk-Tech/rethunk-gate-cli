@@ -143,6 +143,14 @@ func packageRunner(workspace string) []string {
 // declares nothing for. Every choice below is ordered by what the fleet
 // actually ran over seven days, not by preference.
 func conventionGates(root string, proj *Project) []Gate {
+	// Notes are appended from several branches below, each of which is the
+	// only record of a gate deliberately not created. Settling nil once here
+	// is why none of them restates the guard: a caller that passes nothing
+	// wants the gates without the commentary, not a panic.
+	if proj == nil {
+		proj = &Project{}
+	}
+
 	var gates []Gate
 
 	if exists(filepath.Join(root, "go.mod")) {
