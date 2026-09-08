@@ -70,6 +70,15 @@ $ gate --json
 }
 ```
 
+A scalar with nothing to say is absent rather than empty: a wrapped command has
+no project, so `root`, `name` and `source` do not appear at all, and `workspace`
+appears only where it differs from `root`. Collections are always present, empty
+as `[]` and never `null`, so a consumer can iterate without a nil check.
+
+`--json` names the gate listing, so it applies to `--list` and to a bare run,
+not to `doctor` — `gate --json doctor` is refused rather than silently ignored.
+Doctor reports advice, not a verdict, and has no listing to serialise.
+
 ### What it looks at, in order
 
 1. **`Makefile` targets** — a target that exists is a deliberate wrapper, and
