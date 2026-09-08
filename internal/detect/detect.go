@@ -137,8 +137,18 @@ func Detect(dir string) (Project, error) {
 	for _, g := range packageJSONGates(proj.Root, proj.workspaceOrRoot(), &proj) {
 		claim(g)
 	}
-	for _, g := range conventionGates(proj.Root, &proj) {
+	convention, skipped := conventionGates(proj.Root, &proj)
+	for _, g := range convention {
 		claim(g)
+	}
+	// A gate the ladder could not build is said out loud rather than dropped,
+	// but only where the role is still empty: a declaration outranks the
+	// convention that would have filled it, and a listing that shows the gate
+	// beside a note that it was skipped contradicts itself.
+	for _, s := range skipped {
+		if _, claimed := byName[s.role]; !claimed {
+			proj.Notes = append(proj.Notes, s.note)
+		}
 	}
 
 	aggregate, hasAggregate := byName[aggregateName]
@@ -152,13 +162,13 @@ func Detect(dir string) (Project, error) {
 
 	// An aggregate target means "run the whole pipeline", and running it beside
 	// the gates it aggregates runs each of them twice -- which is only true
-	// when gate claimed those gates. Measured on a repository declaring twelve
-	// check targets under none of the role names: gate claimed one inferred
-	// convention gate, refused the aggregate on the grounds that it duplicated
-	// work already scheduled, and left everything the project actually checks
-	// unrun. So the refusal is conditional on the duplication being real, and
-	// the decision is stated either way -- a note that appeared in only one
-	// case would read as a bug in the other.
+	// when gate claimed those gates. A repository can declare twelve check
+	// targets under none of the role names, leaving one inferred convention
+	// gate as everything gate claims; there the aggregate is the only thing
+	// that runs what the project actually checks, and refusing it leaves the
+	// repository unchecked. So the refusal is conditional on the duplication
+	// being real, and the decision is stated either way -- a note that appeared
+	// in only one case would read as a bug in the other.
 	//
 	// The gates it would aggregate are declaredNames, whatever supplied them:
 	// an inferred `go test` is still the test the project's ci target runs.

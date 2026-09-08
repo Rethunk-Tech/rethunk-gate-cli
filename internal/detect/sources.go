@@ -140,11 +140,27 @@ func packageRunner(workspace string) []string {
 	return []string{"bun", "run"}
 }
 
+// skippedGate is a role the ladder deliberately left without a gate because
+// the tool that would run it is absent. It carries the role so Detect can say
+// so only where nothing else claimed that role -- a project whose Makefile
+// supplies the gate is not missing it, and listing the gate beside a note that
+// it was skipped states both halves of a contradiction.
+type skippedGate struct {
+	role string
+	note string
+}
+
 // conventionGates is the fallback ladder, used only for roles the project
 // declares nothing for. Every choice below is ordered by what the fleet
 // actually ran over seven days, not by preference.
-func conventionGates(root string, proj *Project) []Gate {
+//
+// The second return is the gaps: roles this ladder would have filled and could
+// not. They are reported by Detect rather than here, because whether the role
+// ended up filled by a declaration is not known until every source has been
+// collected.
+func conventionGates(root string, proj *Project) ([]Gate, []skippedGate) {
 	var gates []Gate
+	var skipped []skippedGate
 
 	if exists(filepath.Join(root, "go.mod")) {
 		gates = append(gates,
@@ -164,7 +180,7 @@ func conventionGates(root string, proj *Project) []Gate {
 		if bin := resolve(root, proj, "govulncheck"); bin != "" {
 			gates = append(gates, Gate{Name: "vuln", Argv: []string{bin, "./..."}, Source: "convention: go"})
 		} else {
-			proj.Notes = append(proj.Notes, "govulncheck not installed; skipping the vuln gate (go install golang.org/x/vuln/cmd/govulncheck@latest)")
+			skipped = append(skipped, skippedGate{"vuln", "govulncheck not installed; skipping the vuln gate (go install golang.org/x/vuln/cmd/govulncheck@latest)"})
 		}
 	}
 
@@ -189,12 +205,12 @@ func conventionGates(root string, proj *Project) []Gate {
 			// judges correctness beyond the compiler: `cargo check` is the
 			// compiler again, and rustfmt judges formatting, so either one as a
 			// lint gate would report something other than a lint result.
-			proj.Notes = append(proj.Notes, "clippy not installed; skipping the lint gate (rustup component add clippy)")
+			skipped = append(skipped, skippedGate{"lint", "clippy not installed; skipping the lint gate (rustup component add clippy)"})
 		}
 		if resolve(root, proj, "cargo-audit") != "" {
 			gates = append(gates, Gate{Name: "vuln", Argv: []string{"cargo", "audit"}, Source: "convention: rust"})
 		} else {
-			proj.Notes = append(proj.Notes, "cargo-audit not installed; skipping the vuln gate (cargo install cargo-audit)")
+			skipped = append(skipped, skippedGate{"vuln", "cargo-audit not installed; skipping the vuln gate (cargo install cargo-audit)"})
 		}
 	}
 
@@ -245,7 +261,7 @@ func conventionGates(root string, proj *Project) []Gate {
 				Source: "convention: python",
 			})
 		} else {
-			proj.Notes = append(proj.Notes, "no uv.lock; skipping the vuln gate (uv lock)")
+			skipped = append(skipped, skippedGate{"vuln", "no uv.lock; skipping the vuln gate (uv lock)"})
 		}
 	}
 
@@ -282,7 +298,7 @@ func conventionGates(root string, proj *Project) []Gate {
 		proj.Notes = append(proj.Notes, "supabase/ present, but no unambiguous pass/fail gate exists for it; not run")
 	}
 
-	return gates
+	return gates, skipped
 }
 
 // resolve finds a binary, preferring the project's own copy.

@@ -260,6 +260,45 @@ func TestADeclaredVulnTargetBeatsTheConvention(t *testing.T) {
 	qt.Check(t, qt.IsTrue(vuln.Declared))
 }
 
+// A missing tool means the role has no gate only when nothing else supplied
+// one. The note and the gate are two answers to the same question, so a
+// listing carrying both says the gate exists and was skipped at once. Every
+// tier that probes gets the same treatment or the listing is trustworthy in
+// one language and not another.
+func TestASkippedConventionGateIsNotedOnlyWhereTheRoleIsUnfilled(t *testing.T) {
+	// Not parallel: PATH is emptied rather than trusted, so whether the
+	// machine running the suite has govulncheck or clippy installed cannot
+	// decide which notes this reports.
+	t.Setenv("PATH", filepath.Join(t.TempDir(), "no-such-bin"))
+
+	for _, tc := range []struct {
+		name     string
+		manifest [2]string
+		target   string
+		role     string
+		note     string
+	}{
+		{"go", [2]string{"go.mod", "module demo\n\ngo 1.26\n"}, "vuln", "vuln", "govulncheck not installed"},
+		{"rust", [2]string{"Cargo.toml", "[package]\nname = \"demo\"\n"}, "lint", "lint", "rustup component add clippy"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			declared := t.TempDir()
+			testutil.Write(t, declared, tc.manifest[0], tc.manifest[1])
+			testutil.Write(t, declared, "Makefile", tc.target+":\n\ttrue\n")
+
+			proj := detect(t, declared)
+			qt.Check(t, qt.Equals(gateNamed(t, proj, tc.role).Display(), "make "+tc.target))
+			qt.Check(t, qt.IsFalse(hasNote(proj, tc.note)),
+				qt.Commentf("the %s gate is listed and reported skipped: notes = %v", tc.role, proj.Notes))
+
+			bare := t.TempDir()
+			testutil.Write(t, bare, tc.manifest[0], tc.manifest[1])
+			qt.Check(t, qt.IsTrue(hasNote(detect(t, bare), tc.note)),
+				qt.Commentf("nothing supplies the %s gate and nothing says so", tc.role))
+		})
+	}
+}
+
 // The Python vuln gate audits the lockfile, so the lockfile is what decides
 // whether it exists. Both halves matter: without one, uv would have to resolve
 // over the network, and a gate that quietly did that -- or quietly vanished --
@@ -459,9 +498,9 @@ func TestTheCiAggregateIsDeclinedOnlyWhenItsGatesAreScheduled(t *testing.T) {
 }
 
 // The aggregate rule holds for every manifest that can declare it, or it is
-// not a rule. turbo.json is the shape most likely to declare a ci task, and it
-// was the one reader that stayed silent -- so the decision read as deliberate
-// in a Makefile and as an oversight in the file where it matters most.
+// not a rule. turbo.json is the shape most likely to declare a ci task, so a
+// reader that stayed silent here would read as an oversight rather than as the
+// deliberate decision the Makefile path states out loud.
 func TestATurboCiTaskIsReportedRatherThanRun(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
