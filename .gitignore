@@ -13,3 +13,7 @@ coverage.html
 /.claude/settings.local.json
 /.idea/
 /.vscode/
+
+# Local benchmark input: machine-specific checkout paths, useful to nobody
+# else. scripts/bench.sh reads GATE_BENCH_REPOS, falling back to this path.
+/scripts/bench-repos.txt
