@@ -3,6 +3,7 @@ package detect
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -429,7 +430,16 @@ func TestTheRustConventionTier(t *testing.T) {
 	// which gates this fixture reports.
 	dir := t.TempDir()
 	testutil.Write(t, dir, "Cargo.toml", "[package]\nname = \"demo\"\n")
-	testutil.WriteExecutable(t, dir, "bin/cargo-clippy")
+	// This is the one probe that resolves through PATH rather than a stat of
+	// node_modules/.bin, and LookPath honours PATHEXT: on Windows a file with
+	// no extension is not runnable, so an extensionless fixture reports no
+	// clippy and the tier loses its lint gate. Real clippy is cargo-clippy.exe
+	// there, which is why only the fixture needed the suffix.
+	clippy := "cargo-clippy"
+	if runtime.GOOS == "windows" {
+		clippy += ".exe"
+	}
+	testutil.WriteExecutable(t, dir, filepath.Join("bin", clippy))
 	t.Setenv("PATH", filepath.Join(dir, "bin"))
 
 	proj := detect(t, dir)
