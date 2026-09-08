@@ -62,7 +62,6 @@ func Run(dir string) ([]Finding, error) {
 	checkGoVuln(root, proj, add)
 	checkNoCI(proj, add)
 	checkWorkflows(root, add)
-	checkLockfiles(root, add)
 	checkDeclaredGates(root, proj, add)
 
 	// Stable order: worse first, then by check name so two runs agree.
@@ -372,22 +371,6 @@ func usesMatrix(body string) bool {
 
 func hasAggregatingGate(body string) bool {
 	return strings.Contains(body, "if: always()") && strings.Contains(body, "needs:")
-}
-
-// checkLockfiles is preventive: there are zero instances of this collision in
-// the fleet today, and it is labelled advice rather than dressed up as a
-// problem already present.
-func checkLockfiles(root string, add func(Finding)) {
-	if exists(filepath.Join(root, "bun.lock")) && exists(filepath.Join(root, "package-lock.json")) {
-		add(Finding{
-			Warn:  true,
-			Check: "lockfile-collision",
-			Where: "package-lock.json",
-			What:  "package-lock.json sits beside bun.lock",
-			Why:   "Next takes the stranded lockfile as its Turbopack root, which moves the build out from under you",
-			Fix:   "delete package-lock.json and use bunx rather than npx",
-		})
-	}
 }
 
 // checkDeclaredGates reports roles a project simply has no check for.

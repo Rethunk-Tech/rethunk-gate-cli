@@ -198,18 +198,6 @@ func TestSupersededToolingFlagsOnlyTheStraggler(t *testing.T) {
 	qt.Check(t, qt.IsFalse(reported(findings, "superseded-tooling")), qt.Commentf("biome project wrongly flagged: %v", checkNames(findings)))
 }
 
-func TestLockfileCollisionIsReported(t *testing.T) {
-	isolatePath(t)
-	dir := t.TempDir()
-	write(t, dir, "package.json", `{"name":"demo"}`)
-	write(t, dir, "bun.lock", "")
-	write(t, dir, "package-lock.json", "{}")
-
-	findings, err := Run(dir)
-	qt.Assert(t, qt.IsNil(err))
-	qt.Check(t, qt.IsTrue(reported(findings, "lockfile-collision")), qt.Commentf("collision not reported: %v", checkNames(findings)))
-}
-
 // Every other CI check gives up on a missing .github/workflows, so a
 // repository with no CI produced no findings while one with imperfect CI
 // produced several -- absence reading as health.
