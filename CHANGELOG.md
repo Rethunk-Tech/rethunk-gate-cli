@@ -36,10 +36,14 @@ Notable changes to `gate`. The format follows
   invocation, whose named fix -- removing one of them -- would have broken the
   project. A Makefile target competing with a package script is still
   reported.
-- The Python typecheck gate runs the checker's resolved path rather than its
-  bare name under `uv run`. `resolve` searches `node_modules/.bin` and the
-  workspace's `.venv` as well, neither of which `uv run` sees, so a checker
-  found in one of those was detected as present and then failed to execute.
+- The Python typecheck gate runs the checker's resolved path through
+  `uv run`. `resolve` also reaches `node_modules/.bin` and a parent
+  workspace's `.venv`, neither of which `uv run` from the project directory
+  would select, so a checker found in one of those was detected as present and
+  then failed to execute. `uv run` accepts an absolute path, so the gate keeps
+  both the resolved binary and the project environment the `uv run pytest` and
+  `uv run ruff` gates already have; run bare, a type checker resolves imports
+  against the system interpreter and reports errors that are not in the code.
 
 ## [0.3.0] — 2026-08-19
 

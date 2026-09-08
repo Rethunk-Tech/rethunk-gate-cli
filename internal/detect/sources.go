@@ -189,13 +189,20 @@ func conventionGates(root string, proj *Project) []Gate {
 		//
 		// This one is probed, because choosing between the two requires it --
 		// and a probe that decides a gate exists has to name the file that
-		// runs. resolve searches node_modules/.bin and the workspace's .venv
-		// as well; `uv run` sees neither, so a checker found in one of those
-		// and then invoked by bare name is detected as present and exits 127.
+		// runs. resolve also reaches node_modules/.bin and a parent
+		// workspace's .venv, neither of which `uv run` from this directory
+		// would select, so a checker found in one of those and invoked by
+		// bare name is detected as present and exits 127.
+		//
+		// The resolved path still goes through `uv run`, which accepts an
+		// absolute path and sets VIRTUAL_ENV for it: run bare, a type checker
+		// resolves imports against the system interpreter and reports errors
+		// that are not in the code, and gate passes that status through as
+		// the verdict.
 		if bin := resolve(root, proj, "pyrefly"); bin != "" {
-			gates = append(gates, Gate{Name: "typecheck", Argv: []string{bin, "check"}, Source: "convention: python"})
+			gates = append(gates, Gate{Name: "typecheck", Argv: []string{"uv", "run", bin, "check"}, Source: "convention: python"})
 		} else if bin := resolve(root, proj, "mypy"); bin != "" {
-			gates = append(gates, Gate{Name: "typecheck", Argv: []string{bin, "."}, Source: "convention: python (pyrefly absent)"})
+			gates = append(gates, Gate{Name: "typecheck", Argv: []string{"uv", "run", bin, "."}, Source: "convention: python (pyrefly absent)"})
 		}
 		// uv audits the lockfile, not the environment, so it sees a pinned
 		// dependency that is merely declared -- an optional extra nobody has
