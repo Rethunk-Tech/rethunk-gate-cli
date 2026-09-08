@@ -36,6 +36,9 @@ Notable changes to `gate`. The format follows
   invocation, whose named fix -- removing one of them -- would have broken the
   project. A Makefile target competing with a package script is still
   reported.
+- A shared-action `uses:` line with a trailing YAML comment is read as the tag
+  alone. The ref ran to the end of the line, so `v1.2  # pinned deliberately`
+  was compared and then quoted back with the comment attached.
 - The Python typecheck gate runs the checker's resolved path through
   `uv run`. `resolve` also reaches `node_modules/.bin` and a parent
   workspace's `.venv`, neither of which `uv run` from the project directory

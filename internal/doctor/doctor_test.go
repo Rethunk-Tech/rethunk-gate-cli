@@ -180,6 +180,24 @@ func TestStaleActionRefIsReportedButNewerIsNot(t *testing.T) {
 	qt.Check(t, qt.IsFalse(reported(findings, "actions-stale-ref")), qt.Commentf("v9.9 wrongly reported as stale: %v", checkNames(findings)))
 }
 
+// A ref ends where the YAML comment begins. Both directions matter: the ref
+// has to still parse as a tag, and the finding has to name the pin rather
+// than the sentence beside it.
+func TestActionRefStopsAtATrailingComment(t *testing.T) {
+	isolatePath(t)
+	dir := t.TempDir()
+	write(t, dir, "package.json", `{"name":"demo"}`)
+	write(t, dir, ".github/workflows/ci.yml",
+		"jobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-go@v1.2  # pinned deliberately\n")
+
+	findings, err := Run(dir)
+	qt.Assert(t, qt.IsNil(err))
+	f, ok := findingNamed(findings, "actions-stale-ref")
+	qt.Assert(t, qt.IsTrue(ok), qt.Commentf("commented v1.2 pin not judged: %v", checkNames(findings)))
+	qt.Check(t, qt.IsFalse(strings.Contains(f.What, "#")),
+		qt.Commentf("finding quotes the comment back as the ref: %q", f.What))
+}
+
 // Stragglers get flagged, leaders do not -- the direction comes from what the
 // fleet actually runs, so a project already on the newer tool is not nagged.
 func TestSupersededToolingFlagsOnlyTheStraggler(t *testing.T) {

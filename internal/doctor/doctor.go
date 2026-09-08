@@ -310,7 +310,11 @@ func isYAML(name string) bool {
 	return strings.HasSuffix(name, ".yml") || strings.HasSuffix(name, ".yaml")
 }
 
-// actionRefs pulls the @ref off every Rethunk-Tech/gh-actions use.
+// actionRefs pulls the @ref off every Rethunk-Tech/gh-actions use. The ref
+// ends at the first whitespace or "#": a trailing YAML comment is not part of
+// it, and parseTag's Sscanf skips leading space rather than rejecting it, so
+// an uncut "v1.2 # pinned deliberately" would be judged as v1.2 and then
+// quoted back, comment and all, as the ref the finding names.
 func actionRefs(body string) []string {
 	var refs []string
 	for line := range strings.SplitSeq(body, "\n") {
@@ -324,6 +328,9 @@ func actionRefs(body string) []string {
 			continue
 		}
 		ref := strings.TrimSpace(rest[at+1:])
+		if cut := strings.IndexAny(ref, " \t#"); cut >= 0 {
+			ref = ref[:cut]
+		}
 		if ref != "" {
 			refs = append(refs, ref)
 		}
