@@ -21,6 +21,12 @@ Notable changes to `gate`. The format follows
   An unusable duration refuses the file the way an unknown key does, and every
   one in the file is reported at once.
 
+### Removed
+
+- The `lockfile-collision` doctor check. It reported a `package-lock.json`
+  beside a `bun.lock`, which has zero instances in the fleet, and
+  `npx-in-bun-workspace` already reports the thing that produces one.
+
 ### Fixed
 
 - A turbo task and the `package.json` script of the same name are no longer
@@ -30,6 +36,10 @@ Notable changes to `gate`. The format follows
   invocation, whose named fix -- removing one of them -- would have broken the
   project. A Makefile target competing with a package script is still
   reported.
+- The Python typecheck gate runs the checker's resolved path rather than its
+  bare name under `uv run`. `resolve` searches `node_modules/.bin` and the
+  workspace's `.venv` as well, neither of which `uv run` sees, so a checker
+  found in one of those was detected as present and then failed to execute.
 
 ## [0.3.0] — 2026-08-19
 
