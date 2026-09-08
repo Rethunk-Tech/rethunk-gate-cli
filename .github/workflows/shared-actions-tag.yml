@@ -1,0 +1,52 @@
+name: Shared actions tag
+
+# knownGoodActionsTag is a constant rather than a lookup, so doctor executes
+# nothing and its findings are reproducible offline. The cost of that decision
+# is that the constant goes stale silently whenever gh-actions is tagged. This
+# check pays that cost here, where a network call is free.
+#
+# Not on pull_request: a new gh-actions tag is an external event, and running
+# this per PR would turn someone else's release into a red build on unrelated
+# work.
+on:
+  schedule:
+    - cron: "0 14 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  current:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: knownGoodActionsTag names the newest shared-actions tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          # Anchored to the declaration: a bare version grep would match any
+          # other v-string that drifts into this file.
+          pinned=$(sed -n 's/^const knownGoodActionsTag = "\(.*\)"$/\1/p' internal/doctor/doctor.go)
+          if [ -z "$pinned" ]; then
+            echo "::error file=internal/doctor/doctor.go::could not read knownGoodActionsTag; the declaration moved or was renamed"
+            exit 1
+          fi
+
+          # The tags endpoint is not ordered by version, so sort rather than
+          # taking the first element.
+          latest=$(gh api repos/Rethunk-Tech/gh-actions/tags --jq '.[].name' | sort -V | tail -1)
+          if [ -z "$latest" ]; then
+            echo "::error::could not read the gh-actions tag list"
+            exit 1
+          fi
+
+          if [ "$pinned" != "$latest" ]; then
+            echo "::error file=internal/doctor/doctor.go::knownGoodActionsTag is $pinned but the newest shared-actions tag is $latest -- update the constant, then re-pin this repository's own workflows to $latest"
+            exit 1
+          fi
+
+          echo "knownGoodActionsTag $pinned is the newest shared-actions tag."
