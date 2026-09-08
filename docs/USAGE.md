@@ -163,7 +163,7 @@ Those gates are named rather than left out:
 gate: FAIL exit 2  make build  1ms
 --- last 2 line(s) ---
 make: *** [Makefile:2: build] Error 5
-gate: full log  /var/tmp/gate/make-build-48211-1.log
+gate: full log  /var/tmp/gate/make-build-114970238.log
 gate: SKIP  make test  (not run: an earlier gate failed)
 ```
 
@@ -240,9 +240,10 @@ unset; on Windows, under what `TMP` or `TEMP` names. `/tmp` is deliberately not
 the default: it is a tmpfs on the machines this runs on, and a verbose build
 log is exactly the kind of large, disposable file that should not sit in RAM.
 
-The filename is derived from the command plus the process id, so a directory of
-logs can be read without opening them. Logs are created **0600 in a 0700
-directory** — they hold whatever the command printed, which can include tokens.
+The filename is derived from the command plus a random suffix, so a directory
+of logs can be read without opening them and two gates sharing a command name
+cannot collide. Logs are created **0600 in a 0700 directory** — they hold
+whatever the command printed, which can include tokens.
 `--log PATH` overrides the location entirely; that directory is the caller's
 and is never re-permissioned.
 
