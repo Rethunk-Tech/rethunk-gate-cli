@@ -734,24 +734,6 @@ func TestANamedGateThatDoesNotExistRefusesRatherThanRunningAProgram(t *testing.T
 	qt.Check(t, qt.StringContains(stderr, "gate -- test"), qt.Commentf("refusal does not name the escape: %q", stderr))
 }
 
-// The help has to list exactly the names `run` accepts, or it documents a
-// vocabulary that does not exist -- in either direction.
-func TestHelpListsExactlyTheNamesRunAccepts(t *testing.T) {
-	t.Parallel()
-	stdout, _, code := runGateTest(t, "--help")
-	qt.Assert(t, qt.Equals(code, Success))
-	for _, role := range []string{"build", "typecheck", "lint", "workflows", "test", "vuln"} {
-		qt.Check(t, qt.StringContains(stdout, role))
-		if !detect.IsRole(role) {
-			t.Errorf("%q is listed but is not a gate name", role)
-		}
-	}
-	// The word gate deliberately does not claim.
-	if detect.IsRole("ci") {
-		t.Error("ci is a gate name; it aggregates the gates gate already runs")
-	}
-}
-
 // A terminal signals the foreground process group, which is gate's, while
 // every child sits in its own so a timeout can kill the whole tree. Unhandled,
 // that leaves the child running after gate exits and its log unfinished --
@@ -1392,27 +1374,32 @@ func TestHelpDocumentsOnlyFlagsTheParserAccepts(t *testing.T) {
 }
 
 // helpRoles pulls the gate roles the help text names out of its own prose, so
-// the check below cannot drift out of date with the help.
+// the check below reads the shipped help rather than a copy of it.
 func helpRoles(help string) []string {
-	// A miss on either boundary leaves list empty, which the caller's floor
-	// catches rather than passing on nothing.
+	// A miss on either boundary leaves list empty, which the expected list
+	// below rejects rather than passing on nothing.
 	_, after, _ := strings.Cut(help, "run the named gates:")
 	list, _, _ := strings.Cut(after, ", and any others")
 	return strings.Fields(strings.ReplaceAll(list, ",", " "))
 }
 
-// The roles are spelled in gateOrder, in the declared-name list, and again in
-// this prose. Help that offers a role gateOrder does not carry is a promise
-// nothing can keep: `gate run <role>` would refuse the name the help just gave
-// out. This reads the roles out of the help itself and puts each one through
-// the real role check.
-func TestHelpNamesOnlyRealGateRoles(t *testing.T) {
+// The help has to name exactly the roles `run` accepts, in both directions: a
+// role the help invents is a promise `gate run <role>` refuses to keep, and a
+// name it lists that is not a role is a vocabulary that does not exist.
+//
+// The expected list is deliberate. It is one literal spelling of the roles,
+// and it is a test's expectation rather than a production copy that can drift
+// unnoticed -- comparing against it fails on a help text that drops, adds or
+// reorders a role, and on an extractor that returns nothing.
+//
+// One direction stays out of reach from here: a role added to detect's
+// gateOrder and left out of the help passes, because gateOrder is unexported
+// and the help is the only list this package can see.
+func TestHelpNamesExactlyTheRolesRunAccepts(t *testing.T) {
 	t.Parallel()
 
 	roles := helpRoles(gateHelp)
-	if len(roles) < 5 {
-		t.Fatalf("only found %d roles in the help; the extractor is broken: %v", len(roles), roles)
-	}
+	qt.Assert(t, qt.DeepEquals(roles, []string{"build", "typecheck", "lint", "workflows", "test", "vuln"}))
 	for _, role := range roles {
 		qt.Check(t, qt.IsTrue(detect.IsRole(role)),
 			qt.Commentf("the help offers %q, which is not a gate role", role))
