@@ -394,3 +394,33 @@ func TestConventionGatesToleratesANilProject(t *testing.T) {
 		return g.Name == "test"
 	})), qt.Commentf("gates = %v", gates))
 }
+
+// The role names are spelled out by hand in more than one place with nothing
+// tying them together. A name in declaredNames but missing from gateOrder is
+// read out of every manifest and then dropped on the way to Project.Gates,
+// with no note and no error -- the one failure mode detection cannot report on
+// itself.
+//
+// Subset, not equality. "workflows" is convention-only: the actionlint gate is
+// inferred, never declared, and the manifest readers all iterate declaredNames,
+// so a correct repository fails an equality check.
+//
+// Derived from the vars rather than retyped, because a fourth hand-maintained
+// copy of the list is the problem, not the assertion.
+func TestDeclaredNamesStayASubsetOfGateOrder(t *testing.T) {
+	t.Parallel()
+	for _, name := range declaredNames {
+		qt.Check(t, qt.IsTrue(slices.Contains(gateOrder, name)),
+			qt.Commentf("declaredNames has %q, which gateOrder drops silently", name))
+	}
+
+	// IsRole is the same list asked a different way. turboGates uses it to
+	// decide whether a dependsOn edge runs between two gates, so a role it
+	// denied would drop an ordering the project stated.
+	for _, name := range gateOrder {
+		qt.Check(t, qt.IsTrue(IsRole(name)),
+			qt.Commentf("gateOrder has %q but IsRole denies it", name))
+	}
+	qt.Check(t, qt.IsFalse(IsRole(aggregateName)),
+		qt.Commentf("%q is not a role: claiming it runs every gate twice", aggregateName))
+}
