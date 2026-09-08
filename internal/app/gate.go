@@ -210,7 +210,10 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 					break
 				}
 				results[i] = runOne(ctx, opts.gates[i], opts)
-				if results[i].code != Success {
+				// A gate that never reached its command carries the zero
+				// Code, which is Success. Only a gate that started has a
+				// verdict to read, so the chain stops on either.
+				if !results[i].started || results[i].code != Success {
 					break
 				}
 			}
@@ -412,9 +415,11 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 
 	// The complete log is the guarantee this tool rests on, so a failure to
 	// finish writing it is said out loud rather than discarded in a defer.
-	// It does not change the verdict: the command's status is already known,
-	// and calling a passing gate failed because its log was truncated would
-	// be a worse answer than a warning.
+	// It reports beside a verdict the command produced and never replaces
+	// one, so a gate that failed still reports its own status; where the
+	// command passed there is no verdict to displace, and the run comes back
+	// Fatal because a log nobody can read is not a pass. See AGENTS.md, "A
+	// log close error is reported, not deferred away".
 	if err := logFile.Close(); err != nil && res.fatalErr == nil {
 		res.fatalErr = fmt.Errorf("log %s may be incomplete: %w", res.logPath, err)
 	}
