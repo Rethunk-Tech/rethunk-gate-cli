@@ -173,6 +173,15 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	// as a command. A real program by either name is still reachable as
 	// `gate -- doctor`, which is what -- is for.
 	if !explicit && len(args) == 1 && args[0] == "doctor" {
+		// --json names the gate listing, and doctor has no listing to
+		// render. Serving the human report to a consumer that asked for the
+		// machine shape says nothing and looks like it worked, which is the
+		// one failure mode a machine caller cannot detect.
+		if opts.jsonList {
+			fmt.Fprintln(stderr, "gate: --json describes the gate listing; doctor has no JSON form")
+			fmt.Fprintln(stderr, "gate: run `gate doctor` for the report, or `gate --json` for the listing")
+			return InvalidUsage
+		}
 		return runDoctor(dir, stdout, stderr)
 	}
 	// Only these two spellings are gate's; `gate doctor <anything else>` still
@@ -284,9 +293,15 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		// reproducible. These are selectable by name like any other gate, which
 		// is the whole point of `gate run`: a gate only config knows about was
 		// otherwise reachable only by running every gate in the project.
+		//
+		// The test is what detection actually produced, not whether the name
+		// is a role: detection emits names that are not roles, and adding a
+		// second gate for one of those would run it twice and make `gate run
+		// <name>` ambiguous. A name detection did produce was already
+		// overridden in the loop above.
 		for _, name := range slices.Sorted(maps.Keys(cfg.Gates)) {
 			c := cfg.Gates[name]
-			if c.Run == "" || detect.IsRole(name) {
+			if c.Run == "" || slices.ContainsFunc(opts.gates, func(g gateSpec) bool { return g.role == name }) {
 				continue
 			}
 			if len(roles) > 0 && !slices.Contains(roles, name) {
