@@ -381,6 +381,36 @@ func TestDeclaredNamesStayASubsetOfGateOrder(t *testing.T) {
 		qt.Commentf("%q is not a role: claiming it runs every gate twice", aggregateName))
 }
 
+// Declining the aggregate is right only when gate claimed the gates it
+// aggregates. Measured on a repository whose Makefile declares twelve check
+// targets under names gate does not read: gate claimed one inferred
+// workflow-file linter, refused `make ci` as duplicating work already
+// scheduled, and left every check the repository has unrun. The two shapes are
+// one test because the rule is the condition between them, and the note has to
+// say which one applied.
+func TestTheCiAggregateIsDeclinedOnlyWhenItsGatesAreScheduled(t *testing.T) {
+	t.Parallel()
+
+	scheduled := t.TempDir()
+	testutil.Write(t, scheduled, "Makefile", "ci: lint test\nlint:\n\ttrue\ntest:\n\ttrue\n")
+
+	proj := detect(t, scheduled)
+	qt.Check(t, qt.IsFalse(slices.ContainsFunc(proj.Gates, func(g Gate) bool {
+		return g.Name == aggregateName
+	})), qt.Commentf("ci ran beside the gates it aggregates, so each of them ran twice"))
+	qt.Check(t, qt.IsTrue(hasNote(proj, "already scheduling")),
+		qt.Commentf("notes = %v", proj.Notes))
+
+	alone := t.TempDir()
+	testutil.Write(t, alone, "Makefile", "ci: verify\nverify:\n\ttrue\nshellcheck:\n\ttrue\n")
+
+	proj = detect(t, alone)
+	qt.Check(t, qt.Equals(gateNamed(t, proj, aggregateName).Display(), "make ci"),
+		qt.Commentf("the only check this project declares was refused, leaving it ungated"))
+	qt.Check(t, qt.IsTrue(hasNote(proj, "found and run")),
+		qt.Commentf("notes = %v", proj.Notes))
+}
+
 // The aggregate rule holds for every manifest that can declare it, or it is
 // not a rule. turbo.json is the shape most likely to declare a ci task, and it
 // was the one reader that stayed silent -- so the decision read as deliberate

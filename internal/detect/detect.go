@@ -141,9 +141,42 @@ func Detect(dir string) (Project, error) {
 		claim(g)
 	}
 
+	aggregate, hasAggregate := byName[aggregateName]
+	delete(byName, aggregateName)
+
 	for _, name := range gateOrder {
 		if g, ok := byName[name]; ok {
 			proj.Gates = append(proj.Gates, g)
+		}
+	}
+
+	// An aggregate target means "run the whole pipeline", and running it beside
+	// the gates it aggregates runs each of them twice -- which is only true
+	// when gate claimed those gates. Measured on a repository declaring twelve
+	// check targets under none of the role names: gate claimed one inferred
+	// convention gate, refused the aggregate on the grounds that it duplicated
+	// work already scheduled, and left everything the project actually checks
+	// unrun. So the refusal is conditional on the duplication being real, and
+	// the decision is stated either way -- a note that appeared in only one
+	// case would read as a bug in the other.
+	//
+	// The gates it would aggregate are declaredNames, whatever supplied them:
+	// an inferred `go test` is still the test the project's ci target runs.
+	// "workflows" is not among them, for the reason declaredNames already
+	// gives -- linting workflow files is a different thing from a ci target,
+	// and it was the whole claimed set in the repository measured above.
+	//
+	// Appended after gateOrder rather than placed in it, because the aggregate
+	// is not a role -- it is every role at once, so no position among them is
+	// the right one.
+	if hasAggregate {
+		if slices.ContainsFunc(proj.Gates, func(g Gate) bool { return slices.Contains(declaredNames, g.Name) }) {
+			proj.Notes = append(proj.Notes, aggregate.Source+
+				" found but not run: it aggregates the gates gate is already scheduling")
+		} else {
+			proj.Notes = append(proj.Notes, aggregate.Source+
+				" found and run: gate claimed none of the gates it aggregates, so declining it would leave this project unchecked")
+			proj.Gates = append(proj.Gates, aggregate)
 		}
 	}
 

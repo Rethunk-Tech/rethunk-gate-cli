@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -19,17 +20,14 @@ import (
 var declaredNames = []string{"build", "typecheck", "lint", "test", "vuln"}
 
 // aggregateName is the role a project declares to mean "all of the above".
-// Found, deliberately not run, and said out loud rather than dropped.
+// Every manifest reader collects it like any other declaration; Detect decides
+// whether it runs, and says so out loud either way.
 const aggregateName = "ci"
 
-// noteAggregate records an aggregate declaration found and not run. Every
-// manifest reader states it identically, because the decision is the same one
-// whatever declared it -- and a reader that stayed silent would be
-// indistinguishable from one that never looked.
-func noteAggregate(proj *Project, where string) {
-	proj.Notes = append(proj.Notes, where+" found but not run: "+
-		"it aggregates the gates gate is already scheduling")
-}
+// collectedNames is what a manifest reader looks for. declaredNames stays the
+// roles alone: the aggregate is not one, never reaches gateOrder, and is
+// pulled back out by Detect once the rest of the project is known.
+var collectedNames = append(slices.Clone(declaredNames), aggregateName)
 
 // Source prefixes, so the shadow rule in Detect can tell a turbo task from
 // the package script it orchestrates without re-deriving either string.
@@ -64,12 +62,8 @@ func makefileGates(root string, proj *Project) []Gate {
 	for _, m := range makefileTarget.FindAllStringSubmatch(string(data), -1) {
 		declared[m[1]] = true
 	}
-	if declared[aggregateName] {
-		noteAggregate(proj, "Makefile target "+aggregateName)
-	}
-
 	var gates []Gate
-	for _, name := range declaredNames {
+	for _, name := range collectedNames {
 		if !declared[name] {
 			continue
 		}
@@ -107,13 +101,9 @@ func packageJSONGates(root, workspace string, proj *Project) []Gate {
 	if !ok {
 		return nil
 	}
-	if _, ok := pkg.Scripts[aggregateName]; ok {
-		noteAggregate(proj, packageSource+aggregateName)
-	}
-
 	runner := packageRunner(workspace)
 	var gates []Gate
-	for _, name := range declaredNames {
+	for _, name := range collectedNames {
 		body, ok := pkg.Scripts[name]
 		if !ok {
 			continue
@@ -340,18 +330,9 @@ func turboGates(workspace string, proj *Project) []Gate {
 		return nil
 	}
 
-	// Stated here rather than before the bin check: when turbo stands aside,
-	// packageJSONGates claims the roles and reports the script of the same
-	// name. Turbo running the package script it orchestrates is one
-	// declaration written twice, the same reason the shadow rule ignores that
-	// pair, so whichever reader claims the roles is the one that speaks.
-	if _, ok := lookup(aggregateName); ok {
-		noteAggregate(proj, turboSource+aggregateName)
-	}
-
 	var gates []Gate
 	serial := map[string]bool{}
-	for _, name := range declaredNames {
+	for _, name := range collectedNames {
 		task, ok := lookup(name)
 		if !ok {
 			continue
@@ -360,16 +341,22 @@ func turboGates(workspace string, proj *Project) []Gate {
 		// needs the other's result -- the one thing that has to be sequenced,
 		// and stated rather than inferred. "^build" is turbo's topological
 		// form: it orders packages within a single run, not these two gates.
-		for _, dep := range task.DependsOn {
-			if strings.HasPrefix(dep, "^") {
-				continue
-			}
-			dep = strings.TrimPrefix(dep, "//#")
-			if dep == name || !IsRole(dep) {
-				continue
-			}
-			if _, ok := lookup(dep); ok {
-				serial[name], serial[dep] = true, true
+		//
+		// Roles only. An aggregate depends on everything by definition, and
+		// reading its edges would serialise a pair of gates that never needed
+		// ordering -- and it does not run at all when those gates exist.
+		if IsRole(name) {
+			for _, dep := range task.DependsOn {
+				if strings.HasPrefix(dep, "^") {
+					continue
+				}
+				dep = strings.TrimPrefix(dep, "//#")
+				if dep == name || !IsRole(dep) {
+					continue
+				}
+				if _, ok := lookup(dep); ok {
+					serial[name], serial[dep] = true, true
+				}
 			}
 		}
 		gates = append(gates, Gate{
