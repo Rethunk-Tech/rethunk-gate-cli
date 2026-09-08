@@ -7,7 +7,6 @@ is measured against, and the list of things that break silently.
 
 ```bash
 make test          # full suite
-make test-short    # unit lane
 make lint
 ```
 
