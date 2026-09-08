@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -545,26 +546,24 @@ func slug(argv []string) string {
 		argv = append([]string{filepath.Base(argv[0])}, argv[1:]...)
 	}
 
-	var b strings.Builder
-	prevDash := false
-	for _, r := range strings.Join(argv, "-") {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
-			b.WriteRune(r)
-			prevDash = false
-		default:
-			if !prevDash {
-				b.WriteByte('-')
-				prevDash = true
-			}
-		}
-		if b.Len() >= 40 {
-			break
-		}
+	// Every run of anything else collapses to one dash, so the result is
+	// pure ASCII and the budget below cannot cut a rune in half. Capping
+	// before the trim is what keeps a long command from ending in a dash.
+	out := slugSeparator.ReplaceAllString(strings.Join(argv, "-"), "-")
+	if len(out) > slugBudget {
+		out = out[:slugBudget]
 	}
-	out := strings.Trim(b.String(), "-")
+	out = strings.Trim(out, "-")
 	if out == "" {
 		return "gate"
 	}
 	return out
 }
+
+// slugSeparator matches what a log filename must not carry. The dash it is
+// replaced with is the only punctuation a slug keeps.
+var slugSeparator = regexp.MustCompile("[^a-zA-Z0-9]+")
+
+// slugBudget bounds the name so the sequence number CreateTemp appends stays
+// visible, and so a directory of logs lists in one column.
+const slugBudget = 40

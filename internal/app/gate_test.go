@@ -374,6 +374,43 @@ func TestReportFollowsDeclarationOrderNotFinishOrder(t *testing.T) {
 	}
 }
 
+// A log filename is how a directory of logs is read without opening them, so
+// what the slug keeps and what it drops is pinned rather than incidental.
+func TestSlug(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		argv []string
+		want string
+	}{
+		{"plain command", []string{"true"}, "true"},
+		// Separators and punctuation collapse to one dash each, and a run of
+		// them is one dash, not one per byte.
+		{"punctuation collapses", []string{"sh", "-c", "echo hello; echo world"}, "sh-c-echo-hello-echo-world"},
+		// The resolved path detection puts in argv[0] would otherwise eat the
+		// whole budget before reaching the command.
+		{"resolved path drops its directory", []string{"/tmp/proj/node_modules/.bin/tsc", "--noEmit"}, "tsc-noEmit"},
+		{"leading and trailing separators go", []string{"go", "test", "./...", "-race"}, "go-test-race"},
+		// Nothing recognisable left is still a filename gate has to produce.
+		{"nothing but separators", []string{"---", "...", "///"}, "gate"},
+		// Multibyte runes are separators like any other byte the filename
+		// cannot carry, so the budget below can never cut a rune in half.
+		{"multibyte command", []string{"日本語", "テスト"}, "gate"},
+		{"multibyte mid-argument", []string{"go", "test", "./日本/..."}, "go-test"},
+		// Capped before the trim, so a command long enough to be cut mid-word
+		// does not end in a dash.
+		{"long command is capped", []string{"npx", "@biomejs/biome", "check", "--write", "--unsafe", "src/app"}, "npx-biomejs-biome-check-write-unsafe-src"},
+		{"no command at all", nil, "gate"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := slug(tc.argv)
+			qt.Assert(t, qt.Equals(got, tc.want))
+			qt.Check(t, qt.IsTrue(len(got) <= slugBudget), qt.Commentf("slug %q is %d bytes", got, len(got)))
+		})
+	}
+}
+
 // Concurrent gates in one process share a pid, and two gates can reduce to
 // the same slug -- so without a disambiguator they would overwrite each
 // other's logs, losing exactly what this tool exists to keep.
