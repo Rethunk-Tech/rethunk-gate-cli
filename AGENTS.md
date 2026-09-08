@@ -61,7 +61,12 @@ Precedence: Makefile target, `turbo.json` task, `package.json` script, then
 convention. Only a declaration can shadow another.
 
 The roles live in `gateOrder`; a role missing from that list never reaches
-`Project.Gates` — silently. `ci` is not a role (would run every gate twice).
+`Project.Gates` — silently. `ci` is not a role and never reaches `gateOrder`:
+declined with a note where gate claimed any gate it aggregates (running it
+would run each of them twice), appended after the ordered gates where gate
+claimed none (declining there leaves the project unchecked). `workflows` is not
+one of the aggregated gates. Both branches state which case applied — a note
+present in only one reads as a bug in the other.
 
 Binaries resolve from `node_modules/.bin` and `.venv/bin` before `PATH`; the
 **resolved path** goes into argv.

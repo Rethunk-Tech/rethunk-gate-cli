@@ -78,14 +78,34 @@ $ gate --json
    is the real entry point.
 3. **`package.json` scripts** — the project's own declared commands.
 4. **Conventions** — only for roles nothing above declares: `go build`/`go
-   test`/`golangci-lint`/`govulncheck`, `uv run pytest`/`ruff`/`pyrefly` plus
-   `uv audit` where a `uv.lock` exists, `biome`/`tsc`, and `actionlint` where
-   `.github/workflows` exists.
+   test`/`golangci-lint`/`govulncheck`, `cargo build`/`cargo test`/`cargo
+   clippy`/`cargo audit` where a `Cargo.toml` exists, `uv run
+   pytest`/`ruff`/`pyrefly` plus `uv audit` where a `uv.lock` exists,
+   `biome`/`tsc`, and `actionlint` where `.github/workflows` exists.
+
+The Rust tier has no typecheck gate on purpose: `cargo build` type-checks as it
+compiles, and `cargo check` would compile the crate a second time for an answer
+`build` already gave. `clippy` and `cargo-audit` are probed for, and an absent
+one is a note naming its install — `rustup component add clippy`, `cargo
+install cargo-audit` — rather than a lesser gate: Rust ships no `go vet`
+equivalent, so a fallback would report something other than a lint result.
 
 The project's own declaration always wins. The roles are `build`, `typecheck`,
 `lint`, `workflows`, `test` and `vuln`. A declared `ci` target is **not** one
 of them — it means "run the whole pipeline", which is what `gate` is already
-doing — so it is reported as a note rather than claimed.
+doing — and what happens to it depends on whether that is true here:
+
+- **Declined** where `gate` claimed any of the gates `ci` aggregates —
+  `build`, `typecheck`, `lint`, `test` or `vuln`, declared or inferred alike.
+  Running it beside them would run every one of them a second time.
+- **Run**, appended after the ordered gates, where `gate` claimed none of them.
+  A project whose checks are all declared under names detection does not read
+  would otherwise be left entirely unchecked by a refusal that was correct in
+  wording.
+
+A note says which case applied, either way. `workflows` is not one of the
+aggregated gates: linting workflow files is a different thing from what a
+project's `ci` target runs.
 
 Tools are looked for in `node_modules/.bin` and `.venv/bin` before `PATH`, and
 the resolved path is what runs. Several of the best tools — `turbo`, `pyrefly`
