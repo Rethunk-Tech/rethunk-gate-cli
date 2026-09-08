@@ -131,6 +131,38 @@ type gateResult struct {
 	// is not a failure and must never be reported as one -- the same
 	// distinction a timeout gets, for the same reason.
 	interrupted bool
+
+	// started records that gate reached the exec, so a gate that produced a
+	// verdict of its own -- including "could not run" -- is told apart from
+	// one whose log could not even be created and never had a command.
+	started bool
+}// outcome resolves what happened to this gate. The reported verdict and the
+// log's trailer both read their order from here, so the exit status gate
+// leaves and the trailer inside the log can never tell different stories
+// about the same run.
+//
+// The precedence: what happened to the command outranks what happened to
+// gate's own log. The command's status is the verdict (AGENTS.md, The one
+// invariant), so a log that could not be finished is reported beside that
+// verdict, never in place of it. It decides the status only where the
+// command's own verdict was success, and it is the whole report only where
+// the command never ran at all.
+func (r gateResult) outcome() gateOutcome {
+	switch {
+	case r.skipped:
+		return outcomeSkipped
+	case !r.started:
+		return outcomeNoRun
+	case r.interrupted:
+		return outcomeInterrupted
+	case r.timedOut:
+		return outcomeTimedOut
+	case r.notFound:
+		return outcomeNotFound
+	}
+	return outcomeRan
+}
+
 }
 
 // runGates runs every gate and returns the aggregate status.
@@ -217,19 +249,19 @@ func schedule(gates []gateSpec, serial bool) [][]int {
 func report(results []gateResult, opts options, stdout, stderr io.Writer) Code {
 	aggregate := Success
 	for _, res := range results {
-		switch {
-		case res.skipped:
+		code := Success
+		switch res.outcome() {
+		case outcomeSkipped:
 			// Never affects the aggregate: a gate that did not run has no
 			// verdict, and inventing one would be the lie this reports to
 			// avoid. It goes to stderr because it only ever accompanies a
 			// failure.
 			fmt.Fprintf(stderr, "gate: SKIP  %s  (not run: %s)\n", res.spec.short(), res.skipReason)
-		case res.fatalErr != nil:
-			fmt.Fprintf(stderr, "gate: %v\n", res.fatalErr)
-			if aggregate == Success {
-				aggregate = Fatal
-			}
-		case res.interrupted:
+		case outcomeNoRun:
+			// No command, so no verdict to pass through: gate's own failure,
+			// printed below, is the whole report.
+			code = Fatal
+		case outcomeInterrupted:
 			// Stopped, not judged -- the same distinction a timeout gets. The
 			// status reported is the signal that reached gate, never the
 			// SIGKILL gate sent the child, which would name gate's own
@@ -237,35 +269,43 @@ func report(results []gateResult, opts options, stdout, stderr io.Writer) Code {
 			fmt.Fprintf(stderr, "gate: INTERRUPTED  %s  (stopped, not failed)\n", res.spec.short())
 			writeFailureRegion(stderr, res.tracker)
 			fmt.Fprintf(stderr, "gate: partial log  %s\n", res.logPath)
-			if aggregate == Success {
-				aggregate = Interrupted
-			}
-		case res.timedOut:
+			code = Interrupted
+		case outcomeTimedOut:
 			fmt.Fprintf(stderr, "gate: TIMEOUT after %s  %s  (killed, not failed)\n",
 				res.spec.timeout, res.spec.short())
 			writeFailureRegion(stderr, res.tracker)
 			fmt.Fprintf(stderr, "gate: partial log  %s\n", res.logPath)
-			if aggregate == Success {
-				aggregate = TimedOut
-			}
-		case res.notFound:
+			code = TimedOut
+		case outcomeNotFound:
 			fmt.Fprintf(stderr, "gate: cannot run %q\n", res.spec.short())
-			if aggregate == Success {
-				aggregate = NotFound
+			code = NotFound
+		case outcomeRan:
+			if res.code == Success {
+				if !opts.quiet {
+					fmt.Fprintf(stdout, "gate: ok  %s  %s  %s\n",
+						res.spec.short(), res.elapsed.Round(time.Millisecond), res.logPath)
+				}
+			} else {
+				fmt.Fprintf(stderr, "gate: FAIL exit %d  %s  %s\n",
+					int(res.code), res.spec.short(), res.elapsed.Round(time.Millisecond))
+				writeFailureRegion(stderr, res.tracker)
+				fmt.Fprintf(stderr, "gate: full log  %s\n", res.logPath)
 			}
-		case res.code == Success:
-			if !opts.quiet {
-				fmt.Fprintf(stdout, "gate: ok  %s  %s  %s\n",
-					res.spec.short(), res.elapsed.Round(time.Millisecond), res.logPath)
+			code = res.code
+		}
+
+		// Said out loud whatever else happened to this gate: losing a log is
+		// the one failure nobody would otherwise notice. Per the precedence
+		// on gateResult.outcome it fails a run that would have passed, and
+		// leaves a verdict the command itself produced alone.
+		if res.fatalErr != nil {
+			fmt.Fprintf(stderr, "gate: %v\n", res.fatalErr)
+			if code == Success {
+				code = Fatal
 			}
-		default:
-			fmt.Fprintf(stderr, "gate: FAIL exit %d  %s  %s\n",
-				int(res.code), res.spec.short(), res.elapsed.Round(time.Millisecond))
-			writeFailureRegion(stderr, res.tracker)
-			fmt.Fprintf(stderr, "gate: full log  %s\n", res.logPath)
-			if aggregate == Success {
-				aggregate = res.code
-			}
+		}
+		if aggregate == Success {
+			aggregate = code
 		}
 	}
 	return aggregate
@@ -312,6 +352,7 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 	started := time.Now()
 	runErr := cmd.Run()
 	res.elapsed = time.Since(started)
+	res.started = true
 
 	// Whether the command left a partial last line has to be read before
 	// close finalises it, so the trailer below starts on a line of its own
@@ -408,17 +449,19 @@ func writeTrailer(w io.Writer, res gateResult, danglingLine bool) error {
 	if danglingLine {
 		lead = "\n"
 	}
-	outcome := fmt.Sprintf("exit %d", int(res.code))
-	switch {
-	case res.interrupted:
-		outcome = "interrupted"
-	case res.timedOut:
-		outcome = "killed on timeout"
-	case res.notFound:
-		outcome = "could not run"
+	// The same precedence the reported verdict uses, read from the same
+	// place, so the log cannot name one thing and the exit status another.
+	word := fmt.Sprintf("exit %d", int(res.code))
+	switch res.outcome() {
+	case outcomeInterrupted:
+		word = "interrupted"
+	case outcomeTimedOut:
+		word = "killed on timeout"
+	case outcomeNotFound:
+		word = "could not run"
 	}
 	_, err := fmt.Fprintf(w, "%s%s %s in %s -- %s\n",
-		lead, trailerPrefix, outcome, res.elapsed.Round(time.Millisecond), res.spec.display)
+		lead, trailerPrefix, word, res.elapsed.Round(time.Millisecond), res.spec.display)
 	return err
 }
 

@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -997,6 +998,69 @@ func TestTimeoutReportsKilledNotFailed(t *testing.T) {
 	qt.Check(t, qt.StringContains(output, "before-the-kill"), qt.Commentf("log lost output written before the kill: %q", output))
 	// The trailer must not claim an exit status the command never produced.
 	qt.Check(t, qt.StringContains(trailer, "killed on timeout"))
+}
+
+// A gate can fail twice over: the command timed out AND gate could not finish
+// the log. The two components that speak about that run -- the reported
+// verdict and the trailer written into the log -- must name the same thing,
+// or the exit status and the log tell different stories about one run.
+//
+// The precedence lives on gateResult.outcome: what happened to the command
+// outranks what happened to gate's own log, and the log failure is reported
+// beside the verdict rather than in place of it.
+func TestALogFailureNeverMasksWhatHappenedToTheCommand(t *testing.T) {
+	t.Parallel()
+	res := gateResult{
+		spec:     gateSpec{argv: []string{"sleep", "10"}, display: "sleep 10", timeout: 300 * time.Millisecond},
+		code:     TimedOut,
+		started:  true,
+		timedOut: true,
+		tracker:  newLineTracker(defaultTail),
+		logPath:  "/dev/full",
+		fatalErr: errors.New("log /dev/full may be incomplete: no space left on device"),
+	}
+
+	var out, errBuf bytes.Buffer
+	code := report([]gateResult{res}, options{tail: defaultTail}, &out, &errBuf)
+
+	qt.Assert(t, qt.Equals(code, TimedOut), qt.Commentf("stderr = %q", errBuf.String()))
+	qt.Check(t, qt.StringContains(errBuf.String(), "TIMEOUT"),
+		qt.Commentf("the timeout went unreported: %q", errBuf.String()))
+	// Losing a log is the one failure nobody would otherwise notice, so it is
+	// still said out loud alongside the verdict.
+	qt.Check(t, qt.StringContains(errBuf.String(), "may be incomplete"))
+
+	var trailer bytes.Buffer
+	qt.Assert(t, qt.IsNil(writeTrailer(&trailer, res, false)))
+	qt.Check(t, qt.StringContains(trailer.String(), "killed on timeout"),
+		qt.Commentf("the trailer disagrees with the reported verdict: %q", trailer.String()))
+}
+
+// The other half of the same precedence: with no verdict of the command's own
+// to defer to, gate's own failure is the status.
+func TestALogFailureIsTheVerdictWhenTheCommandHasNone(t *testing.T) {
+	t.Parallel()
+	broken := errors.New("cannot create log /nowhere/gate.log: permission denied")
+	spec := gateSpec{argv: []string{"true"}, display: "true"}
+
+	for _, tc := range []struct {
+		name string
+		res  gateResult
+	}{
+		// A log that could not be created: nothing ever ran.
+		{"log never opened", gateResult{spec: spec, fatalErr: broken}},
+		// A command that passed, whose log was then lost. The gate passed and
+		// the run still fails, because a silent lost log is worse.
+		{"passed but log lost", gateResult{spec: spec, started: true, fatalErr: broken, tracker: newLineTracker(0)}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var out, errBuf bytes.Buffer
+			code := report([]gateResult{tc.res}, options{tail: defaultTail}, &out, &errBuf)
+			qt.Assert(t, qt.Equals(code, Fatal), qt.Commentf("stderr = %q", errBuf.String()))
+			qt.Check(t, qt.StringContains(errBuf.String(), "cannot create log"))
+		})
+	}
 }
 
 func TestGateInsideItsTimeoutIsUnaffected(t *testing.T) {
