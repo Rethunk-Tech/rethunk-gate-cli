@@ -45,7 +45,7 @@ type Finding struct {
 // offline and must never make a project's health depend on a remote being
 // reachable. It goes stale by design -- bump it when gh-actions publishes a
 // tag, and until then a newer pin than this simply does not get flagged.
-const knownGoodActionsTag = "v1.7"
+const knownGoodActionsTag = "v1.8"
 
 // Run inspects dir and returns findings, most costly first. It executes
 // nothing.
