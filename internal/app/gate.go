@@ -136,7 +136,25 @@ type gateResult struct {
 	// verdict of its own -- including "could not run" -- is told apart from
 	// one whose log could not even be created and never had a command.
 	started bool
-}// outcome resolves what happened to this gate. The reported verdict and the
+}
+
+// gateOutcome is what happened to one gate.
+type gateOutcome int
+
+const (
+	// outcomeRan is a command that produced a status of its own. That status
+	// is in gateResult.code and passes through untouched.
+	outcomeRan gateOutcome = iota
+	outcomeNotFound
+	outcomeTimedOut
+	outcomeInterrupted
+	// outcomeNoRun is a gate that never reached its command, because the log
+	// it would have written to could not be created.
+	outcomeNoRun
+	outcomeSkipped
+)
+
+// outcome resolves what happened to this gate. The reported verdict and the
 // log's trailer both read their order from here, so the exit status gate
 // leaves and the trailer inside the log can never tell different stories
 // about the same run.
@@ -161,8 +179,6 @@ func (r gateResult) outcome() gateOutcome {
 		return outcomeNotFound
 	}
 	return outcomeRan
-}
-
 }
 
 // runGates runs every gate and returns the aggregate status.
