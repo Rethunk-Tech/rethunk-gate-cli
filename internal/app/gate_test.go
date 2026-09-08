@@ -829,12 +829,9 @@ func TestAShadowWarningNamesItsFixOnceAndCannotBeSilenced(t *testing.T) {
 // must leave the rest of detection intact, or a single override would quietly
 // become the whole gate list.
 func TestConfigCannotRemoveADetectedGate(t *testing.T) {
-	root := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("TMPDIR", t.TempDir())
+	root := timeoutProject(t, "[gates.test]\nserial = true\n")
 	write(t, root, "Makefile", "test:\n\ttouch "+filepath.Join(root, "test-ran")+"\n"+
 		"lint:\n\ttouch "+filepath.Join(root, "lint-ran")+"\n")
-	write(t, root, ".gate.toml", "[gates.test]\nserial = true\n")
 
 	_, stderr, code := runGateTest(t, "-C", root)
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
@@ -846,11 +843,8 @@ func TestConfigCannotRemoveADetectedGate(t *testing.T) {
 // Config is found from the DETECTED project root, which is what makes -C pick
 // up the other project's settings rather than the caller's.
 func TestConfigComesFromTheProjectNotTheCaller(t *testing.T) {
-	other := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("TMPDIR", t.TempDir())
+	other := timeoutProject(t, "[gates.e2e]\nrun = \"true\"\n")
 	write(t, other, "Makefile", "test:\n\ttrue\n")
-	write(t, other, ".gate.toml", "[gates.e2e]\nrun = \"true\"\n")
 
 	stdout, stderr, code := runGateTest(t, "-C", other, "--list")
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
@@ -864,11 +858,8 @@ func TestConfigComesFromTheProjectNotTheCaller(t *testing.T) {
 // An unparseable file refuses rather than falling back to defaults, and the
 // refusal is a usage error rather than a failing gate.
 func TestABrokenConfigRefusesInsteadOfIgnoringItself(t *testing.T) {
-	root := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("TMPDIR", t.TempDir())
+	root := timeoutProject(t, "[gates.test]\ntimout = \"10m\"\n")
 	write(t, root, "Makefile", "test:\n\ttrue\n")
-	write(t, root, ".gate.toml", "[gates.test]\ntimout = \"10m\"\n")
 
 	_, stderr, code := runGateTest(t, "-C", root)
 	qt.Assert(t, qt.Equals(code, InvalidUsage), qt.Commentf("stderr = %q", stderr))
@@ -1063,9 +1054,10 @@ func TestTimeoutWantsADuration(t *testing.T) {
 	qt.Check(t, qt.StringContains(stderr, "duration"))
 }
 
-// timeoutProject writes a fixture whose .gate.toml is the given body, with a
-// Makefile that declares no recognised target so the gates are exactly the
-// ones the body names.
+// timeoutProject writes a fixture whose .gate.toml is the given body, in an
+// environment isolated from the caller's own config and log directory. The
+// Makefile declares no recognised target, so the gates are exactly the ones
+// the body names until a caller writes a Makefile of its own over it.
 func timeoutProject(t *testing.T, body string) string {
 	t.Helper()
 	root := t.TempDir()
