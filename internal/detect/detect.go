@@ -190,7 +190,7 @@ func (p Project) workspaceOrRoot() string {
 	return p.Root
 }
 
-var manifestNames = []string{"go.mod", "package.json", "pyproject.toml", "Makefile"}
+var manifestNames = []string{"go.mod", "package.json", "pyproject.toml", "Cargo.toml", "Makefile"}
 
 // bunLockNames are the two spellings of bun's lockfile -- the text bun.lock
 // current bun writes, and the binary bun.lockb it wrote before. Both say the

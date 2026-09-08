@@ -381,6 +381,53 @@ func TestDeclaredNamesStayASubsetOfGateOrder(t *testing.T) {
 		qt.Commentf("%q is not a role: claiming it runs every gate twice", aggregateName))
 }
 
+// The Rust tier, with the two probes that decide how much of it exists. A
+// Cargo.toml project was reported as one inferred workflow linter and nothing
+// else, so its build, test and lint were unrun by the tool asked to gate it.
+func TestTheRustConventionTier(t *testing.T) {
+	// Not parallel, and PATH is set rather than trusted: whether the machine
+	// running the suite has clippy or cargo-audit installed must not decide
+	// which gates this fixture reports.
+	dir := t.TempDir()
+	testutil.Write(t, dir, "Cargo.toml", "[package]\nname = \"demo\"\n")
+	testutil.WriteExecutable(t, dir, "bin/cargo-clippy")
+	t.Setenv("PATH", filepath.Join(dir, "bin"))
+
+	proj := detect(t, dir)
+	qt.Check(t, qt.Equals(gateNamed(t, proj, "build").Display(), "cargo build"))
+	qt.Check(t, qt.Equals(gateNamed(t, proj, "test").Display(), "cargo test"))
+	qt.Check(t, qt.Equals(gateNamed(t, proj, "lint").Display(), "cargo clippy"))
+	// `cargo build` type-checks as it compiles, so a typecheck gate here would
+	// compile the crate a second time for an answer build already gave.
+	qt.Check(t, qt.IsFalse(slices.ContainsFunc(proj.Gates, func(g Gate) bool {
+		return g.Name == "typecheck"
+	})), qt.Commentf("a typecheck gate runs the compiler twice"))
+	// The vuln gate follows the tool, and its absence is stated rather than
+	// silent -- the same shape govulncheck uses.
+	qt.Check(t, qt.IsFalse(slices.ContainsFunc(proj.Gates, func(g Gate) bool {
+		return g.Name == "vuln"
+	})), qt.Commentf("a vuln gate was claimed with no cargo-audit to run it"))
+	qt.Check(t, qt.IsTrue(hasNote(proj, "cargo install cargo-audit")),
+		qt.Commentf("notes = %v", proj.Notes))
+
+	// Rust ships no vet-equivalent, so an absent clippy leaves a stated gap
+	// rather than a lesser linter standing in for one.
+	t.Setenv("PATH", filepath.Join(dir, "no-such-bin"))
+	bare := detect(t, dir)
+	qt.Check(t, qt.IsFalse(slices.ContainsFunc(bare.Gates, func(g Gate) bool {
+		return g.Name == "lint"
+	})), qt.Commentf("a lint gate was claimed with no clippy to run it"))
+	qt.Check(t, qt.IsTrue(hasNote(bare, "rustup component add clippy")),
+		qt.Commentf("notes = %v", bare.Notes))
+
+	// Precedence is unchanged: a declaration still outranks the tier.
+	declared := t.TempDir()
+	testutil.Write(t, declared, "Cargo.toml", "[package]\nname = \"demo\"\n")
+	testutil.Write(t, declared, "Makefile", "test:\n\tcargo nextest run\n")
+	qt.Check(t, qt.Equals(gateNamed(t, detect(t, declared), "test").Display(), "make test"),
+		qt.Commentf("the convention beat the Makefile target it must never shadow"))
+}
+
 // Declining the aggregate is right only when gate claimed the gates it
 // aggregates. Measured on a repository whose Makefile declares twelve check
 // targets under names gate does not read: gate claimed one inferred

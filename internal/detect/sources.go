@@ -168,6 +168,36 @@ func conventionGates(root string, proj *Project) []Gate {
 		}
 	}
 
+	if exists(filepath.Join(root, "Cargo.toml")) {
+		gates = append(gates,
+			Gate{Name: "build", Argv: []string{"cargo", "build"}, Source: "convention: rust"},
+			Gate{Name: "test", Argv: []string{"cargo", "test"}, Source: "convention: rust"},
+		)
+		// No typecheck gate, and there must not be one: `cargo build` type-checks
+		// as it compiles, so the only candidate is `cargo check`, which compiles
+		// the crate a second time for an answer build already gave.
+		//
+		// cargo is a toolchain entry point like go and uv rather than a
+		// node_modules/.bin resident, and its subcommands are reachable only as
+		// `cargo <name>`. So these probe for the subcommand's binary and run the
+		// entry point: the resolved-path rule exists because a tool off PATH
+		// would exit 127, and a cargo subcommand off PATH cannot be run at all.
+		if resolve(root, proj, "cargo-clippy") != "" {
+			gates = append(gates, Gate{Name: "lint", Argv: []string{"cargo", "clippy"}, Source: "convention: rust"})
+		} else {
+			// No fallback, unlike go vet. Rust's toolchain ships nothing that
+			// judges correctness beyond the compiler: `cargo check` is the
+			// compiler again, and rustfmt judges formatting, so either one as a
+			// lint gate would report something other than a lint result.
+			proj.Notes = append(proj.Notes, "clippy not installed; skipping the lint gate (rustup component add clippy)")
+		}
+		if resolve(root, proj, "cargo-audit") != "" {
+			gates = append(gates, Gate{Name: "vuln", Argv: []string{"cargo", "audit"}, Source: "convention: rust"})
+		} else {
+			proj.Notes = append(proj.Notes, "cargo-audit not installed; skipping the vuln gate (cargo install cargo-audit)")
+		}
+	}
+
 	if exists(filepath.Join(root, "pyproject.toml")) {
 		// Deliberately unprobed. `uv run` provisions the environment from the
 		// project's own declarations before executing, so a declared pytest or
