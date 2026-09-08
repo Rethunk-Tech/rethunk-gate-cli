@@ -7,6 +7,7 @@
 package doctor
 
 import (
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -263,22 +264,22 @@ func checkWorkflows(proj detect.Project, add func(Finding)) {
 		}
 
 		for _, ref := range actionRefs(body) {
-			if floatingRef(ref) {
+			if floatingRef(ref.ref) {
 				add(Finding{
 					Check: "actions-floating-ref",
 					Where: rel,
-					What:  "shared action pinned to a moving ref (" + ref + ")",
+					What:  "shared action pinned to a moving ref (" + ref.ref + ")",
 					Why:   "a moving ref changes what CI runs without any commit here recording it",
 					Fix:   "pin to a tag, currently " + knownGoodActionsTag,
 				})
 				continue
 			}
-			if olderThanKnownGood(ref) {
+			if olderThanKnownGood(ref.version()) {
 				add(Finding{
 					Check: "actions-stale-ref",
 					Where: rel,
-					What:  "shared action pinned to " + ref,
-					Why:   "this build knows of " + knownGoodActionsTag + "; newer tags are not flagged, so this really is behind",
+					What:  "shared action pinned to " + ref.ref,
+					Why:   "that pin is " + ref.version() + " and this build knows of " + knownGoodActionsTag + "; newer tags are not flagged, so this really is behind",
 					Fix:   "bump to " + knownGoodActionsTag + " or newer",
 				})
 			}
@@ -323,13 +324,39 @@ func isYAML(name string) bool {
 	return strings.HasSuffix(name, ".yml") || strings.HasSuffix(name, ".yaml")
 }
 
-// actionRefs pulls the @ref off every Rethunk-Tech/gh-actions use. The ref
-// ends at the first whitespace or "#": a trailing YAML comment is not part of
-// it, and parseTag's Sscanf skips leading space rather than rejecting it, so
-// an uncut "v1.2 # pinned deliberately" would be judged as v1.2 and then
-// quoted back, comment and all, as the ref the finding names.
-func actionRefs(body string) []string {
-	var refs []string
+// actionRef is one Rethunk-Tech/gh-actions use: the ref exactly as written,
+// and the version hint from the trailing YAML comment beside it when there is
+// one. They are kept apart so a finding can quote a clean ref while judging
+// staleness from the hint.
+type actionRef struct{ ref, hint string }
+
+// version is what staleness is judged from. A tag pin speaks for itself; a sha
+// pin says nothing about its own age, so the "# vN.N" comment beside it is the
+// only version there is.
+//
+// A sha with no such comment therefore judges as the empty string, which
+// parseTag rejects, and is silent. That is the decision: the sha alone is not
+// evidence of anything, and guessing would flag the strictest pin available as
+// a problem.
+func (r actionRef) version() string {
+	if isSHA(r.ref) {
+		return r.hint
+	}
+	return r.ref
+}
+
+// actionRefs pulls the @ref off every Rethunk-Tech/gh-actions use. The ref ends
+// at the first whitespace or "#" so a finding names the pin rather than the
+// sentence beside it -- parseTag's Sscanf skips leading space rather than
+// rejecting it, so an uncut "v1.2 # pinned deliberately" would be judged as
+// v1.2 and then quoted back, comment and all.
+//
+// Measured across 27 sibling repositories: 82 of 86 uses of these actions are
+// sha pins carrying their version only in that comment, so discarding it left
+// the check blind to all but the 4 bare tags, every one of them in this
+// repository.
+func actionRefs(body string) []actionRef {
+	var refs []actionRef
 	for line := range strings.SplitSeq(body, "\n") {
 		i := strings.Index(line, "Rethunk-Tech/gh-actions")
 		if i < 0 {
@@ -341,14 +368,37 @@ func actionRefs(body string) []string {
 			continue
 		}
 		ref := strings.TrimSpace(rest[at+1:])
+		var hint string
 		if cut := strings.IndexAny(ref, " \t#"); cut >= 0 {
+			hint = versionHint(ref[cut:])
 			ref = ref[:cut]
 		}
 		if ref != "" {
-			refs = append(refs, ref)
+			refs = append(refs, actionRef{ref: ref, hint: hint})
 		}
 	}
 	return refs
+}
+
+// versionHint reads the first tag-shaped word out of a trailing YAML comment,
+// the shape `# v1.7` that the pinning tooling writes.
+func versionHint(comment string) string {
+	_, after, ok := strings.Cut(comment, "#")
+	if !ok {
+		return ""
+	}
+	for _, word := range strings.Fields(after) {
+		if _, _, ok := parseTag(word); ok {
+			return word
+		}
+	}
+	return ""
+}
+
+// isSHA reports whether a ref is a full commit sha rather than a tag.
+func isSHA(ref string) bool {
+	_, err := hex.DecodeString(ref)
+	return len(ref) == 40 && err == nil
 }
 
 func floatingRef(ref string) bool {

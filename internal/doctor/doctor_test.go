@@ -234,6 +234,43 @@ func TestActionRefStopsAtATrailingComment(t *testing.T) {
 		qt.Commentf("finding quotes the comment back as the ref: %q", f.What))
 }
 
+// Almost every real pin is a sha carrying its version only in a trailing
+// comment -- 82 of the 86 uses of these actions across 27 sibling repositories
+// -- so staleness is judged from that hint. A sha with no hint says nothing
+// about its own age and is left alone.
+func TestShaPinnedRefIsJudgedByItsVersionComment(t *testing.T) {
+	isolatePath(t)
+
+	const sha = "e04e0afa3e00c59e33030fdbc7df29c15000357b"
+	judge := func(ref string) []Finding {
+		t.Helper()
+		dir := t.TempDir()
+		testutil.Write(t, dir, "package.json", `{"name":"demo"}`)
+		testutil.Write(t, dir, ".github/workflows/ci.yml",
+			"jobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-go@"+ref+"\n")
+		findings, err := Run(dir)
+		qt.Assert(t, qt.IsNil(err))
+		return findings
+	}
+
+	behind := judge(sha + " # v1.2")
+	f, ok := findingNamed(behind, "actions-stale-ref")
+	qt.Assert(t, qt.IsTrue(ok),
+		qt.Commentf("a sha commented v1.2 not reported as behind %s: %v", knownGoodActionsTag, checkNames(behind)))
+	qt.Check(t, qt.IsTrue(strings.Contains(f.What, sha)),
+		qt.Commentf("finding does not name the pin: %q", f.What))
+	qt.Check(t, qt.IsFalse(strings.Contains(f.What, "#")),
+		qt.Commentf("finding quotes the comment back as the ref: %q", f.What))
+
+	current := judge(sha + " # " + knownGoodActionsTag)
+	qt.Check(t, qt.IsFalse(reported(current, "actions-stale-ref")),
+		qt.Commentf("a sha commented %s wrongly reported as stale: %v", knownGoodActionsTag, checkNames(current)))
+
+	uncommented := judge(sha)
+	qt.Check(t, qt.IsFalse(reported(uncommented, "actions-stale-ref")),
+		qt.Commentf("a sha with no version comment was judged anyway: %v", checkNames(uncommented)))
+}
+
 // Stragglers get flagged, leaders do not -- the direction comes from what the
 // fleet actually runs, so a project already on the newer tool is not nagged.
 func TestSupersededToolingFlagsOnlyTheStraggler(t *testing.T) {
