@@ -183,7 +183,6 @@ what, why and fix.
 | `ci-no-final-gate` | Matrix checks with no single aggregating job to require |
 | `corepack-with-setup-bun` | `corepack enable` beside `setup-bun` |
 | `npx-in-bun-workspace` | `npx` in a workspace with a `bun.lock` |
-| `lockfile-collision` | `package-lock.json` beside `bun.lock` |
 | `actions-floating-ref` | A shared action pinned to `main` |
 | `actions-stale-ref` | A shared action pinned behind the known tag |
 | `superseded-tooling` | eslint, mypy or black where the fleet moved on |

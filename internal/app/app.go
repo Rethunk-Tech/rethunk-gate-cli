@@ -80,8 +80,8 @@ Full reference: docs/USAGE.md
 const doctorHelp = `usage: gate [-C <path>] doctor
 
 Reports things about this project that are cheap to detect and worth fixing:
-missing vulnerability gates, CI gaps, superseded tooling, lockfile collisions
-and stale action pins.
+missing vulnerability gates, CI gaps, superseded tooling and stale action
+pins.
 
 Read-only. It never edits the repository and never runs a gate, and it exits 0
 whether or not it found anything -- advice that failed the build would stop

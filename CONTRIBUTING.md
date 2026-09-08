@@ -6,7 +6,7 @@ is measured against, and the list of things that break silently.
 ## Tests
 
 ```bash
-make test          # full suite
+make test
 make lint
 ```
 
