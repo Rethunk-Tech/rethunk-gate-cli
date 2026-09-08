@@ -1301,6 +1301,34 @@ func TestHelpDocumentsOnlyFlagsTheParserAccepts(t *testing.T) {
 	}
 }
 
+// helpRoles pulls the gate roles the help text names out of its own prose, so
+// the check below cannot drift out of date with the help.
+func helpRoles(help string) []string {
+	// A miss on either boundary leaves list empty, which the caller's floor
+	// catches rather than passing on nothing.
+	_, after, _ := strings.Cut(help, "run the named gates:")
+	list, _, _ := strings.Cut(after, ", and any others")
+	return strings.Fields(strings.ReplaceAll(list, ",", " "))
+}
+
+// The roles are spelled in gateOrder, in the declared-name list, and again in
+// this prose. Help that offers a role gateOrder does not carry is a promise
+// nothing can keep: `gate run <role>` would refuse the name the help just gave
+// out. This reads the roles out of the help itself and puts each one through
+// the real role check.
+func TestHelpNamesOnlyRealGateRoles(t *testing.T) {
+	t.Parallel()
+
+	roles := helpRoles(gateHelp)
+	if len(roles) < 5 {
+		t.Fatalf("only found %d roles in the help; the extractor is broken: %v", len(roles), roles)
+	}
+	for _, role := range roles {
+		qt.Check(t, qt.IsTrue(detect.IsRole(role)),
+			qt.Commentf("the help offers %q, which is not a gate role", role))
+	}
+}
+
 func TestHelpSpellingsAgreeAndDoctorHasItsOwn(t *testing.T) {
 	t.Parallel()
 
