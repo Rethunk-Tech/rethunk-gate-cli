@@ -145,6 +145,48 @@ func TestWorkflowGapsAreReported(t *testing.T) {
 	}
 }
 
+// Workflows are a property of the repository, not of the package doctor was
+// pointed at. A workspace member has no .github of its own, so a member
+// directory must reach the same verdict as the repository root rather than
+// reading the missing directory as health.
+func TestWorkflowGapsAreJudgedFromTheRepositoryRoot(t *testing.T) {
+	isolatePath(t)
+	repo := t.TempDir()
+	testutil.Write(t, repo, ".git/HEAD", "ref: refs/heads/main\n")
+	testutil.Write(t, repo, "package.json", `{"name":"root"}`)
+	testutil.Write(t, repo, "bun.lock", "")
+	testutil.Write(t, repo, ".github/workflows/ci.yml", strings.Join([]string{
+		"jobs:",
+		"  a:",
+		"    strategy:",
+		"      matrix:",
+		"        include: []",
+		"    steps:",
+		"      - uses: Rethunk-Tech/gh-actions/setup-bun@main",
+		"      - run: corepack enable",
+		"      - run: npx tsc",
+	}, "\n"))
+	member := filepath.Join(repo, "packages", "web")
+	testutil.Write(t, member, "package.json", `{"name":"web"}`)
+
+	fromRoot, err := Run(repo)
+	qt.Assert(t, qt.IsNil(err))
+	fromMember, err := Run(member)
+	qt.Assert(t, qt.IsNil(err))
+
+	for _, want := range []string{
+		"corepack-with-setup-bun",
+		"npx-in-bun-workspace",
+		"ci-no-final-gate",
+		"actions-floating-ref",
+	} {
+		qt.Check(t, qt.IsTrue(reported(fromRoot, want)),
+			qt.Commentf("missing %s from the repository root: %v", want, checkNames(fromRoot)))
+		qt.Check(t, qt.IsTrue(reported(fromMember, want)),
+			qt.Commentf("missing %s from a workspace member: %v", want, checkNames(fromMember)))
+	}
+}
+
 func TestStaleActionRefIsReportedButNewerIsNot(t *testing.T) {
 	isolatePath(t)
 

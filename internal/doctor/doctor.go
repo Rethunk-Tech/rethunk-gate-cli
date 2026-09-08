@@ -61,7 +61,7 @@ func Run(dir string) ([]Finding, error) {
 	checkSupersededTooling(root, add)
 	checkGoVuln(root, proj, add)
 	checkNoCI(proj, add)
-	checkWorkflows(root, add)
+	checkWorkflows(proj, add)
 	checkDeclaredGates(root, proj, add)
 
 	// Stable order: worse first, then by check name so two runs agree.
