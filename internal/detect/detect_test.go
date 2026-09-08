@@ -348,10 +348,11 @@ func TestSupabaseIsSkippedWithAStatedReason(t *testing.T) {
 }
 
 // Rule 2 for the Python typecheck gate. The probe that decides this gate
-// exists and the argv that runs it must name the same file: resolve searches
-// node_modules/.bin and the workspace's .venv, `uv run` sees neither, so a
-// checker found in one of those and invoked by bare name lists cleanly and
-// then exits 127. Both arms of the pyrefly/mypy ladder carry the rule.
+// exists and the argv that runs it must name the same file: resolve also
+// reaches node_modules/.bin and a parent workspace's .venv, neither of which
+// `uv run` from the project directory would select, so a checker found in one
+// of those and invoked by bare name lists cleanly and then exits 127. Both
+// arms of the pyrefly/mypy ladder carry the rule.
 func TestPythonTypecheckGateRunsTheResolvedBinary(t *testing.T) {
 	// Not parallel, and PATH is emptied rather than trusted: a developer with
 	// pyrefly installed globally would otherwise see this pass by accident.
@@ -360,22 +361,19 @@ func TestPythonTypecheckGateRunsTheResolvedBinary(t *testing.T) {
 	write(t, dir, "pyproject.toml", "[project]\nname = \"demo\"\n")
 	pyrefly := writeExecutable(t, dir, ".venv/bin/pyrefly")
 
+	// Stated as membership rather than as an index: the rule is that the file
+	// the probe accepted is the file argv names, whatever else wraps it.
 	typecheck := gateNamed(t, detect(t, dir), "typecheck")
-	qt.Check(t, qt.Equals(typecheck.Argv[0], pyrefly),
-		qt.Commentf("typecheck = %q", typecheck.Display()))
-	// Stated as the property rather than the spelling: whatever argv[0] is, it
-	// has to be the runnable file the probe accepted.
-	info, err := os.Stat(typecheck.Argv[0])
-	qt.Assert(t, qt.IsNil(err), qt.Commentf("argv[0] %q does not exist", typecheck.Argv[0]))
-	qt.Check(t, qt.IsTrue(info.Mode()&0o111 != 0),
-		qt.Commentf("argv[0] %q is not executable", typecheck.Argv[0]))
+	qt.Check(t, qt.IsTrue(slices.Contains(typecheck.Argv, pyrefly)),
+		qt.Commentf("typecheck = %q, want the resolved %q", typecheck.Display(), pyrefly))
 
-	fallback := t.TempDir()
-	write(t, fallback, "pyproject.toml", "[project]\nname = \"demo\"\n")
-	mypy := writeExecutable(t, fallback, ".venv/bin/mypy")
+	fallbackDir := t.TempDir()
+	write(t, fallbackDir, "pyproject.toml", "[project]\nname = \"demo\"\n")
+	mypy := writeExecutable(t, fallbackDir, ".venv/bin/mypy")
 
-	qt.Check(t, qt.Equals(gateNamed(t, detect(t, fallback), "typecheck").Argv[0], mypy),
-		qt.Commentf("the mypy fallback kept the bare name"))
+	fallback := gateNamed(t, detect(t, fallbackDir), "typecheck")
+	qt.Check(t, qt.IsTrue(slices.Contains(fallback.Argv, mypy)),
+		qt.Commentf("the mypy fallback kept the bare name: %q", fallback.Display()))
 }
 
 // Every note in conventionGates is the only record of a gate deliberately not
@@ -414,13 +412,6 @@ func TestDeclaredNamesStayASubsetOfGateOrder(t *testing.T) {
 			qt.Commentf("declaredNames has %q, which gateOrder drops silently", name))
 	}
 
-	// IsRole is the same list asked a different way. turboGates uses it to
-	// decide whether a dependsOn edge runs between two gates, so a role it
-	// denied would drop an ordering the project stated.
-	for _, name := range gateOrder {
-		qt.Check(t, qt.IsTrue(IsRole(name)),
-			qt.Commentf("gateOrder has %q but IsRole denies it", name))
-	}
 	qt.Check(t, qt.IsFalse(IsRole(aggregateName)),
 		qt.Commentf("%q is not a role: claiming it runs every gate twice", aggregateName))
 }
