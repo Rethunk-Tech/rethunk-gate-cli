@@ -346,6 +346,77 @@ func TestARepositoryWithNoCIIsReported(t *testing.T) {
 		qt.Commentf("a repository with a lint gate and no CI was not reported: %v", checkNames(findings)))
 }
 
+// An abbreviated pin is still a sha: it says nothing about its own age, so it
+// is judged by the same version comment a full one is. Requiring 40 characters
+// would throw the hint away and leave the pin silently unjudged.
+func TestAbbreviatedShaPinIsJudgedByItsVersionComment(t *testing.T) {
+	isolatePath(t)
+
+	judge := func(ref string) []Finding {
+		t.Helper()
+		dir := t.TempDir()
+		testutil.Write(t, dir, "package.json", `{"name":"demo"}`)
+		testutil.Write(t, dir, ".github/workflows/ci.yml",
+			"jobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-go@"+ref+"\n")
+		findings, err := Run(dir)
+		qt.Assert(t, qt.IsNil(err))
+		return findings
+	}
+
+	behind := judge("a1b2c3d # v1.7")
+	f, ok := findingNamed(behind, "actions-stale-ref")
+	qt.Assert(t, qt.IsTrue(ok),
+		qt.Commentf("an abbreviated sha commented v1.7 not reported as behind %s: %v", knownGoodActionsTag, checkNames(behind)))
+	qt.Check(t, qt.IsTrue(strings.Contains(f.What, "a1b2c3d")), qt.Commentf("finding does not name the pin: %q", f.What))
+	qt.Check(t, qt.IsFalse(strings.Contains(f.What, "#")), qt.Commentf("finding quotes the comment back as the ref: %q", f.What))
+
+	uncommented := judge("a1b2c3d")
+	qt.Check(t, qt.IsFalse(reported(uncommented, "actions-stale-ref")),
+		qt.Commentf("an abbreviated sha with no version comment was judged anyway: %v", checkNames(uncommented)))
+
+	// A tag starts with "v", which is not a hex digit, so the shortest tag
+	// cannot be mistaken for an abbreviation and go unjudged.
+	tagged := judge("v1.2")
+	qt.Check(t, qt.IsTrue(reported(tagged, "actions-stale-ref")),
+		qt.Commentf("a bare tag was swallowed as a sha: %v", checkNames(tagged)))
+}
+
+// Every Where resolves against one base -- the repository -- so a finding
+// about the package and a finding about the repository's workflows can be
+// read side by side from a workspace member.
+func TestFindingsShareOneBase(t *testing.T) {
+	isolatePath(t)
+	repo := t.TempDir()
+	testutil.Write(t, repo, ".git/HEAD", "ref: refs/heads/main\n")
+	testutil.Write(t, repo, "package.json", `{"name":"root"}`)
+	testutil.Write(t, repo, "bun.lock", "")
+	testutil.Write(t, repo, ".github/workflows/ci.yml",
+		"jobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-bun@main\n")
+	member := filepath.Join(repo, "packages", "web")
+	testutil.Write(t, member, "package.json", `{"scripts":{"lint":"eslint ."}}`)
+
+	findings, err := Run(member)
+	qt.Assert(t, qt.IsNil(err))
+
+	pkg, ok := findingNamed(findings, "superseded-tooling")
+	qt.Assert(t, qt.IsTrue(ok), qt.Commentf("findings = %v", checkNames(findings)))
+	qt.Check(t, qt.Equals(pkg.Where, filepath.Join("packages", "web", "package.json")),
+		qt.Commentf("package finding is not repository-relative: %q", pkg.Where))
+
+	wf, ok := findingNamed(findings, "actions-floating-ref")
+	qt.Assert(t, qt.IsTrue(ok), qt.Commentf("findings = %v", checkNames(findings)))
+	qt.Check(t, qt.Equals(wf.Where, filepath.Join(".github", "workflows", "ci.yml")),
+		qt.Commentf("workflow finding is not repository-relative: %q", wf.Where))
+
+	for _, f := range findings {
+		if f.Where == "" {
+			continue
+		}
+		qt.Check(t, qt.IsTrue(exists(filepath.Join(repo, f.Where))),
+			qt.Commentf("%s names %q, which does not resolve from the repository root", f.Check, f.Where))
+	}
+}
+
 func checkNames(findings []Finding) []string {
 	out := make([]string, 0, len(findings))
 	for _, f := range findings {

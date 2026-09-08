@@ -7,7 +7,6 @@
 package doctor
 
 import (
-	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -56,8 +55,24 @@ func Run(dir string) ([]Finding, error) {
 	}
 	root := proj.Root
 
+	// Checks name an absolute path; this is the one place that turns it into
+	// something to print, so every Where in one report shares one base. The
+	// base is the repository rather than the package because a workspace
+	// member's findings mix the two -- its own package.json and the
+	// repository's workflows -- and a path whose base the reader has to guess
+	// at is not evidence.
+	base := root
+	if repo, ok := repoRoot(root); ok {
+		base = repo
+	}
+
 	var findings []Finding
-	add := func(f Finding) { findings = append(findings, f) }
+	add := func(f Finding) {
+		if rel, err := filepath.Rel(base, f.Where); err == nil {
+			f.Where = rel
+		}
+		findings = append(findings, f)
+	}
 
 	checkSupersededTooling(root, add)
 	checkGoVuln(root, proj, add)
@@ -121,7 +136,7 @@ func checkSupersededTooling(root string, add func(Finding)) {
 		}
 		add(Finding{
 			Check: "superseded-tooling",
-			Where: r.where,
+			Where: filepath.Join(root, r.where),
 			What:  r.old + " is still in use here",
 			Why:   r.why + ", so this project is the straggler rather than the norm",
 			Fix:   "move to " + r.new,
@@ -142,7 +157,7 @@ func checkGoVuln(root string, proj detect.Project, add func(Finding)) {
 		add(Finding{
 			Warn:  true,
 			Check: "go-no-govulncheck",
-			Where: "go.mod",
+			Where: filepath.Join(root, "go.mod"),
 			What:  "no govulncheck gate runs for this Go module",
 			Why:   "the shared setup-go action ships govulncheck opt-in and OFF, so nothing else is checking",
 			Fix:   "go install golang.org/x/vuln/cmd/govulncheck@latest",
@@ -181,7 +196,7 @@ func checkNoCI(proj detect.Project, add func(Finding)) {
 	add(Finding{
 		Warn:  true,
 		Check: "no-ci",
-		Where: ".github/workflows",
+		Where: filepath.Join(repo, ".github", "workflows"),
 		What:  "this repository has no CI workflows at all",
 		Why:   "9 of 95 repositories in this fleet have gates to run and no workflow to run them in, and every other CI check here gives up on the missing directory -- so the repository with the least CI is the one doctor says least about",
 		Fix:   "add a workflow; Rethunk-Tech/gh-actions covers Go, Bun and Node setup",
@@ -209,9 +224,7 @@ func repoRoot(dir string) (string, bool) {
 // Judged from the repository, the same way checkNoCI is, so this file gives one
 // answer to "where do this repo's workflows live". A workspace member has no
 // .github of its own, so judging from proj.Root would report every CI gap from
-// the repository root and none of them from a member directory, while checkNoCI
-// stayed correctly quiet in both -- the repository judged to have CI by one
-// check and no workflows at all by the other.
+// the repository root and none of them from a member directory.
 func checkWorkflows(proj detect.Project, add func(Finding)) {
 	// Outside a repository there is nothing to walk up to, and the project
 	// directory is the only root there is.
@@ -236,8 +249,8 @@ func checkWorkflows(proj detect.Project, add func(Finding)) {
 		if entry.IsDir() || !isYAML(entry.Name()) {
 			continue
 		}
-		rel := filepath.Join(".github", "workflows", entry.Name())
-		body := readFile(filepath.Join(dir, entry.Name()))
+		path := filepath.Join(dir, entry.Name())
+		body := readFile(path)
 		if body == "" {
 			continue
 		}
@@ -245,7 +258,7 @@ func checkWorkflows(proj detect.Project, add func(Finding)) {
 		if strings.Contains(body, "gh-actions/setup-go") {
 			usesSetupGo = true
 			if setupGoWhere == "" {
-				setupGoWhere = rel
+				setupGoWhere = path
 			}
 			if strings.Contains(body, "run-govulncheck") {
 				enablesVuln = true
@@ -256,7 +269,7 @@ func checkWorkflows(proj detect.Project, add func(Finding)) {
 			add(Finding{
 				Warn:  true,
 				Check: "corepack-with-setup-bun",
-				Where: rel,
+				Where: path,
 				What:  "corepack enable runs alongside setup-bun",
 				Why:   "corepack manages npm/yarn/pnpm shims and fights the bun toolchain this workflow already installed",
 				Fix:   "drop the corepack enable step",
@@ -267,7 +280,7 @@ func checkWorkflows(proj detect.Project, add func(Finding)) {
 			if floatingRef(ref.ref) {
 				add(Finding{
 					Check: "actions-floating-ref",
-					Where: rel,
+					Where: path,
 					What:  "shared action pinned to a moving ref (" + ref.ref + ")",
 					Why:   "a moving ref changes what CI runs without any commit here recording it",
 					Fix:   "pin to a tag, currently " + knownGoodActionsTag,
@@ -277,7 +290,7 @@ func checkWorkflows(proj detect.Project, add func(Finding)) {
 			if olderThanKnownGood(ref.version()) {
 				add(Finding{
 					Check: "actions-stale-ref",
-					Where: rel,
+					Where: path,
 					What:  "shared action pinned to " + ref.ref,
 					Why:   "that pin is " + ref.version() + " and this build knows of " + knownGoodActionsTag + "; newer tags are not flagged, so this really is behind",
 					Fix:   "bump to " + knownGoodActionsTag + " or newer",
@@ -289,18 +302,21 @@ func checkWorkflows(proj detect.Project, add func(Finding)) {
 			add(Finding{
 				Warn:  true,
 				Check: "ci-no-final-gate",
-				Where: rel,
+				Where: path,
 				What:  "independent checks with no single aggregating job",
 				Why:   "branch protection can only require named jobs, so a matrix leg that never ran reads as 'not failing' rather than 'not run'",
 				Fix:   "add one job with `if: always()` that needs the others and fails unless every result is success",
 			})
 		}
 
-		if strings.Contains(body, "npx ") && detect.IsBunWorkspace(root) {
+		// The lockfile is the repository's in a workspace and the package's in
+		// a standalone project living in a subdirectory; either one makes bunx
+		// the right tool for this workflow.
+		if strings.Contains(body, "npx ") && (detect.IsBunWorkspace(root) || detect.IsBunWorkspace(proj.Root)) {
 			add(Finding{
 				Warn:  true,
 				Check: "npx-in-bun-workspace",
-				Where: rel,
+				Where: path,
 				What:  "npx runs inside a bun workspace",
 				Why:   "npx can strand a package-lock.json, which Next then takes as the Turbopack root",
 				Fix:   "use bunx",
@@ -352,9 +368,8 @@ func (r actionRef) version() string {
 // v1.2 and then quoted back, comment and all.
 //
 // Measured across 27 sibling repositories: 82 of 86 uses of these actions are
-// sha pins carrying their version only in that comment, so discarding it left
-// the check blind to all but the 4 bare tags, every one of them in this
-// repository.
+// sha pins carrying their version only in that comment, and only 4 are bare
+// tags, so the hint is the only thing most pins can be judged by.
 func actionRefs(body string) []actionRef {
 	var refs []actionRef
 	for line := range strings.SplitSeq(body, "\n") {
@@ -395,10 +410,23 @@ func versionHint(comment string) string {
 	return ""
 }
 
-// isSHA reports whether a ref is a full commit sha rather than a tag.
+// isSHA reports whether a ref is a commit sha rather than a tag, so that an
+// abbreviated pin is judged by its version comment the same way a full one is.
+//
+// The length bound is not what keeps a tag out: every tag in this fleet starts
+// with "v", which is not a hex digit, so the prefix decides it. The bound only
+// says what shape of sha to accept -- git abbreviates to 7 or more, and a full
+// sha is 40. Below 7 a ref is too short to be an abbreviation git would print.
 func isSHA(ref string) bool {
-	_, err := hex.DecodeString(ref)
-	return len(ref) == 40 && err == nil
+	if len(ref) < 7 || len(ref) > 40 {
+		return false
+	}
+	for _, c := range ref {
+		if !strings.ContainsRune("0123456789abcdef", c) {
+			return false
+		}
+	}
+	return true
 }
 
 func floatingRef(ref string) bool {
@@ -453,7 +481,7 @@ func checkDeclaredGates(root string, proj detect.Project, add func(Finding)) {
 		}
 		add(Finding{
 			Check: "missing-gate-" + missing.name,
-			Where: "package.json",
+			Where: filepath.Join(root, "package.json"),
 			What:  "no " + missing.name + " gate is declared or inferable",
 			Why:   missing.why,
 			Fix:   "add a " + missing.name + " script",
