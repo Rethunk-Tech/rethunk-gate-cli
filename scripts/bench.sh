@@ -3,7 +3,7 @@
 #
 #   sched <label>   whole-run wall time per repo -- what scheduling changes move
 #
-# Results land in $OUT/<mode>-<label>.tsv so two runs can be diffed:
+# Results land in $OUT/sched-<label>.tsv so two runs can be diffed:
 #
 #   scripts/bench.sh sched before
 #   ... change the scheduler ...

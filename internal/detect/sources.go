@@ -29,6 +29,10 @@ const (
 	packageSource = "package.json scripts."
 )
 
+// Every reader below takes the project to append notes to and to resolve
+// binaries against. Detect is the only caller of any of them and always passes
+// its own project, so nil is unreachable and none of them guards for it.
+
 // makefileTarget matches a target definition at the start of a line. Targets
 // are read textually rather than by asking make: this must never run anything,
 // and `make -p` would evaluate the file.
@@ -51,7 +55,7 @@ func makefileGates(root string, proj *Project) []Gate {
 	for _, m := range makefileTarget.FindAllStringSubmatch(string(data), -1) {
 		declared[m[1]] = true
 	}
-	if declared[aggregateName] && proj != nil {
+	if declared[aggregateName] {
 		proj.Notes = append(proj.Notes, "Makefile target "+aggregateName+
 			" found but not run: it aggregates the gates gate is already scheduling")
 	}
@@ -95,7 +99,7 @@ func packageJSONGates(root, workspace string, proj *Project) []Gate {
 	if !ok {
 		return nil
 	}
-	if _, ok := pkg.Scripts[aggregateName]; ok && proj != nil {
+	if _, ok := pkg.Scripts[aggregateName]; ok {
 		proj.Notes = append(proj.Notes, packageSource+aggregateName+
 			" found but not run: it aggregates the gates gate is already scheduling")
 	}
@@ -143,14 +147,6 @@ func packageRunner(workspace string) []string {
 // declares nothing for. Every choice below is ordered by what the fleet
 // actually ran over seven days, not by preference.
 func conventionGates(root string, proj *Project) []Gate {
-	// Notes are appended from several branches below, each of which is the
-	// only record of a gate deliberately not created. Settling nil once here
-	// is why none of them restates the guard: a caller that passes nothing
-	// wants the gates without the commentary, not a panic.
-	if proj == nil {
-		proj = &Project{}
-	}
-
 	var gates []Gate
 
 	if exists(filepath.Join(root, "go.mod")) {
@@ -273,7 +269,7 @@ func resolve(root string, proj *Project, name string) string {
 		filepath.Join(root, "node_modules", ".bin"),
 		filepath.Join(root, ".venv", "bin"),
 	}
-	if proj != nil && proj.Workspace != "" && proj.Workspace != root {
+	if proj.Workspace != "" && proj.Workspace != root {
 		dirs = append(dirs,
 			filepath.Join(proj.Workspace, "node_modules", ".bin"),
 			filepath.Join(proj.Workspace, ".venv", "bin"),
@@ -332,10 +328,8 @@ func turboGates(workspace string, proj *Project) []Gate {
 		// A task graph nobody can run is worse than no delegation: without
 		// this, turbo outranks the package scripts and every gate fails to
 		// execute. Standing aside lets those scripts claim the roles instead.
-		if proj != nil {
-			proj.Notes = append(proj.Notes,
-				"turbo.json found but turbo is not installed; using the package scripts it would have orchestrated")
-		}
+		proj.Notes = append(proj.Notes,
+			"turbo.json found but turbo is not installed; using the package scripts it would have orchestrated")
 		return nil
 	}
 

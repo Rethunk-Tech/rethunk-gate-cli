@@ -376,23 +376,6 @@ func TestPythonTypecheckGateRunsTheResolvedBinary(t *testing.T) {
 		qt.Commentf("the mypy fallback kept the bare name: %q", fallback.Display()))
 }
 
-// Every note in conventionGates is the only record of a gate deliberately not
-// created, and they are written from branches scattered through it. The guard
-// that lets them be written unconditionally is settled once at entry, so a
-// caller wanting gates without commentary passes nil rather than a discard.
-func TestConventionGatesToleratesANilProject(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	write(t, dir, "pyproject.toml", "[project]\nname = \"demo\"\n")
-	qt.Assert(t, qt.IsNil(os.MkdirAll(filepath.Join(dir, "supabase"), 0o755)))
-
-	gates := conventionGates(dir, nil)
-
-	qt.Check(t, qt.IsTrue(slices.ContainsFunc(gates, func(g Gate) bool {
-		return g.Name == "test"
-	})), qt.Commentf("gates = %v", gates))
-}
-
 // The role names are spelled out by hand in more than one place with nothing
 // tying them together. A name in declaredNames but missing from gateOrder is
 // read out of every manifest and then dropped on the way to Project.Gates,
