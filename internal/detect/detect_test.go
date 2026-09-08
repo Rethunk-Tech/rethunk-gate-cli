@@ -346,3 +346,34 @@ func TestSupabaseIsSkippedWithAStatedReason(t *testing.T) {
 	qt.Check(t, qt.IsTrue(hasNote(detect(t, dir), "supabase")),
 		qt.Commentf("supabase's omission was not explained"))
 }
+
+// Rule 2 for the Python typecheck gate. The probe that decides this gate
+// exists and the argv that runs it must name the same file: resolve searches
+// node_modules/.bin and the workspace's .venv, `uv run` sees neither, so a
+// checker found in one of those and invoked by bare name lists cleanly and
+// then exits 127. Both arms of the pyrefly/mypy ladder carry the rule.
+func TestPythonTypecheckGateRunsTheResolvedBinary(t *testing.T) {
+	// Not parallel, and PATH is emptied rather than trusted: a developer with
+	// pyrefly installed globally would otherwise see this pass by accident.
+	dir := t.TempDir()
+	t.Setenv("PATH", filepath.Join(dir, "no-such-bin"))
+	write(t, dir, "pyproject.toml", "[project]\nname = \"demo\"\n")
+	pyrefly := writeExecutable(t, dir, ".venv/bin/pyrefly")
+
+	typecheck := gateNamed(t, detect(t, dir), "typecheck")
+	qt.Check(t, qt.Equals(typecheck.Argv[0], pyrefly),
+		qt.Commentf("typecheck = %q", typecheck.Display()))
+	// Stated as the property rather than the spelling: whatever argv[0] is, it
+	// has to be the runnable file the probe accepted.
+	info, err := os.Stat(typecheck.Argv[0])
+	qt.Assert(t, qt.IsNil(err), qt.Commentf("argv[0] %q does not exist", typecheck.Argv[0]))
+	qt.Check(t, qt.IsTrue(info.Mode()&0o111 != 0),
+		qt.Commentf("argv[0] %q is not executable", typecheck.Argv[0]))
+
+	fallback := t.TempDir()
+	write(t, fallback, "pyproject.toml", "[project]\nname = \"demo\"\n")
+	mypy := writeExecutable(t, fallback, ".venv/bin/mypy")
+
+	qt.Check(t, qt.Equals(gateNamed(t, detect(t, fallback), "typecheck").Argv[0], mypy),
+		qt.Commentf("the mypy fallback kept the bare name"))
+}

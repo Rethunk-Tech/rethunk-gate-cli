@@ -168,17 +168,26 @@ func conventionGates(root string, proj *Project) []Gate {
 	}
 
 	if exists(filepath.Join(root, "pyproject.toml")) {
+		// Deliberately unprobed. `uv run` provisions the environment from the
+		// project's own declarations before executing, so a declared pytest or
+		// ruff that is not on disk yet exists by the time the gate runs.
+		// Probing first would refuse a gate that works.
 		gates = append(gates,
 			Gate{Name: "test", Argv: []string{"uv", "run", "pytest"}, Source: "convention: python"},
 			Gate{Name: "lint", Argv: []string{"uv", "run", "ruff", "check", "."}, Source: "convention: python"},
 		)
 		// pyrefly (99 uses) against mypy (4): the fleet has already moved,
 		// so the newer checker leads and mypy is the fallback.
-		switch {
-		case resolve(root, proj, "pyrefly") != "":
-			gates = append(gates, Gate{Name: "typecheck", Argv: []string{"uv", "run", "pyrefly", "check"}, Source: "convention: python"})
-		case resolve(root, proj, "mypy") != "":
-			gates = append(gates, Gate{Name: "typecheck", Argv: []string{"uv", "run", "mypy", "."}, Source: "convention: python (pyrefly absent)"})
+		//
+		// This one is probed, because choosing between the two requires it --
+		// and a probe that decides a gate exists has to name the file that
+		// runs. resolve searches node_modules/.bin and the workspace's .venv
+		// as well; `uv run` sees neither, so a checker found in one of those
+		// and then invoked by bare name is detected as present and exits 127.
+		if bin := resolve(root, proj, "pyrefly"); bin != "" {
+			gates = append(gates, Gate{Name: "typecheck", Argv: []string{bin, "check"}, Source: "convention: python"})
+		} else if bin := resolve(root, proj, "mypy"); bin != "" {
+			gates = append(gates, Gate{Name: "typecheck", Argv: []string{bin, "."}, Source: "convention: python (pyrefly absent)"})
 		}
 		// uv audits the lockfile, not the environment, so it sees a pinned
 		// dependency that is merely declared -- an optional extra nobody has
