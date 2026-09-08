@@ -11,8 +11,14 @@ import (
 // listing is the machine-readable form of what writeListing prints. It exists
 // because a consumer that has to column-parse the text layout is broken by any
 // cosmetic change to it, and the text is written for a person.
+//
+// A field the text form omits is absent here rather than present and empty:
+// the two listings state the same facts, and `"root": ""` would be a claim
+// about a project that a wrapped command does not have. Collections are the
+// exception -- they are always present, so "none" never has to be told apart
+// from "not reported".
 type listing struct {
-	Root      string       `json:"root"`
+	Root      string       `json:"root,omitempty"`
 	Workspace string       `json:"workspace,omitempty"`
 	Gates     []listedGate `json:"gates"`
 	Config    []string     `json:"config"`
@@ -26,8 +32,8 @@ type listing struct {
 
 // listedGate is one gate as it will actually run.
 type listedGate struct {
-	// Name is the role, empty for a command the caller named.
-	Name string `json:"name"`
+	// Name is the role, absent for a command the caller named.
+	Name string `json:"name,omitempty"`
 
 	// Argv is the RESOLVED command -- node_modules/.bin/tsc rather than tsc
 	// -- which is what execution uses and what a consumer has to reproduce.
@@ -36,8 +42,10 @@ type listedGate struct {
 	// Display is the same string the text listing shows for this gate.
 	Display string `json:"display"`
 
-	// Source is why this gate is here, surviving the config merge.
-	Source string `json:"source"`
+	// Source is why this gate is here, surviving the config merge. A command
+	// the caller named came from nowhere but the command line, so it has
+	// none.
+	Source string `json:"source,omitempty"`
 
 	// Shadows lists competing declarations this gate outranks.
 	Shadows []string `json:"shadows"`
@@ -52,11 +60,16 @@ type listedGate struct {
 // the exit status.
 func writeListingJSON(w io.Writer, project detect.Project, files []string, opts options) error {
 	out := listing{
-		Root:      project.Root,
-		Workspace: project.Workspace,
-		Gates:     make([]listedGate, 0, len(opts.gates)),
-		Config:    array(files),
-		Notes:     array(project.Notes),
+		Root:   project.Root,
+		Gates:  make([]listedGate, 0, len(opts.gates)),
+		Config: array(files),
+		Notes:  array(project.Notes),
+	}
+	// Same rule the text listing follows: a workspace equal to the root is
+	// the root said twice, and reporting it would invite a consumer to treat
+	// every project as a workspace member.
+	if project.Workspace != project.Root {
+		out.Workspace = project.Workspace
 	}
 	for group, indexes := range schedule(opts.gates, opts.serial) {
 		for _, i := range indexes {
