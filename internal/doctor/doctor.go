@@ -402,11 +402,7 @@ func isSHA(ref string) bool {
 }
 
 func floatingRef(ref string) bool {
-	switch ref {
-	case "main", "master", "HEAD":
-		return true
-	}
-	return false
+	return slices.Contains([]string{"main", "master", "HEAD"}, ref)
 }
 
 // olderThanKnownGood compares vMAJOR.MINOR tags numerically. Anything it

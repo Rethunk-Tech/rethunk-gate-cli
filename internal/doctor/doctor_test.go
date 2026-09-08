@@ -6,7 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"testing"
 
@@ -93,7 +93,7 @@ func treeDigest(t *testing.T, root string) string {
 		return nil
 	})
 	qt.Assert(t, qt.IsNil(err))
-	sort.Strings(entries)
+	slices.Sort(entries)
 	sum := sha256.Sum256([]byte(strings.Join(entries, "\n")))
 	return hex.EncodeToString(sum[:])
 }
