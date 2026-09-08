@@ -684,8 +684,11 @@ func TestTheActiveProjectReachesTheChildEnvironment(t *testing.T) {
 func TestDoctorRendersFindingsAndNeverFailsTheBuild(t *testing.T) {
 	t.Parallel()
 
-	// A workflow with an aggregating gate but no govulncheck: one finding,
-	// deterministic, and it exercises every field of the rendering.
+	// A workflow with an aggregating gate but no govulncheck, pinned to a tag
+	// older than knownGoodActionsTag: the CI gap and the stale pin, which
+	// between them exercise every field of the rendering. The assertions name
+	// the finding they want rather than counting them, so a new check does
+	// not fail a test about the renderer.
 	dir := t.TempDir()
 	wf := filepath.Join(dir, ".github", "workflows")
 	qt.Assert(t, qt.IsNil(os.MkdirAll(wf, 0o755)))
@@ -1519,4 +1522,109 @@ func TestOnlyBareDoctorIsClaimed(t *testing.T) {
 	if code == Success {
 		t.Error("`gate -- doctor` did not reach a program named doctor")
 	}
+}
+
+// Config overrides a detected gate in place; it never adds a second one of
+// the same name. Two gates sharing a name run the same work twice and make
+// `gate run <name>` ambiguous.
+//
+// The name here is deliberate. `ci` is not a role, and detection still
+// produces it -- an aggregating Makefile target that claims none of the gates
+// it runs becomes a gate so the project is not left unchecked. So the
+// question the config-only loop has to ask is what detection produced, not
+// whether the name is a role.
+func TestConfigOverridesADetectedGateInsteadOfDuplicatingIt(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "ci:\n\t@echo running ci\n")
+	testutil.Write(t, root, ".gate.toml",
+		"[gates.ci]\nrun = \"echo config-ci\"\n\n[gates.e2e]\nrun = \"echo e2e\"\n")
+
+	stdout, stderr, code := runGateTest(t, "-C", root, "--json")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("gate --json = %d, stderr = %q", code, stderr))
+
+	var got listing
+	qt.Assert(t, qt.IsNil(json.Unmarshal([]byte(stdout), &got)), qt.Commentf("stdout is not JSON: %q", stdout))
+
+	var names []string
+	for _, g := range got.Gates {
+		names = append(names, g.Name)
+	}
+	// One ci, and the config-only gate detection could not infer is still added.
+	qt.Assert(t, qt.DeepEquals(names, []string{"ci", "e2e"}), qt.Commentf("listing = %q", stdout))
+
+	// The surviving gate carries config's command and still names where
+	// detection found it, so --list keeps answering why the gate is there.
+	qt.Check(t, qt.Equals(got.Gates[0].Display, "echo config-ci"))
+	qt.Check(t, qt.StringContains(got.Gates[0].Source, "Makefile target ci"))
+	qt.Check(t, qt.StringContains(got.Gates[0].Source, "overridden by"))
+	qt.Check(t, qt.Equals(got.Gates[1].Display, "echo e2e"))
+}
+
+// A failure stops its group and the gates behind it are reported as skipped
+// (AGENTS.md, Concurrency). A gate whose log could not be created never
+// reached a command, so it has no status of its own -- reading its zero Code
+// as a pass would let the chain run on and report `ok` for gates whose
+// premise had already failed.
+func TestAGateThatNeverStartedStopsItsSerialGroup(t *testing.T) {
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "lint:\n\t@echo l\ntest:\n\t@echo t\n")
+	// A regular file where the log directory would go: MkdirAll cannot create
+	// it, so no gate in the run reaches its command.
+	blocked := t.TempDir()
+	testutil.Write(t, blocked, "not-a-dir", "")
+	t.Setenv("TMPDIR", filepath.Join(blocked, "not-a-dir"))
+
+	stdout, stderr, code := runGateTest(t, "-C", root, "--serial")
+
+	qt.Assert(t, qt.Equals(code, Fatal), qt.Commentf("gate --serial = %d, stdout = %q, stderr = %q", code, stdout, stderr))
+	qt.Check(t, qt.Equals(strings.Count(stderr, "cannot create log directory"), 1),
+		qt.Commentf("the chain continued past a gate that never ran: %q", stderr))
+	qt.Check(t, qt.StringContains(stderr, "gate: SKIP"),
+		qt.Commentf("a stopped gate was dropped rather than reported: %q", stderr))
+	qt.Check(t, qt.IsFalse(strings.Contains(stdout, "gate: ok")),
+		qt.Commentf("a gate reported ok inside a stopped group: %q", stdout))
+}
+
+// --json names the gate listing, and doctor has no listing to render. Serving
+// the human report to a consumer that asked for the machine shape says
+// nothing and looks like it worked, which is the one failure a machine caller
+// cannot detect.
+func TestJSONWithDoctorIsRefusedRatherThanIgnored(t *testing.T) {
+	t.Parallel()
+	stdout, stderr, code := runGateTest(t, "-C", t.TempDir(), "--json", "doctor")
+	qt.Assert(t, qt.Equals(code, InvalidUsage), qt.Commentf("gate --json doctor = %d, stdout = %q", code, stdout))
+	qt.Check(t, qt.Equals(stdout, ""), qt.Commentf("a refused combination still wrote a report: %q", stdout))
+	qt.Check(t, qt.StringContains(stderr, "--json"), qt.Commentf("the refusal does not name the flag: %q", stderr))
+}
+
+// The two listings state the same facts, so a field the text form omits is
+// absent from the JSON rather than present and empty. `"root": ""` is a claim
+// about a project a wrapped command does not have, and a workspace equal to
+// the root is the root said twice. Collections are the exception: they are
+// always present, so "none" is never mistaken for "not reported".
+func TestJSONListingOmitsWhatTheTextListingOmits(t *testing.T) {
+	t.Parallel()
+
+	stdout, stderr, code := runGateTest(t, "--json", "--", "echo", "hi")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("gate = %d, stderr = %q", code, stderr))
+	for _, field := range []string{`"root"`, `"workspace"`, `"name"`, `"source"`} {
+		qt.Check(t, qt.IsFalse(strings.Contains(stdout, field)),
+			qt.Commentf("%s is empty and still reported: %q", field, stdout))
+	}
+	for _, present := range []string{`"argv"`, `"display"`, `"group"`, `"config": []`, `"notes": []`} {
+		qt.Check(t, qt.StringContains(stdout, present),
+			qt.Commentf("%s is missing, so a consumer cannot tell none from absent: %q", present, stdout))
+	}
+
+	// A lockfile at the root makes the workspace the root, which is exactly
+	// the case the text listing declines to print.
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "test:\n\t@echo t\n")
+	testutil.Write(t, root, "bun.lock", "")
+	stdout, stderr, code = runGateTest(t, "-C", root, "--json")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("gate --json = %d, stderr = %q", code, stderr))
+	qt.Check(t, qt.IsFalse(strings.Contains(stdout, `"workspace"`)),
+		qt.Commentf("the workspace repeats the root: %q", stdout))
+	qt.Check(t, qt.StringContains(stdout, `"root"`), qt.Commentf("a detected project has a root to report: %q", stdout))
 }
