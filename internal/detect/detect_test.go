@@ -381,6 +381,26 @@ func TestDeclaredNamesStayASubsetOfGateOrder(t *testing.T) {
 		qt.Commentf("%q is not a role: claiming it runs every gate twice", aggregateName))
 }
 
+// The aggregate rule holds for every manifest that can declare it, or it is
+// not a rule. turbo.json is the shape most likely to declare a ci task, and it
+// was the one reader that stayed silent -- so the decision read as deliberate
+// in a Makefile and as an oversight in the file where it matters most.
+func TestATurboCiTaskIsReportedRatherThanRun(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	testutil.Write(t, dir, "package.json", `{"name":"demo"}`)
+	testutil.Write(t, dir, "turbo.json", `{"tasks":{"ci":{},"test":{}}}`)
+	testutil.Write(t, dir, "bun.lock", "")
+	testutil.WriteExecutable(t, dir, "node_modules/.bin/turbo")
+
+	proj := detect(t, dir)
+	qt.Check(t, qt.IsFalse(slices.ContainsFunc(proj.Gates, func(g Gate) bool {
+		return g.Name == aggregateName
+	})), qt.Commentf("a ci gate was claimed: it would run every gate twice"))
+	qt.Check(t, qt.IsTrue(hasNote(proj, turboSource+aggregateName)),
+		qt.Commentf("notes = %v", proj.Notes))
+}
+
 // bun writes bun.lock now and wrote bun.lockb before, and the two are the same
 // statement. A root recognised by one spelling and not the other is not found
 // as a workspace at all, so resolve never searches the workspace bin directory

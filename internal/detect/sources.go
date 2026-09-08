@@ -22,6 +22,15 @@ var declaredNames = []string{"build", "typecheck", "lint", "test", "vuln"}
 // Found, deliberately not run, and said out loud rather than dropped.
 const aggregateName = "ci"
 
+// noteAggregate records an aggregate declaration found and not run. Every
+// manifest reader states it identically, because the decision is the same one
+// whatever declared it -- and a reader that stayed silent would be
+// indistinguishable from one that never looked.
+func noteAggregate(proj *Project, where string) {
+	proj.Notes = append(proj.Notes, where+" found but not run: "+
+		"it aggregates the gates gate is already scheduling")
+}
+
 // Source prefixes, so the shadow rule in Detect can tell a turbo task from
 // the package script it orchestrates without re-deriving either string.
 const (
@@ -56,8 +65,7 @@ func makefileGates(root string, proj *Project) []Gate {
 		declared[m[1]] = true
 	}
 	if declared[aggregateName] {
-		proj.Notes = append(proj.Notes, "Makefile target "+aggregateName+
-			" found but not run: it aggregates the gates gate is already scheduling")
+		noteAggregate(proj, "Makefile target "+aggregateName)
 	}
 
 	var gates []Gate
@@ -100,8 +108,7 @@ func packageJSONGates(root, workspace string, proj *Project) []Gate {
 		return nil
 	}
 	if _, ok := pkg.Scripts[aggregateName]; ok {
-		proj.Notes = append(proj.Notes, packageSource+aggregateName+
-			" found but not run: it aggregates the gates gate is already scheduling")
+		noteAggregate(proj, packageSource+aggregateName)
 	}
 
 	runner := packageRunner(workspace)
@@ -331,6 +338,15 @@ func turboGates(workspace string, proj *Project) []Gate {
 		proj.Notes = append(proj.Notes,
 			"turbo.json found but turbo is not installed; using the package scripts it would have orchestrated")
 		return nil
+	}
+
+	// Stated here rather than before the bin check: when turbo stands aside,
+	// packageJSONGates claims the roles and reports the script of the same
+	// name. Turbo running the package script it orchestrates is one
+	// declaration written twice, the same reason the shadow rule ignores that
+	// pair, so whichever reader claims the roles is the one that speaks.
+	if _, ok := lookup(aggregateName); ok {
+		noteAggregate(proj, turboSource+aggregateName)
 	}
 
 	var gates []Gate
