@@ -21,6 +21,50 @@ Notable changes to `gate`. The format follows
   An unusable duration refuses the file the way an unknown key does, and every
   one in the file is reported at once.
 
+- `--json`, the `--list` document written for a program instead of a person.
+  It carries the same facts -- the project `root` and workspace, each gate's
+  `name`, resolved `argv`, `display`, `source`, `shadows` and scheduling
+  `group`, plus the `config` files in force and the `notes` -- so nothing has
+  to column-parse a layout that is free to change. Output only: detection,
+  scheduling and the exit status are untouched, and it is a flag rather than a
+  third word `gate` claims.
+
+- A `Cargo.toml` convention tier: `cargo build`, `cargo test`, `cargo clippy`
+  and `cargo audit`. `Cargo.toml` was not a manifest, so a Rust repository was
+  detected as having whatever its workflows directory implied and nothing
+  else -- measured in `heft`, one inferred `actionlint` and no build, test or
+  lint at all.
+
+  There is deliberately no typecheck gate: `cargo build` type-checks as it
+  compiles, and the only candidate, `cargo check`, compiles the crate again for
+  an answer `build` already gave. clippy and cargo-audit are probed by binary
+  and run through `cargo`, since a cargo subcommand off `PATH` cannot be run at
+  all; an absent one is a note naming its install (`rustup component add
+  clippy`, `cargo install cargo-audit`) rather than a lesser gate, because Rust
+  ships no `go vet` equivalent to fall back to.
+
+### Changed
+
+- A declared `ci` target is run when `gate` claimed none of the gates it
+  aggregates. It was reported as a note and never claimed, on the grounds that
+  running it beside those gates would run each of them twice -- true only when
+  `gate` actually scheduled them. Reproduced in `bastion-ai-helpers`, whose
+  Makefile declares twelve check targets under none of the role names: `gate`
+  claimed one inferred `actionlint`, refused `make ci` as duplicated work, and
+  left the repository ungated. The refusal stands where the duplication is
+  real, and the note now names which of the two cases applied, since a note
+  that appeared in only one would read as a bug in the other. `ci` is still
+  never a role, and where it runs it is appended after the ordered gates.
+
+  `turbo.json` tasks report the aggregate too. `Makefile` targets and
+  `package.json` scripts did; turbo did not, so the shape most likely to
+  declare a `ci` task was the one where the decision looked like an oversight.
+
+- `doctor`'s `knownGoodActionsTag` is `v1.8`. The shared actions repository
+  publishes v1.8, so a repository correctly pinned at v1.7 was not reported as
+  behind. It stays a constant rather than a network lookup: doctor works
+  offline.
+
 ### Removed
 
 - The `lockfile-collision` doctor check. It reported a `package-lock.json`
@@ -28,6 +72,39 @@ Notable changes to `gate`. The format follows
   `npx-in-bun-workspace` already reports the thing that produces one.
 
 ### Fixed
+
+- A gate that timed out while its log could not be written reports the timeout.
+  That run exited 128 with no timeout line at all, while the trailer inside the
+  same log said `killed on timeout` -- the log and the exit status told
+  different stories about one run. It now exits 124, reports the `TIMEOUT`
+  line, and prints the log failure beside it rather than in place of it.
+
+  The verdict and the trailer read one precedence from the same place, so they
+  cannot diverge again: what happened to the command outranks what happened to
+  gate's own log. A command's own non-zero status is never overwritten by a log
+  error; a log error promotes only a `Success` to `Fatal`, and is the whole
+  report only where no command ever ran.
+
+- A sha-pinned shared-action `uses:` line is judged by the `# vN.N` version
+  comment beside it. `actions-stale-ref` read the ref alone, and a sha is not a
+  version, so it reported nothing for any sha pin: measured across 27 sibling
+  repositories, 82 of the 86 uses of these actions are sha pins, leaving the
+  check looking at 4 bare tags and reporting zero staleness anywhere. A sha
+  with no version comment still says nothing.
+
+- `bun.lockb` is recognised wherever `bun.lock` is. Three places asked whether
+  a directory was a bun workspace and one answered differently -- the workspace
+  walk omitted `bun.lockb`, the package runner accepted it, and doctor stat'd
+  `bun.lock` alone -- so a member package under a `bun.lockb`-only root was
+  found with no workspace, binaries never resolved against the workspace's
+  `node_modules/.bin`, and a global tool ran in place of the project's own
+  copy. Both spellings now come from one list.
+
+- `doctor`'s workflow checks are judged from the repository root. A workspace
+  member has no `.github` of its own, so every CI finding fired from the
+  repository root and none from a member directory, while `no-ci`, which walks
+  up, stayed correctly quiet in both. Both resolve the repository the same way
+  now, so the file gives one answer wherever doctor is run.
 
 - A turbo task and the `package.json` script of the same name are no longer
   reported as competing declarations. turbo runs that very script, so the two
