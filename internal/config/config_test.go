@@ -1,12 +1,11 @@
 package config
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/testutil"
 	"github.com/go-quicktest/qt"
 )
 
@@ -18,13 +17,6 @@ func isolate(t *testing.T) string {
 	home := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", home)
 	return home
-}
-
-func write(t *testing.T, dir, name, body string) {
-	t.Helper()
-	path := filepath.Join(dir, name)
-	qt.Assert(t, qt.IsNil(os.MkdirAll(filepath.Dir(path), 0o755)))
-	qt.Assert(t, qt.IsNil(os.WriteFile(path, []byte(body), 0o644)))
 }
 
 // Nothing configured is the common case and must not be an error -- gate had
@@ -42,10 +34,10 @@ func TestNoConfigAnywhereIsNotAnError(t *testing.T) {
 // would make the project file all-or-nothing.
 func TestTheProjectFileWinsPerKeyNotPerFile(t *testing.T) {
 	home := isolate(t)
-	write(t, home, "gate/config.toml", "[gates.test]\nrun = \"user test\"\n\n[gates.lint]\nrun = \"user lint\"\n")
+	testutil.Write(t, home, "gate/config.toml", "[gates.test]\nrun = \"user test\"\n\n[gates.lint]\nrun = \"user lint\"\n")
 
 	root := t.TempDir()
-	write(t, root, ProjectFile, "[gates.test]\nrun = \"project test\"\n")
+	testutil.Write(t, root, ProjectFile, "[gates.test]\nrun = \"project test\"\n")
 
 	cfg, err := Load(root)
 	qt.Assert(t, qt.IsNil(err))
@@ -64,10 +56,10 @@ func TestTheProjectFileWinsPerKeyNotPerFile(t *testing.T) {
 // indistinguishable from not writing it at all.
 func TestSerialFalseIsDistinguishableFromUnset(t *testing.T) {
 	home := isolate(t)
-	write(t, home, "gate/config.toml", "[gates.test]\nserial = true\n")
+	testutil.Write(t, home, "gate/config.toml", "[gates.test]\nserial = true\n")
 
 	root := t.TempDir()
-	write(t, root, ProjectFile, "[gates.test]\nserial = false\n")
+	testutil.Write(t, root, ProjectFile, "[gates.test]\nserial = false\n")
 
 	cfg, err := Load(root)
 	qt.Assert(t, qt.IsNil(err))
@@ -85,10 +77,10 @@ func TestSerialFalseIsDistinguishableFromUnset(t *testing.T) {
 // timeout still inherits the user's settings for every other gate.
 func TestAProjectTimeoutLeavesOtherGatesOnTheirDefaults(t *testing.T) {
 	home := isolate(t)
-	write(t, home, "gate/config.toml", "[gates.e2e]\ntimeout = \"10m\"\n")
+	testutil.Write(t, home, "gate/config.toml", "[gates.e2e]\ntimeout = \"10m\"\n")
 
 	root := t.TempDir()
-	write(t, root, ProjectFile, "[gates.test]\ntimeout = \"5m\"\n")
+	testutil.Write(t, root, ProjectFile, "[gates.test]\ntimeout = \"5m\"\n")
 
 	cfg, err := Load(root)
 	qt.Assert(t, qt.IsNil(err))
@@ -105,10 +97,10 @@ func TestAProjectTimeoutLeavesOtherGatesOnTheirDefaults(t *testing.T) {
 // things.
 func TestATimeoutOfZeroIsDistinguishableFromUnset(t *testing.T) {
 	home := isolate(t)
-	write(t, home, "gate/config.toml", "[gates.test]\ntimeout = \"5m\"\n")
+	testutil.Write(t, home, "gate/config.toml", "[gates.test]\ntimeout = \"5m\"\n")
 
 	root := t.TempDir()
-	write(t, root, ProjectFile, "[gates.test]\ntimeout = \"0\"\n")
+	testutil.Write(t, root, ProjectFile, "[gates.test]\ntimeout = \"0\"\n")
 
 	cfg, err := Load(root)
 	qt.Assert(t, qt.IsNil(err))
@@ -122,7 +114,7 @@ func TestATimeoutOfZeroIsDistinguishableFromUnset(t *testing.T) {
 func TestUnusableTimeoutsAreRefusedAllAtOnce(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
-	write(t, root, ProjectFile, "[gates.test]\ntimeout = \"soon\"\n\n[gates.lint]\ntimeout = \"-1m\"\n")
+	testutil.Write(t, root, ProjectFile, "[gates.test]\ntimeout = \"soon\"\n\n[gates.lint]\ntimeout = \"-1m\"\n")
 
 	_, err := Load(root)
 	qt.Assert(t, qt.IsNotNil(err))
@@ -139,7 +131,7 @@ func TestUnusableTimeoutsAreRefusedAllAtOnce(t *testing.T) {
 func TestUnknownKeysAreRefusedAllAtOnce(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
-	write(t, root, ProjectFile, "[gates.test]\nrunn = \"go test\"\nseriall = true\n")
+	testutil.Write(t, root, ProjectFile, "[gates.test]\nrunn = \"go test\"\nseriall = true\n")
 
 	_, err := Load(root)
 	qt.Assert(t, qt.IsNotNil(err))
@@ -155,7 +147,7 @@ func TestUnknownKeysAreRefusedAllAtOnce(t *testing.T) {
 func TestMalformedTOMLRefusesAndNamesTheFile(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
-	write(t, root, ProjectFile, "[gates.test\nrun = \"go test\"\n")
+	testutil.Write(t, root, ProjectFile, "[gates.test\nrun = \"go test\"\n")
 
 	_, err := Load(root)
 	qt.Assert(t, qt.IsNotNil(err))

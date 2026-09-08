@@ -10,15 +10,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/testutil"
 	"github.com/go-quicktest/qt"
 )
-
-func write(t *testing.T, dir, name, body string) {
-	t.Helper()
-	path := filepath.Join(dir, name)
-	qt.Assert(t, qt.IsNil(os.MkdirAll(filepath.Dir(path), 0o755)))
-	qt.Assert(t, qt.IsNil(os.WriteFile(path, []byte(body), 0o644)))
-}
 
 // reported reports whether a check fired, which is what most cases here ask.
 func reported(findings []Finding, check string) bool {
@@ -47,7 +41,7 @@ func isolatePath(t *testing.T) {
 func TestGoModuleWithoutGovulncheckIsReported(t *testing.T) {
 	isolatePath(t)
 	dir := t.TempDir()
-	write(t, dir, "go.mod", "module demo\n\ngo 1.26\n")
+	testutil.Write(t, dir, "go.mod", "module demo\n\ngo 1.26\n")
 
 	findings, err := Run(dir)
 	qt.Assert(t, qt.IsNil(err))
@@ -64,11 +58,11 @@ func TestGoModuleWithoutGovulncheckIsReported(t *testing.T) {
 func TestDoctorLeavesTheRepositoryByteIdentical(t *testing.T) {
 	isolatePath(t)
 	dir := t.TempDir()
-	write(t, dir, "go.mod", "module demo\n\ngo 1.26\n")
-	write(t, dir, "package.json", `{"scripts":{"lint":"eslint ."}}`)
-	write(t, dir, ".github/workflows/ci.yml",
+	testutil.Write(t, dir, "go.mod", "module demo\n\ngo 1.26\n")
+	testutil.Write(t, dir, "package.json", `{"scripts":{"lint":"eslint ."}}`)
+	testutil.Write(t, dir, ".github/workflows/ci.yml",
 		"name: CI\njobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-go@v1.2\n")
-	write(t, dir, "Makefile", "test:\n\ttouch SHOULD-NOT-EXIST\n")
+	testutil.Write(t, dir, "Makefile", "test:\n\ttouch SHOULD-NOT-EXIST\n")
 
 	before := treeDigest(t, dir)
 	_, err := Run(dir)
@@ -110,10 +104,10 @@ func treeDigest(t *testing.T, root string) string {
 func TestGovulncheckIsJudgedAcrossAllWorkflows(t *testing.T) {
 	isolatePath(t)
 	dir := t.TempDir()
-	write(t, dir, "go.mod", "module demo\n\ngo 1.26\n")
-	write(t, dir, ".github/workflows/ci.yml",
+	testutil.Write(t, dir, "go.mod", "module demo\n\ngo 1.26\n")
+	testutil.Write(t, dir, ".github/workflows/ci.yml",
 		"jobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-go@v1.7\n        with:\n          run-govulncheck: \"true\"\n")
-	write(t, dir, ".github/workflows/release.yml",
+	testutil.Write(t, dir, ".github/workflows/release.yml",
 		"jobs:\n  b:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-go@v1.7\n")
 
 	findings, err := Run(dir)
@@ -124,9 +118,9 @@ func TestGovulncheckIsJudgedAcrossAllWorkflows(t *testing.T) {
 func TestWorkflowGapsAreReported(t *testing.T) {
 	isolatePath(t)
 	dir := t.TempDir()
-	write(t, dir, "package.json", `{"name":"demo"}`)
-	write(t, dir, "bun.lock", "")
-	write(t, dir, ".github/workflows/ci.yml", strings.Join([]string{
+	testutil.Write(t, dir, "package.json", `{"name":"demo"}`)
+	testutil.Write(t, dir, "bun.lock", "")
+	testutil.Write(t, dir, ".github/workflows/ci.yml", strings.Join([]string{
 		"jobs:",
 		"  a:",
 		"    strategy:",
@@ -155,8 +149,8 @@ func TestStaleActionRefIsReportedButNewerIsNot(t *testing.T) {
 	isolatePath(t)
 
 	older := t.TempDir()
-	write(t, older, "package.json", `{"name":"demo"}`)
-	write(t, older, ".github/workflows/ci.yml",
+	testutil.Write(t, older, "package.json", `{"name":"demo"}`)
+	testutil.Write(t, older, ".github/workflows/ci.yml",
 		"jobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-bun@v1.2\n")
 	findings, err := Run(older)
 	qt.Assert(t, qt.IsNil(err))
@@ -169,8 +163,8 @@ func TestStaleActionRefIsReportedButNewerIsNot(t *testing.T) {
 	// parse is not evidence of anything, and guessing at one would flag the
 	// strictest pin available as a problem.
 	newer := t.TempDir()
-	write(t, newer, "package.json", `{"name":"demo"}`)
-	write(t, newer, ".github/workflows/ci.yml",
+	testutil.Write(t, newer, "package.json", `{"name":"demo"}`)
+	testutil.Write(t, newer, ".github/workflows/ci.yml",
 		"jobs:\n  a:\n    steps:\n"+
 			"      - uses: Rethunk-Tech/gh-actions/setup-bun@v9.9\n"+
 			"      - uses: Rethunk-Tech/gh-actions/setup-go@3d3c42e5aac5ba805825da76410c181273ba90b1\n"+
@@ -186,8 +180,8 @@ func TestStaleActionRefIsReportedButNewerIsNot(t *testing.T) {
 func TestActionRefStopsAtATrailingComment(t *testing.T) {
 	isolatePath(t)
 	dir := t.TempDir()
-	write(t, dir, "package.json", `{"name":"demo"}`)
-	write(t, dir, ".github/workflows/ci.yml",
+	testutil.Write(t, dir, "package.json", `{"name":"demo"}`)
+	testutil.Write(t, dir, ".github/workflows/ci.yml",
 		"jobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-go@v1.2  # pinned deliberately\n")
 
 	findings, err := Run(dir)
@@ -204,13 +198,13 @@ func TestSupersededToolingFlagsOnlyTheStraggler(t *testing.T) {
 	isolatePath(t)
 
 	straggler := t.TempDir()
-	write(t, straggler, "package.json", `{"scripts":{"lint":"eslint ."}}`)
+	testutil.Write(t, straggler, "package.json", `{"scripts":{"lint":"eslint ."}}`)
 	findings, err := Run(straggler)
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.IsTrue(reported(findings, "superseded-tooling")), qt.Commentf("eslint-only project not flagged: %v", checkNames(findings)))
 
 	migrated := t.TempDir()
-	write(t, migrated, "package.json", `{"scripts":{"lint":"biome check ."}}`)
+	testutil.Write(t, migrated, "package.json", `{"scripts":{"lint":"biome check ."}}`)
 	findings, err = Run(migrated)
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.IsFalse(reported(findings, "superseded-tooling")), qt.Commentf("biome project wrongly flagged: %v", checkNames(findings)))
@@ -223,8 +217,8 @@ func TestARepositoryWithNoCIIsReported(t *testing.T) {
 	isolatePath(t)
 
 	repo := t.TempDir()
-	write(t, repo, "go.mod", "module demo\n\ngo 1.26\n")
-	write(t, repo, ".git/HEAD", "ref: refs/heads/main\n")
+	testutil.Write(t, repo, "go.mod", "module demo\n\ngo 1.26\n")
+	testutil.Write(t, repo, ".git/HEAD", "ref: refs/heads/main\n")
 
 	findings, err := Run(repo)
 	qt.Assert(t, qt.IsNil(err))
@@ -239,15 +233,15 @@ func TestARepositoryWithNoCIIsReported(t *testing.T) {
 	// rather than the repository would fire on the majority shape in this
 	// fleet, where most package.json files sit under a workspace root.
 	member := filepath.Join(repo, "packages", "web")
-	write(t, member, "package.json", `{"name":"web"}`)
-	write(t, repo, ".github/workflows/ci.yml", "jobs: {}\n")
+	testutil.Write(t, member, "package.json", `{"name":"web"}`)
+	testutil.Write(t, repo, ".github/workflows/ci.yml", "jobs: {}\n")
 	findings, err = Run(member)
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.IsFalse(reported(findings, "no-ci")), qt.Commentf("a workspace member was reported as having no CI: %v", checkNames(findings)))
 
 	// A directory that merely holds a manifest is not a project missing CI.
 	loose := t.TempDir()
-	write(t, loose, "go.mod", "module loose\n\ngo 1.26\n")
+	testutil.Write(t, loose, "go.mod", "module loose\n\ngo 1.26\n")
 	findings, err = Run(loose)
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.IsFalse(reported(findings, "no-ci")), qt.Commentf("a non-repository was reported as having no CI: %v", checkNames(findings)))
@@ -256,8 +250,8 @@ func TestARepositoryWithNoCIIsReported(t *testing.T) {
 	// not gate roles -- a repository that builds documents -- yields no gates,
 	// so advising it to add a workflow would be advice with no content.
 	docs := t.TempDir()
-	write(t, docs, ".git/HEAD", "ref: refs/heads/main\n")
-	write(t, docs, "Makefile", "pdfs:\n\tpandoc x.md -o x.pdf\n")
+	testutil.Write(t, docs, ".git/HEAD", "ref: refs/heads/main\n")
+	testutil.Write(t, docs, "Makefile", "pdfs:\n\tpandoc x.md -o x.pdf\n")
 	findings, err = Run(docs)
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.IsFalse(reported(findings, "no-ci")),
@@ -265,8 +259,8 @@ func TestARepositoryWithNoCIIsReported(t *testing.T) {
 
 	// But one real gate is enough to make the absence worth reporting.
 	oneGate := t.TempDir()
-	write(t, oneGate, ".git/HEAD", "ref: refs/heads/main\n")
-	write(t, oneGate, "Makefile", "lint:\n\tmarkdownlint .\n")
+	testutil.Write(t, oneGate, ".git/HEAD", "ref: refs/heads/main\n")
+	testutil.Write(t, oneGate, "Makefile", "lint:\n\tmarkdownlint .\n")
 	findings, err = Run(oneGate)
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.IsTrue(reported(findings, "no-ci")),

@@ -11,11 +11,10 @@ import (
 	"time"
 
 	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/detect"
+	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/testutil"
 	"github.com/go-quicktest/qt"
 )
 
-// write creates a fixture file, making its parents. Almost every case here
-// starts by planting a Makefile or a manifest.
 // plantBin puts a no-op executable in the fixture's node_modules/.bin and
 // returns its path. Detection resolves there before PATH, so planting the tool
 // a fixture implies is what makes the gate set the same everywhere: a machine
@@ -23,17 +22,7 @@ import (
 // fixture never asked for, and a bare `tsc --noEmit` fails with no tsconfig.
 func plantBin(t *testing.T, dir, name string) string {
 	t.Helper()
-	path := filepath.Join(dir, "node_modules", ".bin", name)
-	qt.Assert(t, qt.IsNil(os.MkdirAll(filepath.Dir(path), 0o755)))
-	qt.Assert(t, qt.IsNil(os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o755)))
-	return path
-}
-
-func write(t *testing.T, dir, name, body string) {
-	t.Helper()
-	path := filepath.Join(dir, name)
-	qt.Assert(t, qt.IsNil(os.MkdirAll(filepath.Dir(path), 0o755)))
-	qt.Assert(t, qt.IsNil(os.WriteFile(path, []byte(body), 0o644)))
+	return testutil.WriteExecutable(t, dir, filepath.Join("node_modules", ".bin", name))
 }
 
 // exists reports whether a path is present. Almost every fixture here proves
@@ -320,12 +309,12 @@ func setLogDir(t *testing.T) {
 func gateProject(t *testing.T, commands ...string) string {
 	t.Helper()
 	root := t.TempDir()
-	write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
+	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
 	var b strings.Builder
 	for i, command := range commands {
 		fmt.Fprintf(&b, "[gates.g%d]\nrun = %q\n\n", i, command)
 	}
-	write(t, root, ".gate.toml", b.String())
+	testutil.Write(t, root, ".gate.toml", b.String())
 	return root
 }
 
@@ -442,7 +431,7 @@ func TestRunSerialStopsAtFirstFailure(t *testing.T) {
 // basis cost 24-42% of the wall clock and bought nothing.
 func TestGatesRunConcurrentlyUnlessMarkedSerial(t *testing.T) {
 	root := t.TempDir()
-	write(t, root, "Makefile", "build:\n\texit 5\n\ntest:\n\ttouch "+filepath.Join(root, "test-ran")+"\n")
+	testutil.Write(t, root, "Makefile", "build:\n\texit 5\n\ntest:\n\ttouch "+filepath.Join(root, "test-ran")+"\n")
 	t.Setenv("TMPDIR", t.TempDir())
 
 	_, stderr, code := runGateTest(t, "-C", root)
@@ -465,8 +454,8 @@ func TestGatesStoppedByAFailingGroupAreReportedAsSkipped(t *testing.T) {
 	root := t.TempDir()
 	// build first, per gateOrder, and the config is what puts them in one
 	// group -- without it these two would run concurrently.
-	write(t, root, "Makefile", "build:\n\texit 5\n\ntest:\n\ttouch "+filepath.Join(root, "test-ran")+"\n")
-	write(t, root, ".gate.toml", "[gates.build]\nserial = true\n\n[gates.test]\nserial = true\n")
+	testutil.Write(t, root, "Makefile", "build:\n\texit 5\n\ntest:\n\ttouch "+filepath.Join(root, "test-ran")+"\n")
+	testutil.Write(t, root, ".gate.toml", "[gates.build]\nserial = true\n\n[gates.test]\nserial = true\n")
 	t.Setenv("TMPDIR", t.TempDir())
 
 	_, stderr, code := runGateTest(t, "-C", root)
@@ -499,8 +488,8 @@ func TestResolvedPathIsShortenedOnTheVerdictLineOnly(t *testing.T) {
 	root := t.TempDir()
 	bin := plantBin(t, root, "biome")
 	plantBin(t, root, "tsc")
-	write(t, root, "package.json", `{"name":"app"}`)
-	write(t, root, "bun.lock", "")
+	testutil.Write(t, root, "package.json", `{"name":"app"}`)
+	testutil.Write(t, root, "bun.lock", "")
 	logs := t.TempDir()
 	t.Setenv("TMPDIR", logs)
 
@@ -547,7 +536,7 @@ func TestResolvedPathIsShortenedOnTheVerdictLineOnly(t *testing.T) {
 // project would run `make test` again, forever.
 func TestGateRefusesToDetectAProjectItIsAlreadyRunning(t *testing.T) {
 	root := t.TempDir()
-	write(t, root, "Makefile", "test:\n\ttouch ran\n")
+	testutil.Write(t, root, "Makefile", "test:\n\ttouch ran\n")
 	t.Setenv("TMPDIR", t.TempDir())
 	t.Setenv(activeRootsVar, root)
 
@@ -595,8 +584,8 @@ func TestDoctorRendersFindingsAndNeverFailsTheBuild(t *testing.T) {
 	dir := t.TempDir()
 	wf := filepath.Join(dir, ".github", "workflows")
 	qt.Assert(t, qt.IsNil(os.MkdirAll(wf, 0o755)))
-	write(t, dir, "go.mod", "module demo\n\ngo 1.26\n")
-	write(t, wf, "ci.yml", "jobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-go@v1.7\n")
+	testutil.Write(t, dir, "go.mod", "module demo\n\ngo 1.26\n")
+	testutil.Write(t, wf, "ci.yml", "jobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-go@v1.7\n")
 
 	stdout, stderr, code := runGateTest(t, "-C", dir, "doctor")
 
@@ -621,7 +610,7 @@ func TestDoctorRendersFindingsAndNeverFailsTheBuild(t *testing.T) {
 // every gate name rather than six of them.
 func TestOnlyRunSelectsGatesAndABareRoleIsTheProgram(t *testing.T) {
 	root := t.TempDir()
-	write(t, root, "Makefile", "test:\n\ttouch "+filepath.Join(root, "test-ran")+"\n"+
+	testutil.Write(t, root, "Makefile", "test:\n\ttouch "+filepath.Join(root, "test-ran")+"\n"+
 		"lint:\n\ttouch "+filepath.Join(root, "lint-ran")+"\n")
 	t.Setenv("TMPDIR", t.TempDir())
 
@@ -653,8 +642,8 @@ func TestRunNamesGatesIncludingTheOnesOnlyConfigKnows(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("TMPDIR", t.TempDir())
 	ran := func(name string) string { return filepath.Join(root, name+"-ran") }
-	write(t, root, "Makefile", "test:\n\ttouch "+ran("test")+"\n")
-	write(t, root, ".gate.toml", "[gates.e2e]\nrun = \"touch "+ran("e2e")+"\"\n")
+	testutil.Write(t, root, "Makefile", "test:\n\ttouch "+ran("test")+"\n")
+	testutil.Write(t, root, ".gate.toml", "[gates.e2e]\nrun = \"touch "+ran("e2e")+"\"\n")
 	// Remove any sentinel from an earlier step so a pass cannot occur without
 	// the gate having run.
 	reset := func(names ...string) {
@@ -698,7 +687,7 @@ func TestRunNamesGatesIncludingTheOnesOnlyConfigKnows(t *testing.T) {
 // /usr/bin/test would be worst.
 func TestANamedGateThatDoesNotExistRefusesRatherThanRunningAProgram(t *testing.T) {
 	root := t.TempDir()
-	write(t, root, "Makefile", "lint:\n\ttrue\n")
+	testutil.Write(t, root, "Makefile", "lint:\n\ttrue\n")
 	t.Setenv("TMPDIR", t.TempDir())
 
 	_, stderr, code := runGateTest(t, "-C", root, "run", "test")
@@ -804,12 +793,12 @@ func TestGatesNotStartedWhenInterruptedSayTheRunWasInterrupted(t *testing.T) {
 // between two stated intents is the behaviour this exists to prevent.
 func TestAShadowWarningNamesItsFixOnceAndCannotBeSilenced(t *testing.T) {
 	root := t.TempDir()
-	write(t, root, "Makefile", "test:\n\ttrue\n")
+	testutil.Write(t, root, "Makefile", "test:\n\ttrue\n")
 	// Written the way biome formats it: a package.json also attracts the
 	// convention lint gate on a machine that has biome, and a fixture that
 	// fails formatting would fail this test for an unrelated reason.
-	write(t, root, "package.json", "{\n\t\"scripts\": {\n\t\t\"test\": \"vitest run\"\n\t}\n}\n")
-	write(t, root, "bun.lock", "")
+	testutil.Write(t, root, "package.json", "{\n\t\"scripts\": {\n\t\t\"test\": \"vitest run\"\n\t}\n}\n")
+	testutil.Write(t, root, "bun.lock", "")
 	plantBin(t, root, "tsc")
 	t.Setenv("TMPDIR", t.TempDir())
 
@@ -830,7 +819,7 @@ func TestAShadowWarningNamesItsFixOnceAndCannotBeSilenced(t *testing.T) {
 // become the whole gate list.
 func TestConfigCannotRemoveADetectedGate(t *testing.T) {
 	root := timeoutProject(t, "[gates.test]\nserial = true\n")
-	write(t, root, "Makefile", "test:\n\ttouch "+filepath.Join(root, "test-ran")+"\n"+
+	testutil.Write(t, root, "Makefile", "test:\n\ttouch "+filepath.Join(root, "test-ran")+"\n"+
 		"lint:\n\ttouch "+filepath.Join(root, "lint-ran")+"\n")
 
 	_, stderr, code := runGateTest(t, "-C", root)
@@ -844,7 +833,7 @@ func TestConfigCannotRemoveADetectedGate(t *testing.T) {
 // up the other project's settings rather than the caller's.
 func TestConfigComesFromTheProjectNotTheCaller(t *testing.T) {
 	other := timeoutProject(t, "[gates.e2e]\nrun = \"true\"\n")
-	write(t, other, "Makefile", "test:\n\ttrue\n")
+	testutil.Write(t, other, "Makefile", "test:\n\ttrue\n")
 
 	stdout, stderr, code := runGateTest(t, "-C", other, "--list")
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
@@ -859,7 +848,7 @@ func TestConfigComesFromTheProjectNotTheCaller(t *testing.T) {
 // refusal is a usage error rather than a failing gate.
 func TestABrokenConfigRefusesInsteadOfIgnoringItself(t *testing.T) {
 	root := timeoutProject(t, "[gates.test]\ntimout = \"10m\"\n")
-	write(t, root, "Makefile", "test:\n\ttrue\n")
+	testutil.Write(t, root, "Makefile", "test:\n\ttrue\n")
 
 	_, stderr, code := runGateTest(t, "-C", root)
 	qt.Assert(t, qt.Equals(code, InvalidUsage), qt.Commentf("stderr = %q", stderr))
@@ -874,9 +863,9 @@ func TestAConfigRunSettlesAShadowConflict(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("TMPDIR", t.TempDir())
-	write(t, root, "Makefile", "test:\n\ttrue\n")
-	write(t, root, "package.json", "{\n\t\"scripts\": {\n\t\t\"test\": \"vitest run\"\n\t}\n}\n")
-	write(t, root, "bun.lock", "")
+	testutil.Write(t, root, "Makefile", "test:\n\ttrue\n")
+	testutil.Write(t, root, "package.json", "{\n\t\"scripts\": {\n\t\t\"test\": \"vitest run\"\n\t}\n}\n")
+	testutil.Write(t, root, "bun.lock", "")
 	plantBin(t, root, "tsc")
 
 	// Unresolved, it warns.
@@ -886,7 +875,7 @@ func TestAConfigRunSettlesAShadowConflict(t *testing.T) {
 
 	// Settled, it does not -- and --list names the file that settled it,
 	// rather than the conflict simply disappearing.
-	write(t, root, ".gate.toml", "[gates.test]\nrun = \"true\"\n")
+	testutil.Write(t, root, ".gate.toml", "[gates.test]\nrun = \"true\"\n")
 	_, stderr, code = runGateTest(t, "-C", root, "--quiet")
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
 	qt.Check(t, qt.Not(qt.StringContains(stderr, "declared twice")),
@@ -913,9 +902,9 @@ func TestRunLogWithSeveralGatesIsRefused(t *testing.T) {
 func TestListShowsChosenAndShadowedAndRunsNothing(t *testing.T) {
 	dir := t.TempDir()
 	marker := filepath.Join(dir, "SHOULD-NOT-EXIST")
-	write(t, dir, "Makefile", "test:\n\ttouch "+marker+"\n")
-	write(t, dir, "package.json", `{"scripts":{"test":"vitest run"}}`)
-	write(t, dir, "bun.lock", "")
+	testutil.Write(t, dir, "Makefile", "test:\n\ttouch "+marker+"\n")
+	testutil.Write(t, dir, "package.json", `{"scripts":{"test":"vitest run"}}`)
+	testutil.Write(t, dir, "bun.lock", "")
 	// supabase/ is found and deliberately not turned into a gate, which
 	// --list has to say: silence there reads as "nothing to report" rather
 	// than "a decision was made".
@@ -1063,8 +1052,8 @@ func timeoutProject(t *testing.T, body string) string {
 	root := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	setLogDir(t)
-	write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
-	write(t, root, ".gate.toml", body)
+	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
+	testutil.Write(t, root, ".gate.toml", body)
 	return root
 }
 
@@ -1087,8 +1076,8 @@ func TestAGateTimeoutOfZeroDisablesTheLimitForThatGateAlone(t *testing.T) {
 	finished := filepath.Join(root, "unbounded-finished")
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	setLogDir(t)
-	write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
-	write(t, root, ".gate.toml", "[gates.bounded]\nrun = \"sleep 10\"\ntimeout = \"150ms\"\n\n"+
+	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
+	testutil.Write(t, root, ".gate.toml", "[gates.bounded]\nrun = \"sleep 10\"\ntimeout = \"150ms\"\n\n"+
 		"[gates.unbounded]\nrun = \"sleep 0.4; touch "+finished+"\"\ntimeout = \"0\"\n")
 
 	_, stderr, code := runGateTest(t, "-C", root)
@@ -1120,8 +1109,8 @@ func TestAMalformedGateTimeoutRefusesTheFile(t *testing.T) {
 	ran := filepath.Join(root, "test-ran")
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	setLogDir(t)
-	write(t, root, "Makefile", "test:\n\ttouch "+ran+"\n")
-	write(t, root, ".gate.toml", "[gates.test]\ntimeout = \"soon\"\n")
+	testutil.Write(t, root, "Makefile", "test:\n\ttouch "+ran+"\n")
+	testutil.Write(t, root, ".gate.toml", "[gates.test]\ntimeout = \"soon\"\n")
 
 	_, stderr, code := runGateTest(t, "-C", root)
 	qt.Assert(t, qt.Equals(code, InvalidUsage), qt.Commentf("stderr = %q", stderr))
@@ -1149,7 +1138,7 @@ func TestChdirRunsTheCommandThere(t *testing.T) {
 func TestDetectedGatesRunAtTheProjectRootNotTheCallerDirectory(t *testing.T) {
 	// t.Setenv below rules out t.Parallel.
 	root := t.TempDir()
-	write(t, root, "Makefile", "test:\n\ttouch ran-at-root\n")
+	testutil.Write(t, root, "Makefile", "test:\n\ttouch ran-at-root\n")
 	sub := filepath.Join(root, "deep", "inside")
 	qt.Assert(t, qt.IsNil(os.MkdirAll(sub, 0o755)))
 	t.Setenv("TMPDIR", t.TempDir())

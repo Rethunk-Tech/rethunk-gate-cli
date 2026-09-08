@@ -7,27 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/testutil"
 	"github.com/go-quicktest/qt"
 )
-
-// write creates a file, making its parents. Fixtures are directories of
-// manifests, so almost every case starts with a few of these.
-func write(t *testing.T, dir, name, body string) {
-	t.Helper()
-	path := filepath.Join(dir, name)
-	qt.Assert(t, qt.IsNil(os.MkdirAll(filepath.Dir(path), 0o755)))
-	qt.Assert(t, qt.IsNil(os.WriteFile(path, []byte(body), 0o644)))
-}
-
-// writeExecutable plants a runnable file, used to stand in for a tool that
-// lives in node_modules/.bin and nowhere on PATH.
-func writeExecutable(t *testing.T, dir, name string) string {
-	t.Helper()
-	path := filepath.Join(dir, name)
-	qt.Assert(t, qt.IsNil(os.MkdirAll(filepath.Dir(path), 0o755)))
-	qt.Assert(t, qt.IsNil(os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o755)))
-	return path
-}
 
 // detect runs Detect and fails the test if it could not.
 func detect(t *testing.T, dir string) Project {
@@ -64,9 +46,9 @@ func hasNote(proj Project, substr string) bool {
 func TestDeclaredScriptBeatsTheInferredCommand(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	write(t, dir, "package.json", `{"scripts":{"typecheck":"tsc -p tsconfig.build.json"}}`)
-	write(t, dir, "bun.lock", "")
-	writeExecutable(t, dir, "node_modules/.bin/tsc")
+	testutil.Write(t, dir, "package.json", `{"scripts":{"typecheck":"tsc -p tsconfig.build.json"}}`)
+	testutil.Write(t, dir, "bun.lock", "")
+	testutil.WriteExecutable(t, dir, "node_modules/.bin/tsc")
 
 	typecheck := gateNamed(t, detect(t, dir), "typecheck")
 	qt.Check(t, qt.Equals(typecheck.Display(), "bun run typecheck"))
@@ -84,9 +66,9 @@ func TestDeclaredScriptBeatsTheInferredCommand(t *testing.T) {
 func TestFallbackResolvesProjectLocalBinaryAbsentFromPath(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	write(t, dir, "package.json", `{"name":"demo"}`)
-	write(t, dir, "bun.lock", "")
-	biome := writeExecutable(t, dir, "node_modules/.bin/biome")
+	testutil.Write(t, dir, "package.json", `{"name":"demo"}`)
+	testutil.Write(t, dir, "bun.lock", "")
+	biome := testutil.WriteExecutable(t, dir, "node_modules/.bin/biome")
 
 	lint := gateNamed(t, detect(t, dir), "lint")
 	qt.Check(t, qt.Equals(lint.Argv[0], biome),
@@ -105,9 +87,9 @@ func TestFallbackResolvesProjectLocalBinaryAbsentFromPath(t *testing.T) {
 func TestCompetingDeclarationsAreReportedNotResolvedSilently(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	write(t, dir, "Makefile", "test:\n\tgo test ./...\n")
-	write(t, dir, "package.json", `{"scripts":{"test":"vitest run"}}`)
-	write(t, dir, "bun.lock", "")
+	testutil.Write(t, dir, "Makefile", "test:\n\tgo test ./...\n")
+	testutil.Write(t, dir, "package.json", `{"scripts":{"test":"vitest run"}}`)
+	testutil.Write(t, dir, "bun.lock", "")
 
 	test := gateNamed(t, detect(t, dir), "test")
 	// The Makefile wins: a target that exists is a deliberate wrapper, and
@@ -128,10 +110,10 @@ func TestCompetingDeclarationsAreReportedNotResolvedSilently(t *testing.T) {
 func TestTurboDoesNotShadowThePackageScriptItRuns(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	write(t, dir, "package.json", `{"scripts":{"build":"next build"}}`)
-	write(t, dir, "turbo.json", `{"tasks":{"build":{}}}`)
-	write(t, dir, "bun.lock", "")
-	writeExecutable(t, dir, "node_modules/.bin/turbo")
+	testutil.Write(t, dir, "package.json", `{"scripts":{"build":"next build"}}`)
+	testutil.Write(t, dir, "turbo.json", `{"tasks":{"build":{}}}`)
+	testutil.Write(t, dir, "bun.lock", "")
+	testutil.WriteExecutable(t, dir, "node_modules/.bin/turbo")
 
 	build := gateNamed(t, detect(t, dir), "build")
 	qt.Check(t, qt.StringContains(build.Display(), "turbo run build"),
@@ -147,10 +129,10 @@ func TestTurboDoesNotShadowThePackageScriptItRuns(t *testing.T) {
 func TestTurboRootTaskCoversTheGate(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	write(t, dir, "package.json", `{"scripts":{"lint":"biome check ."}}`)
-	write(t, dir, "turbo.json", `{"tasks":{"//#lint":{}}}`)
-	write(t, dir, "bun.lock", "")
-	writeExecutable(t, dir, "node_modules/.bin/turbo")
+	testutil.Write(t, dir, "package.json", `{"scripts":{"lint":"biome check ."}}`)
+	testutil.Write(t, dir, "turbo.json", `{"tasks":{"//#lint":{}}}`)
+	testutil.Write(t, dir, "bun.lock", "")
+	testutil.WriteExecutable(t, dir, "node_modules/.bin/turbo")
 
 	lint := gateNamed(t, detect(t, dir), "lint")
 	qt.Check(t, qt.StringContains(lint.Display(), "turbo run lint"),
@@ -164,11 +146,11 @@ func TestTurboRootTaskCoversTheGate(t *testing.T) {
 func TestTurboDependsOnBetweenRolesSerialisesBoth(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	write(t, dir, "package.json", `{"scripts":{"build":"next build","typecheck":"tsc --noEmit","lint":"biome check ."}}`)
-	write(t, dir, "turbo.json",
+	testutil.Write(t, dir, "package.json", `{"scripts":{"build":"next build","typecheck":"tsc --noEmit","lint":"biome check ."}}`)
+	testutil.Write(t, dir, "turbo.json",
 		`{"tasks":{"build":{},"typecheck":{"dependsOn":["build"]},"lint":{}}}`)
-	write(t, dir, "bun.lock", "")
-	writeExecutable(t, dir, "node_modules/.bin/turbo")
+	testutil.Write(t, dir, "bun.lock", "")
+	testutil.WriteExecutable(t, dir, "node_modules/.bin/turbo")
 
 	proj := detect(t, dir)
 	qt.Check(t, qt.IsTrue(gateNamed(t, proj, "build").Serial),
@@ -185,10 +167,10 @@ func TestTurboDependsOnBetweenRolesSerialisesBoth(t *testing.T) {
 func TestTurboTopologicalDependsOnDoesNotSerialise(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	write(t, dir, "package.json", `{"scripts":{"build":"tsc","typecheck":"tsc --noEmit"}}`)
-	write(t, dir, "turbo.json", `{"tasks":{"build":{"dependsOn":["^build"]},"typecheck":{}}}`)
-	write(t, dir, "bun.lock", "")
-	writeExecutable(t, dir, "node_modules/.bin/turbo")
+	testutil.Write(t, dir, "package.json", `{"scripts":{"build":"tsc","typecheck":"tsc --noEmit"}}`)
+	testutil.Write(t, dir, "turbo.json", `{"tasks":{"build":{"dependsOn":["^build"]},"typecheck":{}}}`)
+	testutil.Write(t, dir, "bun.lock", "")
+	testutil.WriteExecutable(t, dir, "node_modules/.bin/turbo")
 
 	proj := detect(t, dir)
 	qt.Check(t, qt.IsFalse(gateNamed(t, proj, "build").Serial),
@@ -200,7 +182,7 @@ func TestTurboTopologicalDependsOnDoesNotSerialise(t *testing.T) {
 func TestDetectRunsNothing(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	write(t, dir, "Makefile", "test:\n\ttouch "+filepath.Join(dir, "SHOULD-NOT-EXIST")+"\n")
+	testutil.Write(t, dir, "Makefile", "test:\n\ttouch "+filepath.Join(dir, "SHOULD-NOT-EXIST")+"\n")
 
 	detect(t, dir)
 
@@ -213,9 +195,9 @@ func TestDetectRunsNothing(t *testing.T) {
 func TestWorkspaceRootIsFoundAboveThePackage(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
-	write(t, root, "bun.lock", "")
+	testutil.Write(t, root, "bun.lock", "")
 	pkg := filepath.Join(root, "packages", "web")
-	write(t, pkg, "package.json", `{"scripts":{"test":"bun test"}}`)
+	testutil.Write(t, pkg, "package.json", `{"scripts":{"test":"bun test"}}`)
 
 	proj := detect(t, pkg)
 	qt.Check(t, qt.Equals(proj.Root, pkg))
@@ -232,10 +214,10 @@ func TestWorkspaceRootIsFoundAboveThePackage(t *testing.T) {
 func TestTurboGatesRunTheResolvedBinary(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	write(t, dir, "turbo.json", `{"tasks":{"test":{},"lint":{}}}`)
-	write(t, dir, "package.json", `{"scripts":{"test":"vitest"}}`)
-	write(t, dir, "bun.lock", "")
-	turbo := writeExecutable(t, dir, "node_modules/.bin/turbo")
+	testutil.Write(t, dir, "turbo.json", `{"tasks":{"test":{},"lint":{}}}`)
+	testutil.Write(t, dir, "package.json", `{"scripts":{"test":"vitest"}}`)
+	testutil.Write(t, dir, "bun.lock", "")
+	turbo := testutil.WriteExecutable(t, dir, "node_modules/.bin/turbo")
 
 	test := gateNamed(t, detect(t, dir), "test")
 	qt.Check(t, qt.Equals(test.Argv[0], turbo),
@@ -252,9 +234,9 @@ func TestTurboWithoutTheBinaryFallsBackToPackageScripts(t *testing.T) {
 	// accident of their machine.
 	dir := t.TempDir()
 	t.Setenv("PATH", filepath.Join(dir, "no-such-bin"))
-	write(t, dir, "turbo.json", `{"tasks":{"test":{}}}`)
-	write(t, dir, "package.json", `{"scripts":{"test":"vitest"}}`)
-	write(t, dir, "bun.lock", "")
+	testutil.Write(t, dir, "turbo.json", `{"tasks":{"test":{}}}`)
+	testutil.Write(t, dir, "package.json", `{"scripts":{"test":"vitest"}}`)
+	testutil.Write(t, dir, "bun.lock", "")
 
 	proj := detect(t, dir)
 	qt.Check(t, qt.Equals(gateNamed(t, proj, "test").Display(), "bun run test"))
@@ -270,8 +252,8 @@ func TestTurboWithoutTheBinaryFallsBackToPackageScripts(t *testing.T) {
 func TestADeclaredVulnTargetBeatsTheConvention(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	write(t, dir, "go.mod", "module demo\n\ngo 1.26\n")
-	write(t, dir, "Makefile", "vuln:\n\tgovulncheck -show verbose ./...\n")
+	testutil.Write(t, dir, "go.mod", "module demo\n\ngo 1.26\n")
+	testutil.Write(t, dir, "Makefile", "vuln:\n\tgovulncheck -show verbose ./...\n")
 
 	vuln := gateNamed(t, detect(t, dir), "vuln")
 	qt.Check(t, qt.Equals(vuln.Display(), "make vuln"))
@@ -286,8 +268,8 @@ func TestThePythonVulnGateFollowsTheLockfile(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	write(t, dir, "pyproject.toml", "[project]\nname = \"demo\"\n")
-	write(t, dir, "uv.lock", "version = 1\n")
+	testutil.Write(t, dir, "pyproject.toml", "[project]\nname = \"demo\"\n")
+	testutil.Write(t, dir, "uv.lock", "version = 1\n")
 
 	vuln := gateNamed(t, detect(t, dir), "vuln")
 	// The preview flag is part of the contract, not decoration: without it
@@ -295,7 +277,7 @@ func TestThePythonVulnGateFollowsTheLockfile(t *testing.T) {
 	qt.Check(t, qt.Equals(vuln.Display(), "uv audit --preview-features audit-command"))
 
 	bare := t.TempDir()
-	write(t, bare, "pyproject.toml", "[project]\nname = \"demo\"\n")
+	testutil.Write(t, bare, "pyproject.toml", "[project]\nname = \"demo\"\n")
 
 	proj := detect(t, bare)
 	qt.Check(t, qt.IsFalse(slices.ContainsFunc(proj.Gates, func(g Gate) bool {
@@ -311,10 +293,10 @@ func TestThePythonVulnGateFollowsTheLockfile(t *testing.T) {
 func TestTheWorkflowLinterIsNamedWorkflowsAndCiIsNotAGate(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	write(t, dir, "go.mod", "module demo\n\ngo 1.26\n")
-	write(t, dir, "Makefile", "ci:\n\t$(MAKE) lint test\n")
-	write(t, dir, ".github/workflows/ci.yml", "jobs: {}\n")
-	writeExecutable(t, dir, "node_modules/.bin/actionlint")
+	testutil.Write(t, dir, "go.mod", "module demo\n\ngo 1.26\n")
+	testutil.Write(t, dir, "Makefile", "ci:\n\t$(MAKE) lint test\n")
+	testutil.Write(t, dir, ".github/workflows/ci.yml", "jobs: {}\n")
+	testutil.WriteExecutable(t, dir, "node_modules/.bin/actionlint")
 
 	proj := detect(t, dir)
 	// The role a project declares is not claimed...
@@ -340,7 +322,7 @@ func TestTheWorkflowLinterIsNamedWorkflowsAndCiIsNotAGate(t *testing.T) {
 func TestSupabaseIsSkippedWithAStatedReason(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	write(t, dir, "go.mod", "module demo\n\ngo 1.26\n")
+	testutil.Write(t, dir, "go.mod", "module demo\n\ngo 1.26\n")
 	qt.Assert(t, qt.IsNil(os.MkdirAll(filepath.Join(dir, "supabase"), 0o755)))
 
 	qt.Check(t, qt.IsTrue(hasNote(detect(t, dir), "supabase")),
@@ -358,8 +340,8 @@ func TestPythonTypecheckGateRunsTheResolvedBinary(t *testing.T) {
 	// pyrefly installed globally would otherwise see this pass by accident.
 	dir := t.TempDir()
 	t.Setenv("PATH", filepath.Join(dir, "no-such-bin"))
-	write(t, dir, "pyproject.toml", "[project]\nname = \"demo\"\n")
-	pyrefly := writeExecutable(t, dir, ".venv/bin/pyrefly")
+	testutil.Write(t, dir, "pyproject.toml", "[project]\nname = \"demo\"\n")
+	pyrefly := testutil.WriteExecutable(t, dir, ".venv/bin/pyrefly")
 
 	// Stated as membership rather than as an index: the rule is that the file
 	// the probe accepted is the file argv names, whatever else wraps it.
@@ -368,8 +350,8 @@ func TestPythonTypecheckGateRunsTheResolvedBinary(t *testing.T) {
 		qt.Commentf("typecheck = %q, want the resolved %q", typecheck.Display(), pyrefly))
 
 	fallbackDir := t.TempDir()
-	write(t, fallbackDir, "pyproject.toml", "[project]\nname = \"demo\"\n")
-	mypy := writeExecutable(t, fallbackDir, ".venv/bin/mypy")
+	testutil.Write(t, fallbackDir, "pyproject.toml", "[project]\nname = \"demo\"\n")
+	mypy := testutil.WriteExecutable(t, fallbackDir, ".venv/bin/mypy")
 
 	fallback := gateNamed(t, detect(t, fallbackDir), "typecheck")
 	qt.Check(t, qt.IsTrue(slices.Contains(fallback.Argv, mypy)),
