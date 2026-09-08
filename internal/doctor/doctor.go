@@ -7,10 +7,10 @@
 package doctor
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/detect"
@@ -358,23 +358,12 @@ func olderThanKnownGood(ref string) bool {
 	return minor < goodMinor
 }
 
+// parseTag reads a leading vMAJOR.MINOR. Anything after the minor is ignored,
+// so v1.2.3 and v1.2-rc1 both compare as 1.2; a ref with no such prefix at all
+// -- a commit sha, a moving ref -- fails to parse and is left alone.
 func parseTag(ref string) (major, minor int, ok bool) {
-	if !strings.HasPrefix(ref, "v") {
-		return 0, 0, false
-	}
-	parts := strings.SplitN(strings.TrimPrefix(ref, "v"), ".", 3)
-	if len(parts) < 2 {
-		return 0, 0, false
-	}
-	major, err := strconv.Atoi(parts[0])
-	if err != nil {
-		return 0, 0, false
-	}
-	minor, err = strconv.Atoi(parts[1])
-	if err != nil {
-		return 0, 0, false
-	}
-	return major, minor, true
+	_, err := fmt.Sscanf(ref, "v%d.%d", &major, &minor)
+	return major, minor, err == nil
 }
 
 func usesMatrix(body string) bool {
