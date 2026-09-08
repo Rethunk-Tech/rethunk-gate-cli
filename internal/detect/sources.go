@@ -133,7 +133,7 @@ func packageJSONGates(root, workspace string, proj *Project) []Gate {
 // does not exist is speculative surface.
 func packageRunner(workspace string) []string {
 	switch {
-	case exists(filepath.Join(workspace, "bun.lock")), exists(filepath.Join(workspace, "bun.lockb")):
+	case IsBunWorkspace(workspace):
 		return []string{"bun", "run"}
 	case exists(filepath.Join(workspace, "yarn.lock")):
 		return []string{"yarn"}

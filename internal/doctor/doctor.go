@@ -204,7 +204,20 @@ func repoRoot(dir string) (string, bool) {
 }
 
 // checkWorkflows reads .github/workflows for the CI gaps that recur here.
-func checkWorkflows(root string, add func(Finding)) {
+//
+// Judged from the repository, the same way checkNoCI is, so this file gives one
+// answer to "where do this repo's workflows live". A workspace member has no
+// .github of its own, so judging from proj.Root would report every CI gap from
+// the repository root and none of them from a member directory, while checkNoCI
+// stayed correctly quiet in both -- the repository judged to have CI by one
+// check and no workflows at all by the other.
+func checkWorkflows(proj detect.Project, add func(Finding)) {
+	// Outside a repository there is nothing to walk up to, and the project
+	// directory is the only root there is.
+	root, ok := repoRoot(proj.Root)
+	if !ok {
+		root = proj.Root
+	}
 	dir := filepath.Join(root, ".github", "workflows")
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -282,7 +295,7 @@ func checkWorkflows(root string, add func(Finding)) {
 			})
 		}
 
-		if strings.Contains(body, "npx ") && exists(filepath.Join(root, "bun.lock")) {
+		if strings.Contains(body, "npx ") && detect.IsBunWorkspace(root) {
 			add(Finding{
 				Warn:  true,
 				Check: "npx-in-bun-workspace",

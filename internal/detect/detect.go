@@ -159,7 +159,29 @@ func (p Project) workspaceOrRoot() string {
 
 var manifestNames = []string{"go.mod", "package.json", "pyproject.toml", "Makefile"}
 
-var workspaceNames = []string{"turbo.json", "bun.lock", "yarn.lock", "pnpm-lock.yaml", "package-lock.json"}
+// bunLockNames are the two spellings of bun's lockfile -- the text bun.lock
+// current bun writes, and the binary bun.lockb it wrote before. Both say the
+// same thing, so every place that asks "is this a bun workspace" reads this
+// one list. Half-recognising a project is worse than not recognising it: a
+// root found as a workspace here but not by packageRunner (or the reverse)
+// leaves resolve searching the wrong bin directory and a global tool winning
+// over the project's own.
+var bunLockNames = []string{"bun.lock", "bun.lockb"}
+
+// IsBunWorkspace reports whether dir holds a bun lockfile. Exported for
+// doctor, which asks the same question about a repository and would otherwise
+// keep a third copy of the spellings.
+func IsBunWorkspace(dir string) bool {
+	return slices.ContainsFunc(bunLockNames, func(name string) bool {
+		return exists(filepath.Join(dir, name))
+	})
+}
+
+var workspaceNames = slices.Concat(
+	[]string{"turbo.json"},
+	bunLockNames,
+	[]string{"yarn.lock", "pnpm-lock.yaml", "package-lock.json"},
+)
 
 // findUp walks from dir upward for the first directory containing any of
 // names, stopping at the filesystem root.

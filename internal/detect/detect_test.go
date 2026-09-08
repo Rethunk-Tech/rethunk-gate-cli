@@ -380,3 +380,31 @@ func TestDeclaredNamesStayASubsetOfGateOrder(t *testing.T) {
 	qt.Check(t, qt.IsFalse(IsRole(aggregateName)),
 		qt.Commentf("%q is not a role: claiming it runs every gate twice", aggregateName))
 }
+
+// bun writes bun.lock now and wrote bun.lockb before, and the two are the same
+// statement. A root recognised by one spelling and not the other is not found
+// as a workspace at all, so resolve never searches the workspace bin directory
+// and a global tool wins over the project's own copy -- the substitution
+// resolve exists to prevent. Both spellings run the same assertions, because
+// the failure is the pair disagreeing.
+func TestEitherBunLockfileSpellingMarksTheWorkspace(t *testing.T) {
+	t.Parallel()
+	for _, lockfile := range bunLockNames {
+		t.Run(lockfile, func(t *testing.T) {
+			t.Parallel()
+			root := t.TempDir()
+			testutil.Write(t, root, lockfile, "")
+			biome := testutil.WriteExecutable(t, root, "node_modules/.bin/biome")
+			pkg := filepath.Join(root, "packages", "web")
+			testutil.Write(t, pkg, "package.json", `{"scripts":{"test":"bun test"}}`)
+
+			proj := detect(t, pkg)
+			qt.Check(t, qt.Equals(proj.Workspace, root),
+				qt.Commentf("the lockfile root was not found"))
+			qt.Check(t, qt.Equals(gateNamed(t, proj, "lint").Argv[0], biome),
+				qt.Commentf("the workspace's own biome lost to whatever is on PATH"))
+			qt.Check(t, qt.Equals(gateNamed(t, proj, "test").Display(), "bun run test"),
+				qt.Commentf("the lockfile did not pick bun as the runner"))
+		})
+	}
+}
