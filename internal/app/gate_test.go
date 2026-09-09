@@ -1736,3 +1736,44 @@ func TestPruneRemovesOldLogsAndKeepsRecentOnes(t *testing.T) {
 	pruneLogs(dir)
 	qt.Check(t, qt.IsTrue(exists(recent)), qt.Commentf("the stamp did not stop a second sweep"))
 }
+
+// A warning that names its own remedy gets read; one that only says what
+// happened gets skipped. The default kills roughly one working gate in ninety,
+// so this line is reached regularly.
+func TestTimeoutNamesItsRemedy(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "test:\n\tsleep 10\n")
+
+	_, stderr, code := runGateTest(t, "-C", root, "--timeout", "300ms", "run", "test")
+	qt.Assert(t, qt.Equals(code, TimedOut), qt.Commentf("stderr = %q", stderr))
+	// The per-gate key, named with the gate it belongs to: one slow gate in a
+	// project of fast ones is the usual shape, and --timeout is the wrong
+	// tool for it.
+	qt.Check(t, qt.StringContains(stderr, `timeout = "5m"`))
+	qt.Check(t, qt.StringContains(stderr, "[gates.test]"))
+}
+
+// A command the caller named has no .gate.toml entry to configure, so
+// pointing at one would be advice that cannot be taken.
+func TestTimeoutRemedyForAWrappedCommandNamesOnlyTheFlag(t *testing.T) {
+	t.Parallel()
+	_, stderr, code := runGateTest(t, "--timeout", "300ms", "--log", tempLog(t),
+		"sh", "-c", "sleep 10")
+
+	qt.Assert(t, qt.Equals(code, TimedOut))
+	qt.Check(t, qt.StringContains(stderr, "--timeout 5m"))
+	qt.Check(t, qt.Not(qt.StringContains(stderr, ".gate.toml")),
+		qt.Commentf("a wrapped command was pointed at a config entry it has no place in: %q", stderr))
+}
+
+// Three gates over the limit have one thing to say, not three.
+func TestTimeoutRemedyIsPrintedOncePerRun(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "build:\n\tsleep 10\n\ntest:\n\tsleep 10\n")
+
+	_, stderr, _ := runGateTest(t, "-C", root, "--timeout", "300ms")
+	qt.Check(t, qt.Equals(strings.Count(stderr, "raise it"), 1),
+		qt.Commentf("stderr = %q", stderr))
+}

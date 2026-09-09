@@ -54,6 +54,14 @@ Notable changes to `gate`. The format follows
 
 ### Changed
 
+- A killed gate now names its remedy: the `timeout` key for that gate in
+  `.gate.toml`, or `--timeout` for the run. The default kills roughly one
+  working gate in ninety — 141 of 12,569 invocations measured over a week — so
+  "killed, not failed" is a line real users reach regularly, and one that says
+  what happened without saying what to do about it is how output starts being
+  skipped. Printed once per run however many gates overran. A command the
+  caller named is pointed at the flag alone, having no config entry to set.
+
 - Logs older than 14 days are removed from gate's own directory, which nothing
   previously did: one operator's directory measured 811 logs in two days, and
   only Linux clears `/var/tmp` on its own. The sweep runs once per process and

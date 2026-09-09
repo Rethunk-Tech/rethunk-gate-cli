@@ -321,6 +321,16 @@ its trailer records the timeout rather than an exit status that never happened.
 The whole process group is killed, not just the command: a test runner that
 forked workers would otherwise leave them holding a port.
 
+A killed gate says what to do about it, once per run however many overran:
+
+```console
+gate: TIMEOUT after 1m0s  make test  (killed, not failed)
+gate: raise it for that gate alone with timeout = "5m" under [gates.test] in .gate.toml, or --timeout 5m for the whole run
+```
+
+A command you named has no `.gate.toml` entry to configure, so it is pointed at
+the flag alone.
+
 The default is aggressive deliberately. Measured over 12,569 real invocations
 in a week, 141 (1.12%) ran longer than 60s and p99 was 65.0s — so roughly one
 working gate in ninety will be killed by it, which is why a timeout is reported

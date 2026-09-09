@@ -282,6 +282,9 @@ func schedule(gates []gateSpec, serial bool) [][]int {
 // aggregate status.
 func report(results []gateResult, opts options, stdout, stderr io.Writer) Code {
 	aggregate := Success
+	// The first gate a limit killed, for the remedy printed once at the end.
+	// A run where three gates overran has one thing to say, not three.
+	killed, sawTimeout := "", false
 	for _, res := range results {
 		code := Success
 		switch res.outcome() {
@@ -305,6 +308,9 @@ func report(results []gateResult, opts options, stdout, stderr io.Writer) Code {
 			fmt.Fprintf(stderr, "gate: partial log  %s\n", res.logPath)
 			code = Interrupted
 		case outcomeTimedOut:
+			if !sawTimeout {
+				killed, sawTimeout = res.spec.role, true
+			}
 			fmt.Fprintf(stderr, "gate: TIMEOUT after %s  %s  (killed, not failed)\n",
 				res.spec.timeout, res.spec.short())
 			writeFailureRegion(stderr, res.tracker)
@@ -342,7 +348,28 @@ func report(results []gateResult, opts options, stdout, stderr io.Writer) Code {
 			aggregate = code
 		}
 	}
+	if sawTimeout {
+		writeTimeoutRemedy(stderr, killed)
+	}
 	return aggregate
+}
+
+// writeTimeoutRemedy names the fix for a gate the limit killed.
+//
+// The default is aggressive on purpose -- measured, it kills roughly one
+// working gate in ninety -- so this is a line a real user reaches regularly,
+// and one that says "killed, not failed" without saying what to do about it
+// leaves them to find the per-gate key in the documentation or not at all.
+//
+// A gate with a role has a home in .gate.toml, which is where a project's one
+// genuinely slow gate belongs; a command the caller named has none, so only
+// the flag applies to it.
+func writeTimeoutRemedy(w io.Writer, role string) {
+	if role == "" {
+		fmt.Fprintln(w, "gate: raise it with --timeout 5m, or --timeout 0 to run with no limit")
+		return
+	}
+	fmt.Fprintf(w, "gate: raise it for that gate alone with timeout = \"5m\" under [gates.%s] in .gate.toml, or --timeout 5m for the whole run\n", role)
 }
 
 // runOne runs a single gate, sending every byte it writes to a log file and
