@@ -66,6 +66,13 @@ Notable changes to `gate`. The format follows
 
 ### Changed
 
+- `doctor`'s `no-ci` now counts gates declared in `.gate.toml`, not only the
+  ones detection infers. Three repositories in this fleet declare their only
+  gate there — a doc-audit, a `dotnet restore` — and reading detection alone
+  called each of them an asset repository with nothing to run, which is exactly
+  the absence-read-as-health this check exists to condemn. A config entry with
+  no `run` still counts for nothing: on its own it produces no gate.
+
 - A killed gate now names its remedy: the `timeout` key for that gate in
   `.gate.toml`, or `--timeout` for the run. The default kills roughly one
   working gate in ninety — 141 of 12,569 invocations measured over a week — so

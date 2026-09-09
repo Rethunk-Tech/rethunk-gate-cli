@@ -476,3 +476,37 @@ func TestNextRaceIgnoresADependencyMerelyNamedLikeNext(t *testing.T) {
 	qt.Check(t, qt.IsFalse(reported(findings, "next-build-typecheck-race")),
 		qt.Commentf("findings = %v", findings))
 }
+
+// A project whose only gate is declared in .gate.toml still has something to
+// run in CI. Reading detection alone called three repositories in this fleet
+// asset repositories with nothing to check.
+func TestNoCIReadsConfiguredGatesToo(t *testing.T) {
+	isolatePath(t)
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	// A repository, with nothing detection can turn into a gate.
+	testutil.Write(t, dir, ".git/HEAD", "ref: refs/heads/main\n")
+	testutil.Write(t, dir, "README.md", "# docs\n")
+	testutil.Write(t, dir, ".gate.toml", "[gates.doc-audit]\nrun = \"make check\"\n")
+
+	findings, err := Run(dir)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsTrue(reported(findings, "no-ci")), qt.Commentf("findings = %v", findings))
+}
+
+// A repository with nothing to run is a document or asset repository, and
+// telling it to add a workflow would be advice with no content.
+func TestNoCIStaysSilentWithNothingToRun(t *testing.T) {
+	isolatePath(t)
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	testutil.Write(t, dir, ".git/HEAD", "ref: refs/heads/main\n")
+	testutil.Write(t, dir, "README.md", "# docs\n")
+	// Serial with no run only modifies a gate detection found; on its own it
+	// produces nothing.
+	testutil.Write(t, dir, ".gate.toml", "[gates.test]\nserial = true\n")
+
+	findings, err := Run(dir)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsFalse(reported(findings, "no-ci")), qt.Commentf("findings = %v", findings))
+}

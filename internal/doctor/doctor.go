@@ -73,6 +73,13 @@ func Run(dir string) ([]Finding, error) {
 		base = repo
 	}
 
+	// Loaded once, here, rather than by each check that needs it: two checks
+	// read it, and a project's configuration cannot change between them. An
+	// unreadable file is treated as absent -- gate itself refuses it when it
+	// runs, and doctor advising around a file it could not parse would be a
+	// guess dressed as a finding.
+	cfg, _ := config.Load(root)
+
 	var findings []Finding
 	add := func(f Finding) {
 		f.Path = f.Where
@@ -84,10 +91,10 @@ func Run(dir string) ([]Finding, error) {
 
 	checkSupersededTooling(root, add)
 	checkGoVuln(root, proj, add)
-	checkNoCI(proj, add)
+	checkNoCI(proj, cfg, add)
 	checkWorkflows(proj, add)
 	checkDeclaredGates(root, proj, add)
-	checkNextBuildRace(root, proj, add)
+	checkNextBuildRace(root, proj, cfg, add)
 
 	// Stable order: worse first, then by check name so two runs agree.
 	slices.SortStableFunc(findings, func(a, b Finding) int {
@@ -110,6 +117,18 @@ func readFile(path string) string {
 		return ""
 	}
 	return string(data)
+}
+
+// hasConfiguredGate reports whether .gate.toml declares a gate of its own. A
+// config entry with no `run` only modifies a gate detection found, so on its
+// own it produces nothing to run.
+func hasConfiguredGate(cfg config.Config) bool {
+	for _, g := range cfg.Gates {
+		if g.Run != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func exists(path string) bool {
@@ -181,14 +200,18 @@ func checkGoVuln(root string, proj detect.Project, add func(Finding)) {
 // workflow check gives up on the missing directory. That is the reading
 // ci-no-final-gate exists to condemn -- absence read as health -- applied to
 // the whole directory rather than one job.
-func checkNoCI(proj detect.Project, add func(Finding)) {
+func checkNoCI(proj detect.Project, cfg config.Config, add func(Finding)) {
 	// Nothing to run means nothing to run in CI. A repository with no gates
 	// is a document or asset repository as far as gate can tell, and telling
 	// it to add a workflow would be advice with no content. Measured: this is
 	// what separates the briefs and PDF repositories in this fleet from the
 	// ones that really are missing CI -- including one whose only gate is
 	// `make lint`, which is exactly the case worth flagging.
-	if len(proj.Gates) == 0 {
+	// Configured gates count as much as detected ones. Measured: three
+	// repositories in this fleet declare their only gate in .gate.toml -- a
+	// doc-audit, a dotnet restore -- and reading detection alone called each
+	// of them an asset repository with nothing to run.
+	if len(proj.Gates) == 0 && !hasConfiguredGate(cfg) {
 		return
 	}
 	repo, ok := repoRoot(proj.Root)
@@ -511,7 +534,7 @@ func checkDeclaredGates(root string, proj detect.Project, add func(Finding)) {
 // The evidence is what the fleet already does: serial is the most-used key in
 // its .gate.toml files by a wide margin, and every use of it is a project
 // that found this the hard way first.
-func checkNextBuildRace(root string, proj detect.Project, add func(Finding)) {
+func checkNextBuildRace(root string, proj detect.Project, cfg config.Config, add func(Finding)) {
 	pkg := readFile(filepath.Join(root, "package.json"))
 	// The quoted key, not the bare word: next-themes, nextra and eslint-config-next
 	// are all dependencies of projects that are not Next projects.
@@ -524,12 +547,6 @@ func checkNextBuildRace(root string, proj detect.Project, add func(Finding)) {
 	ordered := map[string]bool{}
 	for _, g := range proj.Gates {
 		ordered[g.Name] = g.Serial
-	}
-	cfg, err := config.Load(root)
-	if err != nil {
-		// An unreadable config is gate's own error to report when it runs;
-		// doctor advising around a file it could not parse would be a guess.
-		return
 	}
 	for name, c := range cfg.Gates {
 		// A config entry with no `run` only modifies a gate detection found:
