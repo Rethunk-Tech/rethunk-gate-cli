@@ -29,10 +29,11 @@ Prerequisites and full install notes: [HUMANS.md](HUMANS.md).
 
 - **Exit status is the verdict** — passed through unchanged; output is never parsed.
 - **Complete log** — bounded on-screen summary; failures quote a tail and name the log.
-- **Auto-detects gates** — Makefile, `package.json`, `turbo.json`; `.gate.toml` adjusts without replacing.
+- **Auto-detects gates** — Makefile, `package.json`, `turbo.json`, then conventions for Go, Rust, Python, Node, workflows and shell scripts; `.gate.toml` adjusts without replacing.
 - **Concurrent by default** — `--serial` or `.gate.toml` when one gate needs another's result.
 - **Ctrl-C kills the tree** — trailer still written; stopped gates reported as skipped.
-- **`gate doctor`** — read-only findings with evidence (CI gaps, missing vuln gates).
+- **Machine-readable** — `--json` for what would run, `--ndjson` for one line per gate as it finishes.
+- **`gate doctor`** — read-only findings with evidence (CI gaps, missing vuln gates), `--json` included.
 
 ## Documentation
 
