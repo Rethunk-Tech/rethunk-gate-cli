@@ -111,18 +111,29 @@ the same split the gate listing makes between a display and a resolved argv.
 ## Concurrency
 
 Gates run **concurrently by default**; nothing infers order. Measured over 7 days,
-back-to-back chains cost 7.93h sequentially vs 5.57h overlapped:
+back-to-back chains cost 7.93h sequentially vs 5.57h overlapped.
+
+Per repository, median of three runs each way, every gate passing, `--timeout
+5m` so nothing is killed mid-measurement:
 
 | Repository | gates | `--serial` | default | Saved |
 | --- | --- | --- | --- | --- |
-| `Routed` | 5 | 1.44s | 0.75s | 48% |
-| `rethunk-git-cli` | 5 | 1.69s | 1.00s | 41% |
-| `gravewell` | 6 | 4.59s | 3.08s | 33% |
-| `sagaforge-ts` | 4 | 39.16s | 26.63s | 32% |
-| `rethunk-gate-cli` | 5 | 0.89s | 0.65s | 27% |
-| `claude-plugins` | 5 | 0.96s | 0.90s | 7% |
-| `cyber-defense-game` | 5 | 53.62s | 51.40s | 4% |
-| `paper-trail` | 6 | 49.02s | 48.85s | 0.3% |
+| `cyber-defense-game` | 6 | 0.30s | 0.07s | 77% |
+| `Routed` | 5 | 0.28s | 0.07s | 75% |
+| `sagaforge-ts` | 5 | 0.30s | 0.08s | 73% |
+| `rethunk-git-cli` | 6 | 1.69s | 1.01s | 40% |
+| `rethunk-gate-cli` | 6 | 0.97s | 0.67s | 31% |
+| `gravewell` | 6 | 1.10s | 0.81s | 26% |
+| `paper-trail` | 7 | 5.32s | 4.81s | 10% |
+
+**These numbers are a cache state as much as a schedule.** Warm caches are what
+gates actually run in, and there `cyber-defense-game`'s six turbo tasks each
+return in about 71ms, so the whole run is 0.07s rather than the 51.40s an
+earlier reading of this table recorded — that reading was taken with turbo's
+caches cold, and the 170x is that, not a regression. The direction survives
+either state: overlapping helps most where per-gate overhead dominates, least
+where one long gate sets the floor. `claude-plugins` is absent because the
+repository is not on this machine.
 
 Depending on another gate's *result* is never inferred. Three ways to state it:
 turbo `dependsOn` between roles, `gates.<role>.serial` in `.gate.toml`, or
