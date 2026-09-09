@@ -195,16 +195,19 @@ for that belongs to the project rather than to `gate`: a `.shellcheckrc` at the
 repository root is read automatically.
 
 ```
-severity=warning
 disable=SC1091
 ```
+
+Codes, not a severity: `severity=` is a command-line option and **not** a
+`.shellcheckrc` directive — shellcheck 0.11 reads the file and ignores that
+line, silently. `disable=` is the directive that works.
 
 Measured across this fleet, `info` findings are most often `SC1091` — "Not
 following: … was not specified as input" — where the sourced path is built
 from a variable, which shellcheck cannot resolve even with `-x`. One repository
-fails its shell gate on eighteen of those and no warnings at all; a
-`.shellcheckrc` is the one line that settles it, and it settles it for every
-tool that reads shellcheck rather than for `gate` alone.
+fails its shell gate on eighteen findings and no warnings at all; nine of those
+are SC1091, and one `disable=` line settles them for every tool that reads
+shellcheck rather than for `gate` alone.
 
 Detection costs 7-8ms including the git spawn, against a 0.14s median gate, and
 is flat across repository size — asking git's index is cheaper on a large tree
