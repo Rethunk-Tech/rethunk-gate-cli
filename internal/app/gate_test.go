@@ -1586,18 +1586,6 @@ func TestAGateThatNeverStartedStopsItsSerialGroup(t *testing.T) {
 		qt.Commentf("a gate reported ok inside a stopped group: %q", stdout))
 }
 
-// --json names the gate listing, and doctor has no listing to render. Serving
-// the human report to a consumer that asked for the machine shape says
-// nothing and looks like it worked, which is the one failure a machine caller
-// cannot detect.
-func TestJSONWithDoctorIsRefusedRatherThanIgnored(t *testing.T) {
-	t.Parallel()
-	stdout, stderr, code := runGateTest(t, "-C", t.TempDir(), "--json", "doctor")
-	qt.Assert(t, qt.Equals(code, InvalidUsage), qt.Commentf("gate --json doctor = %d, stdout = %q", code, stdout))
-	qt.Check(t, qt.Equals(stdout, ""), qt.Commentf("a refused combination still wrote a report: %q", stdout))
-	qt.Check(t, qt.StringContains(stderr, "--json"), qt.Commentf("the refusal does not name the flag: %q", stderr))
-}
-
 // The two listings state the same facts, so a field the text form omits is
 // absent from the JSON rather than present and empty. `"root": ""` is a claim
 // about a project a wrapped command does not have, and a workspace equal to
@@ -1776,4 +1764,63 @@ func TestTimeoutRemedyIsPrintedOncePerRun(t *testing.T) {
 	_, stderr, _ := runGateTest(t, "-C", root, "--timeout", "300ms")
 	qt.Check(t, qt.Equals(strings.Count(stderr, "raise it"), 1),
 		qt.Commentf("stderr = %q", stderr))
+}
+
+// A fleet sweep otherwise greps findings out of a layout written for a person,
+// which is the failure the machine shape exists to prevent.
+func TestDoctorJSONCarriesWhatTheReportDoes(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	// Gates to run and no workflows to run them in, which is one finding
+	// that depends on the fixture rather than on this machine. no-ci is
+	// judged from the repository, so the fixture has to be one.
+	testutil.Write(t, root, "Makefile", "test:\n\ttrue\n")
+	testutil.Write(t, root, ".git/HEAD", "ref: refs/heads/main\n")
+
+	stdout, stderr, code := runGateTest(t, "-C", root, "--json", "doctor")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.Equals(stderr, ""), qt.Commentf("--json doctor wrote to stderr: %q", stderr))
+
+	var got doctorReport
+	qt.Assert(t, qt.IsNil(json.Unmarshal([]byte(stdout), &got)), qt.Commentf("stdout is not JSON: %q", stdout))
+	qt.Assert(t, qt.Equals(len(got.Findings), 1), qt.Commentf("findings = %+v", got.Findings))
+
+	f := got.Findings[0]
+	qt.Check(t, qt.Equals(f.Check, "no-ci"))
+	qt.Check(t, qt.IsTrue(f.Warn))
+	// The short form is for reading; a consumer acting on a finding has to
+	// resolve the file, so both are carried.
+	qt.Check(t, qt.Equals(f.Where, filepath.Join(".github", "workflows")))
+	qt.Check(t, qt.Equals(f.Path, filepath.Join(root, ".github", "workflows")))
+	// A finding without evidence is a preference, in either rendering.
+	qt.Check(t, qt.Not(qt.Equals(f.Why, "")))
+	qt.Check(t, qt.Not(qt.Equals(f.Fix, "")))
+
+	// The tie to the text report: the same run, the same findings.
+	text, _, _ := runGateTest(t, "-C", root, "doctor")
+	qt.Check(t, qt.StringContains(text, f.Check))
+	qt.Check(t, qt.StringContains(text, f.What))
+}
+
+// No findings is an empty list, never null: a consumer must not have to tell
+// "nothing to suggest" from "nothing reported".
+func TestDoctorJSONReportsNoFindingsAsAnEmptyList(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "test:\n\ttrue\n")
+	testutil.Write(t, root, ".github/workflows/ci.yml", "name: CI\njobs:\n  a:\n    steps:\n      - run: true\n")
+
+	stdout, _, code := runGateTest(t, "-C", root, "--json", "doctor")
+	qt.Assert(t, qt.Equals(code, Success))
+	qt.Check(t, qt.StringContains(stdout, `"findings": []`), qt.Commentf("stdout = %q", stdout))
+}
+
+// doctor runs nothing, so there is no stream to give a caller asking for one.
+func TestNDJSONIsRefusedForDoctor(t *testing.T) {
+	t.Parallel()
+	_, stderr, code := runGateTest(t, "--ndjson", "doctor")
+	qt.Check(t, qt.Equals(code, InvalidUsage), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.StringContains(stderr, "doctor runs nothing"))
+	// Refusals that name the working spelling are the ones people act on.
+	qt.Check(t, qt.StringContains(stderr, "--json doctor"))
 }

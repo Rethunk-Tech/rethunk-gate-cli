@@ -98,6 +98,11 @@ go-toml is the only binary dependency; `go-quicktest/qt` is test-only.
 `internal/doctor` is read-only with a byte-identical fixture test. Every finding
 carries evidence.
 
+`gate --json doctor` serialises the findings; `--ndjson` is refused there,
+because it streams what a run did and doctor runs nothing. A finding carries
+the file twice — `where` relative for reading, `path` absolute for acting —
+the same split the gate listing makes between a display and a resolved argv.
+
 - **`knownGoodActionsTag` is a constant**, not a network lookup.
 - **Judgements are repository-wide** where that matters (e.g. govulncheck).
 

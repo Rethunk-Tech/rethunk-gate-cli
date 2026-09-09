@@ -26,8 +26,14 @@ type Finding struct {
 	// Check is a stable slug, so a finding can be talked about.
 	Check string
 
-	// Where is the file or directory the finding is about, when there is one.
+	// Where is the file or directory the finding is about, when there is
+	// one: relative to the repository, which is how a person reads it.
 	Where string
+
+	// Path is the same file, absolute. The same split the gate listing makes
+	// between a display and a resolved argv: the short form is for reading,
+	// and the full one is what a program has to resolve.
+	Path string
 
 	// What states the problem in one line.
 	What string
@@ -69,6 +75,7 @@ func Run(dir string) ([]Finding, error) {
 
 	var findings []Finding
 	add := func(f Finding) {
+		f.Path = f.Where
 		if rel, err := filepath.Rel(base, f.Where); err == nil {
 			f.Where = rel
 		}

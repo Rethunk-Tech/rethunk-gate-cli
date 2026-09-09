@@ -57,6 +57,7 @@ Flags:
                 (gates run concurrently unless this, or .gate.toml, says not to)
   --list        print the gates that would run, and run nothing
   --json        the same listing as JSON, for a program to read
+                (with doctor, the findings as JSON)
   --ndjson      stream one JSON line per gate as it finishes, and run them
   --timeout D   kill a gate that runs longer than D (default 1m, 0 disables;
                 .gate.toml can set it per gate, and this beats that)
@@ -188,16 +189,16 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	// as a command. A real program by either name is still reachable as
 	// `gate -- doctor`, which is what -- is for.
 	if !explicit && len(args) == 1 && args[0] == "doctor" {
-		// --json names the gate listing, and doctor has no listing to
-		// render. Serving the human report to a consumer that asked for the
-		// machine shape says nothing and looks like it worked, which is the
-		// one failure mode a machine caller cannot detect.
-		if opts.jsonList || opts.ndjson {
-			fmt.Fprintln(stderr, "gate: doctor has no JSON form; it reports advice, not a verdict")
-			fmt.Fprintln(stderr, "gate: run `gate doctor` for the report, or `gate --json` for the listing")
+		// --ndjson streams what a run did, and doctor runs nothing. --json
+		// is served: findings are a list with a stable schema, and a sweep
+		// that has to grep them out of prose is the failure the machine shape
+		// exists to prevent.
+		if opts.ndjson {
+			fmt.Fprintln(stderr, "gate: --ndjson streams a run; doctor runs nothing")
+			fmt.Fprintln(stderr, "gate: run `gate --json doctor` for the report a program can read")
 			return InvalidUsage
 		}
-		return runDoctor(dir, stdout, stderr)
+		return runDoctor(dir, opts.jsonList, stdout, stderr)
 	}
 	// Only these two spellings are gate's; `gate doctor <anything else>` still
 	// means the program named doctor, reachable as `gate -- doctor` too.

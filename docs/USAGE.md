@@ -75,9 +75,8 @@ no project, so `root`, `name` and `source` do not appear at all, and `workspace`
 appears only where it differs from `root`. Collections are always present, empty
 as `[]` and never `null`, so a consumer can iterate without a nil check.
 
-`--json` names the gate listing, so it applies to `--list` and to a bare run,
-not to `doctor` — `gate --json doctor` is refused rather than silently ignored.
-Doctor reports advice, not a verdict, and has no listing to serialise.
+`--json` names the gate listing, so it applies to `--list` and to a bare run.
+With `doctor` it names that report instead — see [`gate doctor`](#gate-doctor).
 
 ### Streaming what a run did
 
@@ -293,6 +292,19 @@ asked for that vanishes from the output reads as one that passed.
 
 Read-only, and exits 0 whether or not it found anything. Every finding carries
 what, why and fix.
+
+`gate --json doctor` prints the same findings for a program to read — `check`,
+`warn`, `what`, `why`, `fix`, and the file as both `where` (relative to the
+repository, the string the text report shows) and `path` (absolute, which is
+what a consumer acting on a finding has to resolve). The same split the gate
+listing makes between a display and a resolved argv. No findings is `[]`, never
+`null`, so "nothing to suggest" never has to be told apart from "nothing
+reported". `--ndjson` is refused here: it streams what a run did, and doctor
+runs nothing.
+
+```bash
+for d in ~/src/*/; do gate -C "$d" --json doctor | jq -r --arg d "$d" '.findings[] | "\($d)\t\(.check)\t\(.where)"'; done
+```
 
 | Check | Fires when |
 | --- | --- |

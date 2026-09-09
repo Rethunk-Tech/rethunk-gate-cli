@@ -52,6 +52,18 @@ Notable changes to `gate`. The format follows
   passed unchanged and 4 reported real shellcheck findings. Without
   `shellcheck` installed it is a note naming the install, never a lesser check.
 
+- `gate --json doctor`, the findings in the shape a program reads: `check`,
+  `warn`, `what`, `why`, `fix`, and the file as both `where` (repository-
+  relative, the string the text report shows) and `path` (absolute) — the same
+  split the gate listing makes between a display and a resolved argv. No
+  findings is `[]`, never `null`.
+
+  This reverses the refusal shipped in 0.4.0, which read `--json` as naming the
+  gate listing alone. The evidence is a sweep of doctor across 55 repositories
+  that had to grep `^[warn] <slug>` out of prose written for a person — the
+  exact column-parsing failure the machine shape exists to prevent. `--ndjson`
+  stays refused for doctor: it streams what a run did, and doctor runs nothing.
+
 ### Changed
 
 - A killed gate now names its remedy: the `timeout` key for that gate in
