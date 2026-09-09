@@ -66,7 +66,9 @@ Precedence: Makefile target, `turbo.json` task, `package.json` script, then
 convention. Only a declaration can shadow another.
 
 The roles live in `gateOrder`; a role missing from that list never reaches
-`Project.Gates` — silently. `ci` is not a role and never reaches `gateOrder`:
+`Project.Gates` — silently. An aggregate (`ci`, `check`, `verify`, `validate`,
+in that precedence; never `all`, which is a build target by convention) is not
+a role and never reaches `gateOrder`:
 declined with a note where gate claimed any gate it aggregates (running it
 would run each of them twice), appended after the ordered gates where gate
 claimed none (declining there leaves the project unchecked). `workflows` and

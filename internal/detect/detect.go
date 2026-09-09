@@ -167,8 +167,17 @@ func Detect(dir string) (Project, error) {
 		}
 	}
 
-	aggregate, hasAggregate := byName[aggregateName]
-	delete(byName, aggregateName)
+	// One aggregate at most, whichever the project spelled first in
+	// aggregateNames. Several are the same thing under several names, and
+	// running two of them runs the pipeline twice.
+	var aggregate Gate
+	var hasAggregate bool
+	for _, name := range aggregateNames {
+		if g, ok := byName[name]; ok && !hasAggregate {
+			aggregate, hasAggregate = g, true
+		}
+		delete(byName, name)
+	}
 
 	for _, name := range gateOrder {
 		if g, ok := byName[name]; ok {

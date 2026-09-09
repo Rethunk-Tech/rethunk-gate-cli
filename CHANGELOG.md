@@ -66,6 +66,19 @@ Notable changes to `gate`. The format follows
 
 ### Changed
 
+- An aggregate target is recognised as `ci`, `check`, `verify` or `validate`,
+  not `ci` alone, and a project writing several gets one — the first in that
+  order. The fleet does not agree on the word: `verify` and `check` are as
+  common as `ci` across 55 repositories, and one repository's only aggregate
+  was `check: lint`, so `gate` ran that lint and silently skipped the rest of
+  what `check` does — a pass covering something nothing ran.
+
+  Measured across the fleet, this changed what runs in **no** repository and
+  added the decline note to five, which is the intended shape: the aggregate
+  was already redundant everywhere it was found, and now says so instead of
+  being invisible. `all` is deliberately excluded — by convention it is the
+  default build target, and running it as a pipeline would check nothing.
+
 - The `shell` gate shows `shellcheck (76 scripts)` rather than its command.
   Every script is an argument, which measured 3,263 characters on the largest
   repository in this fleet and 1,705 on the next — twenty terminal rows for a

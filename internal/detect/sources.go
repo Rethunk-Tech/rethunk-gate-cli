@@ -21,15 +21,25 @@ import (
 // reason.
 var declaredNames = []string{"build", "typecheck", "lint", "test", "vuln"}
 
-// aggregateName is the role a project declares to mean "all of the above".
-// Every manifest reader collects it like any other declaration; Detect decides
-// whether it runs, and says so out loud either way.
-const aggregateName = "ci"
+// aggregateNames are the names a project declares to mean "all of the above",
+// in the order one is chosen when a project writes several. Every manifest
+// reader collects them like any other declaration; Detect picks one and
+// decides whether it runs, saying so out loud either way.
+//
+// More than "ci" because the fleet does not agree on the word: measured across
+// 55 repositories, `verify` and `check` are as common, and a repository whose
+// only aggregate was `check` had gate running one half of `check: lint` and
+// silently skipping the other -- a pass covering something nothing ran.
+//
+// "all" is deliberately absent. By convention it is the default build target,
+// not a verification pipeline, so a project with no recognised roles would
+// have gate run a build and call it the whole check.
+var aggregateNames = []string{"ci", "check", "verify", "validate"}
 
 // collectedNames is what a manifest reader looks for. declaredNames stays the
 // roles alone: the aggregate is not one, never reaches gateOrder, and is
 // pulled back out by Detect once the rest of the project is known.
-var collectedNames = append(slices.Clone(declaredNames), aggregateName)
+var collectedNames = append(slices.Clone(declaredNames), aggregateNames...)
 
 // Source prefixes, so the shadow rule in Detect can tell a turbo task from
 // the package script it orchestrates without re-deriving either string.

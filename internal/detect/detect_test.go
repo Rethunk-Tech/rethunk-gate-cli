@@ -347,7 +347,7 @@ func TestTheWorkflowLinterIsNamedWorkflowsAndCiIsNotAGate(t *testing.T) {
 	// Both halves: a note about aggregation that never names ci would not be
 	// this decision being explained.
 	qt.Check(t, qt.IsTrue(hasNote(proj, "aggregates")), qt.Commentf("notes = %v", proj.Notes))
-	qt.Check(t, qt.IsTrue(hasNote(proj, aggregateName)), qt.Commentf("notes = %v", proj.Notes))
+	qt.Check(t, qt.IsTrue(hasNote(proj, aggregateNames[0])), qt.Commentf("notes = %v", proj.Notes))
 
 	// A role missing from gateOrder is dropped silently, so the linter has to
 	// be asserted by name.
@@ -417,8 +417,10 @@ func TestDeclaredNamesStayASubsetOfGateOrder(t *testing.T) {
 			qt.Commentf("declaredNames has %q, which gateOrder drops silently", name))
 	}
 
-	qt.Check(t, qt.IsFalse(IsRole(aggregateName)),
-		qt.Commentf("%q is not a role: claiming it runs every gate twice", aggregateName))
+	for _, name := range aggregateNames {
+		qt.Check(t, qt.IsFalse(IsRole(name)),
+			qt.Commentf("%q is not a role: claiming it runs every gate twice", name))
+	}
 }
 
 // The Rust tier, with the two probes that decide how much of it exists. A
@@ -492,16 +494,16 @@ func TestTheCiAggregateIsDeclinedOnlyWhenItsGatesAreScheduled(t *testing.T) {
 
 	proj := detect(t, scheduled)
 	qt.Check(t, qt.IsFalse(slices.ContainsFunc(proj.Gates, func(g Gate) bool {
-		return g.Name == aggregateName
+		return g.Name == aggregateNames[0]
 	})), qt.Commentf("ci ran beside the gates it aggregates, so each of them ran twice"))
 	qt.Check(t, qt.IsTrue(hasNote(proj, "already scheduling")),
 		qt.Commentf("notes = %v", proj.Notes))
 
 	alone := t.TempDir()
-	testutil.Write(t, alone, "Makefile", "ci: verify\nverify:\n\ttrue\nshellcheck:\n\ttrue\n")
+	testutil.Write(t, alone, "Makefile", "ci: docs\ndocs:\n\ttrue\nspellcheck:\n\ttrue\n")
 
 	proj = detect(t, alone)
-	qt.Check(t, qt.Equals(gateNamed(t, proj, aggregateName).Display(), "make ci"),
+	qt.Check(t, qt.Equals(gateNamed(t, proj, aggregateNames[0]).Display(), "make ci"),
 		qt.Commentf("the only check this project declares was refused, leaving it ungated"))
 	qt.Check(t, qt.IsTrue(hasNote(proj, "found and run")),
 		qt.Commentf("notes = %v", proj.Notes))
@@ -521,9 +523,9 @@ func TestATurboCiTaskIsReportedRatherThanRun(t *testing.T) {
 
 	proj := detect(t, dir)
 	qt.Check(t, qt.IsFalse(slices.ContainsFunc(proj.Gates, func(g Gate) bool {
-		return g.Name == aggregateName
+		return g.Name == aggregateNames[0]
 	})), qt.Commentf("a ci gate was claimed: it would run every gate twice"))
-	qt.Check(t, qt.IsTrue(hasNote(proj, turboSource+aggregateName)),
+	qt.Check(t, qt.IsTrue(hasNote(proj, turboSource+aggregateNames[0])),
 		qt.Commentf("notes = %v", proj.Notes))
 }
 
@@ -600,4 +602,50 @@ func TestNoShellGateWithoutScripts(t *testing.T) {
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.IsFalse(slices.ContainsFunc(proj.Gates, func(g Gate) bool { return g.Name == "shell" })))
 	qt.Check(t, qt.IsFalse(hasNote(proj, "shellcheck")), qt.Commentf("notes = %v", proj.Notes))
+}
+
+// The fleet does not agree on the word. A repository whose only aggregate was
+// `check: lint` had gate running that lint and silently skipping the rest of
+// what check does -- a pass covering something nothing ran.
+func TestAnAggregateNamedCheckIsTreatedLikeCi(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	testutil.Write(t, dir, "Makefile", "check: lint\n\ttrue\nlint:\n\ttrue\n")
+
+	proj := detect(t, dir)
+	qt.Check(t, qt.IsFalse(slices.ContainsFunc(proj.Gates, func(g Gate) bool { return g.Name == "check" })),
+		qt.Commentf("check ran beside the gate it aggregates"))
+	// Stated rather than silent, which is the whole point: the reader can see
+	// that check exists and why it is not being run.
+	qt.Check(t, qt.IsTrue(hasNote(proj, "Makefile target check")), qt.Commentf("notes = %v", proj.Notes))
+}
+
+// Several names for one thing are one thing. Running two of them runs the
+// pipeline twice.
+func TestOnlyOneAggregateIsEverUsed(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	testutil.Write(t, dir, "Makefile", "ci:\n\ttrue\ncheck:\n\ttrue\nverify:\n\ttrue\n")
+
+	proj := detect(t, dir)
+	var claimed []string
+	for _, g := range proj.Gates {
+		claimed = append(claimed, g.Name)
+	}
+	// Nothing else is declared, so exactly one aggregate runs -- the first
+	// spelling in aggregateNames.
+	qt.Check(t, qt.DeepEquals(claimed, []string{"ci"}), qt.Commentf("gates = %v", claimed))
+}
+
+// `all` is the default build target by convention, not a verification
+// pipeline. Treating it as one would have gate run a build and call it the
+// whole check.
+func TestAllIsNotAnAggregate(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	testutil.Write(t, dir, "Makefile", "all:\n\ttrue\n")
+
+	proj := detect(t, dir)
+	qt.Check(t, qt.Equals(len(proj.Gates), 0), qt.Commentf("gates = %v", proj.Gates))
+	qt.Check(t, qt.IsFalse(hasNote(proj, "all")), qt.Commentf("notes = %v", proj.Notes))
 }

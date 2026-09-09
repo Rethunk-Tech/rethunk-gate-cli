@@ -144,9 +144,15 @@ install cargo-audit` — rather than a lesser gate: Rust ships no `go vet`
 equivalent, so a fallback would report something other than a lint result.
 
 The project's own declaration always wins. The roles are `build`, `typecheck`,
-`lint`, `workflows`, `shell`, `test` and `vuln`. A declared `ci` target is **not** one
-of them — it means "run the whole pipeline", which is what `gate` is already
-doing — and what happens to it depends on whether that is true here:
+`lint`, `workflows`, `shell`, `test` and `vuln`. An **aggregate** target is not
+one of them — `ci`, `check`, `verify` or `validate`, which all mean "run the
+whole pipeline", which is what `gate` is already doing. A project writing
+several of those has written one thing several times, so the first in that
+order is the one `gate` acts on. `all` is deliberately not among them: by
+convention it is the default build target, so treating it as a pipeline would
+have `gate` run a build and call it the whole check.
+
+What happens to the aggregate depends on whether the duplication is real:
 
 - **Declined** where `gate` claimed any of the gates `ci` aggregates —
   `build`, `typecheck`, `lint`, `test` or `vuln`, declared or inferred alike.
@@ -156,8 +162,13 @@ doing — and what happens to it depends on whether that is true here:
   would otherwise be left entirely unchecked by a refusal that was correct in
   wording.
 
-A note says which case applied, either way. `workflows` and `shell` are not
-among the aggregated gates: linting workflow files or shell scripts is a
+A note says which case applied, either way — and that note is the point of
+recognising more than one spelling. Measured across 55 repositories, widening
+it from `ci` alone changed what runs in none of them and added the note to
+five, including one whose `check: lint` had `gate` running the lint and
+silently skipping the rest of what `check` does.
+
+`workflows` and `shell` are not among the aggregated gates: linting workflow files or shell scripts is a
 different thing from what a project's `ci` target runs.
 
 ### The shell gate
