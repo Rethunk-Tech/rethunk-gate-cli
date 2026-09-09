@@ -109,7 +109,10 @@ type gateSpec struct {
 // stays in --list and in the log trailer, where the question is what exactly
 // ran.
 func (s gateSpec) short() string {
-	if len(s.argv) == 0 || !filepath.IsAbs(s.argv[0]) {
+	// The prefix test is what keeps this honest for a gate whose display is
+	// not its argv at all: the shell gate shows a summary, and trimming a
+	// path that is not there would print the binary's name twice.
+	if len(s.argv) == 0 || !filepath.IsAbs(s.argv[0]) || !strings.HasPrefix(s.display, s.argv[0]) {
 		return s.display
 	}
 	return filepath.Base(s.argv[0]) + strings.TrimPrefix(s.display, s.argv[0])

@@ -44,10 +44,26 @@ type Gate struct {
 	// Declared is true when this came from a manifest the project maintains,
 	// rather than from the fallback ladder. Only declared gates can shadow.
 	Declared bool
+
+	// Summary replaces the joined argv on the one line gate prints, for a
+	// gate whose command is not readable at that length. Only the shell gate
+	// sets it: shellcheck takes every script as an argument, which measured
+	// 3,263 characters on the largest repository in this fleet -- twenty
+	// terminal rows for a tool whose whole premise is one line on screen.
+	//
+	// Argv is untouched, so what runs is unchanged and --json still carries
+	// the whole command for a consumer that has to reproduce it.
+	Summary string
 }
 
-// Display is the command as a reader would type it.
-func (g Gate) Display() string { return strings.Join(g.Argv, " ") }
+// Display is the command as a reader would type it, or the gate's own summary
+// where the command is too long to be read at all.
+func (g Gate) Display() string {
+	if g.Summary != "" {
+		return g.Summary
+	}
+	return strings.Join(g.Argv, " ")
+}
 
 // Project is what a directory turned out to be.
 type Project struct {

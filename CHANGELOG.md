@@ -66,6 +66,14 @@ Notable changes to `gate`. The format follows
 
 ### Changed
 
+- The `shell` gate shows `shellcheck (76 scripts)` rather than its command.
+  Every script is an argument, which measured 3,263 characters on the largest
+  repository in this fleet and 1,705 on the next — twenty terminal rows for a
+  tool whose premise is one line on screen. What runs is unchanged: `--list`
+  prints the full command on its own `runs` line, and `--json` still carries it
+  in `argv`. `display` is now explicitly the string written for a person, and a
+  consumer reproducing a gate reads `argv`.
+
 - `doctor`'s `no-ci` now counts gates declared in `.gate.toml`, not only the
   ones detection infers. Three repositories in this fleet declare their only
   gate there — a doc-audit, a `dotnet restore` — and reading detection alone

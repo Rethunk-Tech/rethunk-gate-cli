@@ -2,6 +2,7 @@ package detect
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -299,7 +300,8 @@ func conventionGates(root string, proj *Project) ([]Gate, []skippedGate) {
 		if bin := resolve(root, proj, "shellcheck"); bin != "" {
 			gates = append(gates, Gate{
 				Name: "shell", Argv: append([]string{bin}, scripts...),
-				Source: "convention: shell scripts",
+				Source:  "convention: shell scripts",
+				Summary: fmt.Sprintf("shellcheck (%d script%s)", len(scripts), plural(len(scripts))),
 			})
 		} else {
 			skipped = append(skipped, skippedGate{"shell", "shellcheck not installed; skipping the shell gate (brew install shellcheck)"})
@@ -361,6 +363,15 @@ func shellScripts(root string) []string {
 	})
 	slices.Sort(found)
 	return found
+}
+
+// plural is the suffix for a count, so a gate reading "1 scripts" does not
+// have to be explained away.
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
 }
 
 // resolve finds a binary, preferring the project's own copy.

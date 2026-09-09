@@ -622,8 +622,9 @@ func TestJSONListingCarriesWhatListDoes(t *testing.T) {
 	qt.Check(t, qt.StringContains(got.Notes[0], "scripts.ci"))
 
 	// The tie to the text listing, in both directions: every gate's argv is
-	// either the display itself or the shell invocation of it, and every
-	// display is a line --list prints.
+	// either the display itself or the shell invocation of it -- or, for a
+	// gate that declares a summary, a command --list prints on its own `runs`
+	// line instead. Every display is a line --list prints, whichever it is.
 	listOut, _, _ := runGateTest(t, "-C", root, "--list")
 	for _, g := range got.Gates {
 		if strings.Join(g.Argv, " ") != g.Display {
@@ -1823,4 +1824,52 @@ func TestNDJSONIsRefusedForDoctor(t *testing.T) {
 	qt.Check(t, qt.StringContains(stderr, "doctor runs nothing"))
 	// Refusals that name the working spelling are the ones people act on.
 	qt.Check(t, qt.StringContains(stderr, "--json doctor"))
+}
+
+// shellcheck takes every script as an argument, which measured 3,263
+// characters on the largest repository in this fleet -- twenty terminal rows
+// for a tool whose whole premise is one line on screen.
+func TestShellGateShowsASummaryAndStillRunsEveryScript(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	shellcheck := plantBin(t, root, "shellcheck")
+	testutil.Write(t, root, "package.json", `{"name":"app"}`)
+	testutil.Write(t, root, "build.sh", "#!/bin/sh\ntrue\n")
+	testutil.Write(t, root, "scripts/deploy.sh", "#!/bin/sh\ntrue\n")
+
+	stdout, stderr, code := runGateTest(t, "-C", root, "--json")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+
+	var got listing
+	qt.Assert(t, qt.IsNil(json.Unmarshal([]byte(stdout), &got)), qt.Commentf("stdout = %q", stdout))
+	var shell listedGate
+	for _, g := range got.Gates {
+		if g.Name == "shell" {
+			shell = g
+		}
+	}
+	qt.Assert(t, qt.Equals(shell.Name, "shell"), qt.Commentf("gates = %+v", got.Gates))
+	qt.Check(t, qt.Equals(shell.Display, "shellcheck (2 scripts)"))
+	// Argv is untouched: what runs is every script, and a consumer
+	// reproducing the gate needs the whole command.
+	qt.Check(t, qt.DeepEquals(shell.Argv, []string{shellcheck, "build.sh", "scripts/deploy.sh"}))
+
+	// --list still answers "what exactly runs", which is the whole point of
+	// it; the summary must not become a detector that cannot be inspected.
+	listOut, _, _ := runGateTest(t, "-C", root, "--list")
+	qt.Check(t, qt.StringContains(listOut, "shellcheck (2 scripts)"))
+	qt.Check(t, qt.StringContains(listOut, "runs "+shellcheck+" build.sh scripts/deploy.sh"))
+}
+
+// One script is one script. A count that reads "1 scripts" is a line someone
+// has to explain away.
+func TestShellGateSummaryIsSingularForOneScript(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	plantBin(t, root, "shellcheck")
+	testutil.Write(t, root, "package.json", `{"name":"app"}`)
+	testutil.Write(t, root, "build.sh", "#!/bin/sh\ntrue\n")
+
+	listOut, _, _ := runGateTest(t, "-C", root, "--list")
+	qt.Check(t, qt.StringContains(listOut, "shellcheck (1 script)"), qt.Commentf("listing = %q", listOut))
 }

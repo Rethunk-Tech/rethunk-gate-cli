@@ -173,6 +173,14 @@ The walk costs 4.6ms on the largest repository measured (76 scripts) and under
 1ms on most, against a 0.14s median gate. Only a bare `gate` pays it; a wrapped
 command never reaches detection.
 
+Because every script is an argument, this is the one gate whose command is not
+what gets printed: it shows `shellcheck (76 scripts)` instead. The full command
+measured 3,263 characters on the largest repository here — twenty terminal rows
+for a tool whose premise is one line on screen. Nothing about what runs
+changes: `--list` prints the whole command on its own `runs` line, and `--json`
+carries it in `argv`, which is what a consumer reproducing the gate reads.
+`display` is the string written for a person.
+
 Measured across 55 repositories: 23 have shell scripts of their own, and
 running the new gate in all of them, 19 passed unchanged and 4 reported real
 shellcheck findings. Without `shellcheck` installed the gate is a note naming

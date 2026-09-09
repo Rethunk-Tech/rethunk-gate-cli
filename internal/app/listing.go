@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/detect"
 )
@@ -39,7 +40,10 @@ type listedGate struct {
 	// -- which is what execution uses and what a consumer has to reproduce.
 	Argv []string `json:"argv"`
 
-	// Display is the same string the text listing shows for this gate.
+	// Display is the string written for a person: the command, or the gate's
+	// own summary where the command is too long to read on one line. Argv is
+	// always the whole of what runs, so a consumer reproducing the gate uses
+	// that and never this.
 	Display string `json:"display"`
 
 	// Source is why this gate is here, surviving the config merge. A command
@@ -140,6 +144,13 @@ func writeListing(w io.Writer, project detect.Project, files []string, opts opti
 			if spec.role != "" {
 				fmt.Fprintf(w, "%s%-10s %s\n", lead, spec.role, spec.display)
 				fmt.Fprintf(w, "        from %s\n", spec.source)
+				// A gate showing a summary still has to show its working
+				// here: --list is the surface that answers "what exactly
+				// runs", and a detector you cannot inspect is one you end up
+				// fighting.
+				if argv := strings.Join(spec.argv, " "); argv != spec.display {
+					fmt.Fprintf(w, "        runs %s\n", argv)
+				}
 				for _, shadowed := range spec.shadowed {
 					fmt.Fprintf(w, "        shadows %s\n", shadowed)
 				}
