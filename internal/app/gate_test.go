@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -1872,4 +1873,63 @@ func TestShellGateSummaryIsSingularForOneScript(t *testing.T) {
 
 	listOut, _, _ := runGateTest(t, "-C", root, "--list")
 	qt.Check(t, qt.StringContains(listOut, "shellcheck (1 script)"), qt.Commentf("listing = %q", listOut))
+}
+
+// The project's own declaration always wins. That is decided by role name
+// everywhere else, which is enough while a project uses the role's name --
+// two repositories in this fleet declare their shellcheck under a name of
+// their own, and were running the same tool twice, concurrently, disagreeing
+// about which scripts each covered.
+func TestADeclaredShellcheckOutranksTheConvention(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	plantBin(t, root, "shellcheck")
+	testutil.Write(t, root, "package.json", `{"name":"app"}`)
+	testutil.Write(t, root, "build.sh", "#!/bin/sh\ntrue\n")
+	testutil.Write(t, root, ".gate.toml", "[gates.shellcheck]\nrun = \"shellcheck build.sh\"\n")
+
+	stdout, stderr, code := runGateTest(t, "-C", root, "--json")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+
+	var got listing
+	qt.Assert(t, qt.IsNil(json.Unmarshal([]byte(stdout), &got)), qt.Commentf("stdout = %q", stdout))
+	var names []string
+	for _, g := range got.Gates {
+		names = append(names, g.Name)
+	}
+	// Named rather than compared to a whole list: what else this fixture
+	// detects depends on which tools the machine has, and the claim here is
+	// about one gate not being there beside another.
+	qt.Check(t, qt.IsTrue(slices.Contains(names, "shellcheck")), qt.Commentf("gates = %v", names))
+	qt.Check(t, qt.IsFalse(slices.Contains(names, "shell")),
+		qt.Commentf("the convention ran beside the project's own declaration: %v", names))
+	// A convention losing to a declaration is not a disagreement, and is not
+	// reported.
+	qt.Check(t, qt.Equals(stderr, ""), qt.Commentf("stderr = %q", stderr))
+}
+
+// A name asked for outright is not a tie to break.
+func TestRunShellStillReachesTheConventionGate(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	plantBin(t, root, "shellcheck")
+	testutil.Write(t, root, "package.json", `{"name":"app"}`)
+	testutil.Write(t, root, "build.sh", "#!/bin/sh\ntrue\n")
+	testutil.Write(t, root, ".gate.toml", "[gates.shellcheck]\nrun = \"shellcheck build.sh\"\n")
+
+	_, stderr, code := runGateTest(t, "-C", root, "run", "shell")
+	qt.Check(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+}
+
+// A project with no shellcheck of its own still gets the convention.
+func TestTheConventionShellGateSurvivesUnrelatedConfig(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	plantBin(t, root, "shellcheck")
+	testutil.Write(t, root, "package.json", `{"name":"app"}`)
+	testutil.Write(t, root, "build.sh", "#!/bin/sh\ntrue\n")
+	testutil.Write(t, root, ".gate.toml", "[gates.e2e]\nrun = \"echo e2e\"\n")
+
+	stdout, _, _ := runGateTest(t, "-C", root, "--list")
+	qt.Check(t, qt.StringContains(stdout, "shellcheck (1 script)"), qt.Commentf("listing = %q", stdout))
 }

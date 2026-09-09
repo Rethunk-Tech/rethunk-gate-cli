@@ -96,6 +96,21 @@ check that cannot say why it fires is a preference.
 Full reference: docs/USAGE.md
 `
 
+// declaresShellcheck reports whether the project itself declares a gate that
+// runs shellcheck, under any name but the convention's own.
+//
+// Read from the command rather than the name, because the name is exactly
+// what a project choosing its own spelling has already changed.
+func declaresShellcheck(g gateSpec) bool {
+	return g.role != "shell" && strings.Contains(g.display, "shellcheck")
+}
+
+// isConventionShellGate reports whether this is the inferred shell gate, as
+// against one a project declared under that name itself.
+func isConventionShellGate(g gateSpec) bool {
+	return g.role == "shell" && strings.HasPrefix(g.source, "convention:")
+}
+
 // Run parses gate's own arguments and runs the gates that follow them.
 func Run(ctx context.Context, version string, args []string, stdout, stderr io.Writer) Code {
 	opts := options{tail: defaultTail}
@@ -336,6 +351,20 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		}
 
 		configured = cfg
+		// The project's own declaration always wins. Everywhere else that is
+		// decided by role name, which is enough while a project uses the
+		// role's name -- but two repositories in this fleet declare their
+		// shellcheck under a name of their own, and got the convention as
+		// well: the same tool twice, running concurrently, disagreeing about
+		// which scripts each covers.
+		//
+		// Silent, like every other convention that loses to a declaration
+		// (docs/USAGE.md). `gate run shell` still reaches the convention gate:
+		// a name asked for outright is not a tie to break.
+		if len(roles) == 0 && slices.ContainsFunc(opts.gates, declaresShellcheck) {
+			opts.gates = slices.DeleteFunc(opts.gates, isConventionShellGate)
+		}
+
 		// Never fall through to a program of that name. The caller is least
 		// sure what this project has in exactly the case where the fallback
 		// would fire, which is where running /usr/bin/test would be worst.

@@ -181,6 +181,13 @@ changes: `--list` prints the whole command on its own `runs` line, and `--json`
 carries it in `argv`, which is what a consumer reproducing the gate reads.
 `display` is the string written for a person.
 
+A project that declares its own shellcheck gets no convention gate, whatever
+name it declared it under — two repositories in this fleet had one as
+`[gates.shellcheck]` and were running the same tool twice, concurrently, over
+different file lists. This is the ordinary rule that a declaration outranks a
+convention, so it is silent; `gate run shell` still reaches the convention
+gate, because a name asked for outright is not a tie to break.
+
 Measured across 55 repositories: 23 have shell scripts of their own, and
 running the new gate in all of them, 19 passed unchanged and 4 reported real
 shellcheck findings. Without `shellcheck` installed the gate is a note naming

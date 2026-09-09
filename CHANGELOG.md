@@ -74,6 +74,15 @@ Notable changes to `gate`. The format follows
   in `argv`. `display` is now explicitly the string written for a person, and a
   consumer reproducing a gate reads `argv`.
 
+- A project declaring its own shellcheck no longer gets the convention gate as
+  well. The rule that a declaration outranks a convention was decided by role
+  name, which is enough while a project uses the role's name — two
+  repositories in this fleet declare theirs as `[gates.shellcheck]` and were
+  running the same tool twice, concurrently, over different file lists. Silent,
+  like every other convention that loses to a declaration. `gate run shell`
+  still reaches the convention gate: a name asked for outright is not a tie to
+  break.
+
 - `doctor`'s `no-ci` now counts gates declared in `.gate.toml`, not only the
   ones detection infers. Three repositories in this fleet declare their only
   gate there — a doc-audit, a `dotnet restore` — and reading detection alone
