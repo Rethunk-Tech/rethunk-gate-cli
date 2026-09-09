@@ -209,7 +209,7 @@ A convention losing to a declaration is not a disagreement and is not reported.
 
 ### Running some of them
 
-`gate run lint test` runs those two. The names are the six roles plus any gate
+`gate run lint test` runs those two. The names are the seven roles plus any gate
 `.gate.toml` declares, which is the only way to reach one of those. Every name
 has to resolve — one that does not fails the whole run without running
 anything, because running the subset that matched would report a pass covering
