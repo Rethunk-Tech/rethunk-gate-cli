@@ -56,11 +56,18 @@ commands run in the `-C` directory.
 
 ## Detection
 
-`internal/detect` reads manifests and stats files. **It never executes anything.**
-The one exception to "stats, not walks" is the `shell` gate: `shellcheck` takes
-files rather than a directory, so detection walks for `.sh` files, skipping
-vendored and generated trees. Measured at 4.6ms on the largest repository in
-the fleet, and only a bare `gate` pays it.
+`internal/detect` reads manifests and stats files. **It never executes a
+program the project chose** — `make -p` would evaluate the Makefile, and that
+is the line.
+
+The `shell` gate is the one exception, and a bounded one. `shellcheck` takes
+files rather than a directory, and "the project's own scripts" is a question
+git already answers exactly, so detection runs `git ls-files --cached --others
+--exclude-standard`: a fixed argv no project can influence, `core.fsmonitor`
+emptied so a repository cannot name a program for git to run, and a 5s
+deadline. Not a repository, no git, or any error falls back to walking for
+`.sh` files past vendored and generated trees. Measured at 7-8ms per
+detection including the spawn, and only a bare `gate` pays it.
 
 Precedence: Makefile target, `turbo.json` task, `package.json` script, then
 convention. Only a declaration can shadow another.

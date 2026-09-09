@@ -2,6 +2,7 @@ package detect
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -648,4 +649,51 @@ func TestAllIsNotAnAggregate(t *testing.T) {
 	proj := detect(t, dir)
 	qt.Check(t, qt.Equals(len(proj.Gates), 0), qt.Commentf("gates = %v", proj.Gates))
 	qt.Check(t, qt.IsFalse(hasNote(proj, "all")), qt.Commentf("notes = %v", proj.Notes))
+}
+
+// gitRepo makes dir a repository. Only `git init` -- no config is written,
+// because ls-files needs no identity and a test that set one could reach the
+// developer's global file.
+func gitRepo(t *testing.T, dir string) {
+	t.Helper()
+	cmd := exec.Command("git", "init", "--quiet")
+	cmd.Dir = dir
+	if err := cmd.Run(); err != nil {
+		t.Skipf("git init: %v", err)
+	}
+}
+
+// "The project's own scripts" is a question git already answers. Walking the
+// tree alone failed one repository's shell gate on a script inside a directory
+// its .gitignore excludes wholesale, while both of its real scripts passed.
+func TestIgnoredScriptsAreNotTheProjectsOwn(t *testing.T) {
+	dir := t.TempDir()
+	gitRepo(t, dir)
+	testutil.WriteExecutable(t, dir, filepath.Join("node_modules", ".bin", "shellcheck"))
+	testutil.Write(t, dir, "package.json", `{"name":"app"}`)
+	testutil.Write(t, dir, ".gitignore", "generated/\n")
+	testutil.Write(t, dir, "scripts/real.sh", "#!/bin/sh\ntrue\n")
+	testutil.Write(t, dir, "generated/built.sh", "#!/bin/sh\ntrue\n")
+
+	proj, err := Detect(dir)
+	qt.Assert(t, qt.IsNil(err))
+	gate := gateNamed(t, proj, "shell")
+	// Untracked but not ignored still counts: a script written a minute ago
+	// is the project's, and waiting for a commit to check it is the wrong
+	// moment to start.
+	qt.Check(t, qt.DeepEquals(gate.Argv[1:], []string{"scripts/real.sh"}),
+		qt.Commentf("argv = %v", gate.Argv))
+}
+
+// Not a repository is not an error: the walk is what answers there.
+func TestScriptsAreWalkedOutsideARepository(t *testing.T) {
+	dir := t.TempDir()
+	testutil.WriteExecutable(t, dir, filepath.Join("node_modules", ".bin", "shellcheck"))
+	testutil.Write(t, dir, "package.json", `{"name":"app"}`)
+	testutil.Write(t, dir, "scripts/real.sh", "#!/bin/sh\ntrue\n")
+
+	proj, err := Detect(dir)
+	qt.Assert(t, qt.IsNil(err))
+	gate := gateNamed(t, proj, "shell")
+	qt.Check(t, qt.DeepEquals(gate.Argv[1:], []string{"scripts/real.sh"}))
 }

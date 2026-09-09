@@ -66,6 +66,21 @@ Notable changes to `gate`. The format follows
 
 ### Changed
 
+- The `shell` gate asks git which scripts are the project's own — `git ls-files
+  --cached --others --exclude-standard` — instead of walking whatever is on
+  disk. `Rethunk-Tech/engined` was failing its shell gate on
+  `docs/four-doors/build.sh`, a file inside a directory its `.gitignore`
+  excludes wholesale with nothing in it tracked, while both of its real scripts
+  passed clean. Untracked-but-not-ignored still counts: a script written a
+  minute ago is the project's, and waiting for a commit to check it is the
+  wrong moment to start.
+
+  This is the one program detection runs, and it is bounded: a fixed argv no
+  project can influence, `core.fsmonitor` emptied so a repository cannot name a
+  program for git to run on gate's behalf, and a 5s deadline. Not a repository,
+  no git, or any error falls back to the walk. Detection costs 7-8ms including
+  the spawn and is now flat across repository size.
+
 - An aggregate target is recognised as `ci`, `check`, `verify` or `validate`,
   not `ci` alone, and a project writing several gets one — the first in that
   order. The fleet does not agree on the word: `verify` and `check` are as

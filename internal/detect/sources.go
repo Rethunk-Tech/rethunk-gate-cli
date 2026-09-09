@@ -1,6 +1,7 @@
 package detect
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -10,6 +11,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 )
 
 // declaredNames are the roles worth looking for in a project's own manifests.
@@ -341,17 +343,63 @@ var scriptDirsSkipped = map[string]bool{
 // shellScripts lists the project's own .sh files, relative to root and sorted
 // so two runs produce the same command.
 //
-// shellcheck takes files rather than a directory, so this is the one place
-// detection walks instead of stats. Measured across this fleet the walk costs
-// 4.6ms on the largest repository (76 scripts) and under 1ms on most, against
-// a 0.14s median gate -- and only a bare `gate` pays it, never a wrapped
-// command.
+// git is asked first, because "the project's own scripts" is a question git
+// already answers exactly: the files it tracks, plus the untracked ones it
+// does not ignore. Walking the tree alone linted whatever happened to be on
+// disk -- one repository in this fleet failed its shell gate on a script
+// inside a directory its .gitignore excludes wholesale, with nothing in it
+// tracked, while both of its real scripts passed.
 //
-// Paths are relative because the whole list goes on one line in --list and in
-// the verdict. A repository with 76 scripts still reads as a paragraph; that
-// is the ceiling, and the fix is a display, not a shorter check. Checking a
-// subset would report a pass covering scripts nothing read.
+// This is the one place detection runs a program, and the bounds are what
+// make it safe: a fixed argv that no project can influence, core.fsmonitor
+// disabled so a repository cannot name a program for git to run, and a
+// deadline so a wedged git cannot hang a gate. Not a repository, no git, or
+// any error at all falls back to the walk.
+//
+// Paths are relative because the whole list is the gate's argv. The summary
+// on screen is a count; --list prints the command in full.
 func shellScripts(root string) []string {
+	if tracked, ok := gitScripts(root); ok {
+		return tracked
+	}
+	return walkScripts(root)
+}
+
+// gitScripts asks git which .sh files belong to the project. The bool reports
+// whether git answered at all, so an unusable answer is never mistaken for a
+// project with no scripts.
+func gitScripts(root string) ([]string, bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), gitDeadline)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git",
+		// Emptying core.fsmonitor is the whole reason this is safe to run in
+		// a repository gate did not create: a repository can otherwise name a
+		// program there for git to execute on its behalf.
+		"-c", "core.fsmonitor=",
+		"ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "*.sh")
+	cmd.Dir = root
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, false
+	}
+	var found []string
+	for name := range strings.SplitSeq(string(out), "\x00") {
+		if name != "" {
+			found = append(found, filepath.ToSlash(name))
+		}
+	}
+	slices.Sort(found)
+	return found, true
+}
+
+// gitDeadline bounds the one program detection runs. Detection is meant to be
+// invisible against a 0.14s median gate, and a git that never returns would
+// otherwise hang every run in that repository.
+const gitDeadline = 5 * time.Second
+
+// walkScripts is the fallback where git cannot answer: a directory that is not
+// a repository, or a machine without git.
+func walkScripts(root string) []string {
 	var found []string
 	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {

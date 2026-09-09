@@ -173,16 +173,25 @@ different thing from what a project's `ci` target runs.
 
 ### The shell gate
 
-`shellcheck` takes files, not a directory, so this is the one place detection
-walks the tree instead of reading manifests. It collects the project's own
-`.sh` files — vendored and generated trees (`node_modules`, `.venv`, `vendor`,
-`target`, `dist`, `build`, `.next`, `.turbo`) are skipped, because a gate
-failing on a dependency's installer would report on code the project cannot
-change. Paths are relative and sorted, so two runs produce the same command.
+`shellcheck` takes files, not a directory, so gate has to name them. The
+project's own scripts are what git says they are: `git ls-files --cached
+--others --exclude-standard -- '*.sh'`, which is everything tracked plus
+everything untracked that is not ignored. A script written a minute ago counts;
+a generated one inside an ignored directory does not. Outside a repository, or
+with no git, gate walks for `.sh` files instead and skips vendored and
+generated trees (`node_modules`, `.venv`, `vendor`, `target`, `dist`, `build`,
+`.next`, `.turbo`). Paths are relative and sorted, so two runs produce the same
+command.
 
-The walk costs 4.6ms on the largest repository measured (76 scripts) and under
-1ms on most, against a 0.14s median gate. Only a bare `gate` pays it; a wrapped
-command never reaches detection.
+This is the one place detection runs a program. The argv is fixed and nothing
+the project writes can change it, `core.fsmonitor` is emptied so a repository
+cannot name a program for git to run on gate's behalf, and a 5s deadline means
+a wedged git cannot hang a gate.
+
+Detection costs 7-8ms including the git spawn, against a 0.14s median gate, and
+is flat across repository size — asking git's index is cheaper on a large tree
+than the walk it replaced. Only a bare `gate` pays it; a wrapped command never
+reaches detection.
 
 Because every script is an argument, this is the one gate whose command is not
 what gets printed: it shows `shellcheck (76 scripts)` instead. The full command
