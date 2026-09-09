@@ -67,3 +67,13 @@ func TestResolveVersionPrefersLdflagsAndIsNeverEmpty(t *testing.T) {
 	// nothing when the build carries no stamps to fall back on.
 	qt.Check(t, qt.Equals(resolveVersion("dev"), "dev"))
 }
+
+// gate deletes files, and the line whose job is to state the defaults in force
+// is where that belongs: every other value on it can be moved by a flag, and
+// this is the only one that destroys something.
+func TestVersionNamesLogRetention(t *testing.T) {
+	t.Parallel()
+	var out bytes.Buffer
+	writeVersion(&out, "v1.2.3", time.Minute)
+	qt.Check(t, qt.StringContains(out.String(), "kept 14 days"), qt.Commentf("version = %q", out.String()))
+}

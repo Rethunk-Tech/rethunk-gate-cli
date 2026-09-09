@@ -68,7 +68,12 @@ func resolveVersion(ldflags string) string {
 func writeVersion(w io.Writer, ldflags string, timeout time.Duration) {
 	fmt.Fprintf(w, "gate %s (%s, %s/%s)\n",
 		resolveVersion(ldflags), runtime.Version(), runtime.GOOS, runtime.GOARCH)
-	fmt.Fprintf(w, "defaults: timeout %s, logs %s\n", describeTimeout(timeout), logDir())
+	// Retention is on this line because gate deletes files. Everything else
+	// here can be moved by a flag; this one cannot, and it is the only
+	// default that destroys something, so leaving it to the documentation
+	// makes the line say less than it claims to.
+	fmt.Fprintf(w, "defaults: timeout %s, logs %s (kept %d days)\n",
+		describeTimeout(timeout), logDir(), int(pruneAge.Hours()/24))
 }
 
 func describeTimeout(timeout time.Duration) string {

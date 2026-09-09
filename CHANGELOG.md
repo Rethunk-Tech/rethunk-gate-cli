@@ -66,6 +66,11 @@ Notable changes to `gate`. The format follows
 
 ### Changed
 
+- `gate --version` names log retention: `logs /var/tmp/gate (kept 14 days)`.
+  Every other value on that line can be moved by a flag; this one cannot, and
+  it is the only default that deletes something, so a line whose job is to
+  state the defaults in force was saying less than it claimed to.
+
 - The `shell` gate asks git which scripts are the project's own — `git ls-files
   --cached --others --exclude-standard` — instead of walking whatever is on
   disk. `Rethunk-Tech/engined` was failing its shell gate on

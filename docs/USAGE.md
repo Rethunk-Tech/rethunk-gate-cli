@@ -424,7 +424,8 @@ whatever the command printed, which can include tokens.
 `--log PATH` overrides the location entirely; that directory is the caller's
 and is never re-permissioned.
 
-Logs older than **14 days** are removed from gate's own directory. Nothing else
+`gate --version` names the retention alongside the log directory. Logs older
+than **14 days** are removed from gate's own directory. Nothing else
 does it, and the directory only grows: one operator's measured 811 logs in two
 days. Linux clears `/var/tmp` at 30 days, but the macOS and Windows temporary
 directories gate also writes to do not. The sweep runs at most once a day —
