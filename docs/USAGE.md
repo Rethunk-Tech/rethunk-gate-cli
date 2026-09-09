@@ -134,7 +134,8 @@ for d in ~/src/*/; do gate -C "$d" --ndjson; done | jq -r 'select(.status != "ok
    test`/`golangci-lint`/`govulncheck`, `cargo build`/`cargo test`/`cargo
    clippy`/`cargo audit` where a `Cargo.toml` exists, `uv run
    pytest`/`ruff`/`pyrefly` plus `uv audit` where a `uv.lock` exists,
-   `biome`/`tsc`, and `actionlint` where `.github/workflows` exists.
+   `biome`/`tsc`, `actionlint` where `.github/workflows` exists, and
+   `shellcheck` over the project's own `.sh` files where it has any.
 
 The Rust tier has no typecheck gate on purpose: `cargo build` type-checks as it
 compiles, and `cargo check` would compile the crate a second time for an answer
@@ -144,7 +145,7 @@ install cargo-audit` — rather than a lesser gate: Rust ships no `go vet`
 equivalent, so a fallback would report something other than a lint result.
 
 The project's own declaration always wins. The roles are `build`, `typecheck`,
-`lint`, `workflows`, `test` and `vuln`. A declared `ci` target is **not** one
+`lint`, `workflows`, `shell`, `test` and `vuln`. A declared `ci` target is **not** one
 of them — it means "run the whole pipeline", which is what `gate` is already
 doing — and what happens to it depends on whether that is true here:
 
@@ -156,9 +157,27 @@ doing — and what happens to it depends on whether that is true here:
   would otherwise be left entirely unchecked by a refusal that was correct in
   wording.
 
-A note says which case applied, either way. `workflows` is not one of the
-aggregated gates: linting workflow files is a different thing from what a
-project's `ci` target runs.
+A note says which case applied, either way. `workflows` and `shell` are not
+among the aggregated gates: linting workflow files or shell scripts is a
+different thing from what a project's `ci` target runs.
+
+### The shell gate
+
+`shellcheck` takes files, not a directory, so this is the one place detection
+walks the tree instead of reading manifests. It collects the project's own
+`.sh` files — vendored and generated trees (`node_modules`, `.venv`, `vendor`,
+`target`, `dist`, `build`, `.next`, `.turbo`) are skipped, because a gate
+failing on a dependency's installer would report on code the project cannot
+change. Paths are relative and sorted, so two runs produce the same command.
+
+The walk costs 4.6ms on the largest repository measured (76 scripts) and under
+1ms on most, against a 0.14s median gate. Only a bare `gate` pays it; a wrapped
+command never reaches detection.
+
+Measured across 55 repositories: 23 have shell scripts of their own, and
+running the new gate in all of them, 19 passed unchanged and 4 reported real
+shellcheck findings. Without `shellcheck` installed the gate is a note naming
+the install, never a lesser check — the same rule the Rust tier follows.
 
 Tools are looked for in `node_modules/.bin` and `.venv/bin` before `PATH`, and
 the resolved path is what runs. Several of the best tools — `turbo`, `pyrefly`

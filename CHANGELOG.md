@@ -35,6 +35,23 @@ Notable changes to `gate`. The format follows
   fleet's `.gate.toml` files, and every use of it is a project that found this
   out the hard way first.
 
+- A `shell` gate: `shellcheck` over the project's own `.sh` files, as a seventh
+  role beside `workflows`. Shell scripts belong to no toolchain, so nothing
+  else ever claimed them — 23 of 55 repositories in this fleet carry scripts
+  outside their vendored directories, and two had to declare a shellcheck gate
+  by hand to get them read at all.
+
+  `shellcheck` takes files rather than a directory, so this is the one place
+  detection walks the tree instead of reading manifests: 4.6ms on the largest
+  repository measured (76 scripts), under 1ms on most, and only a bare `gate`
+  pays it. Vendored and generated trees are skipped — a gate failing on a
+  dependency's installer would report on code the project cannot change — and
+  paths are relative and sorted so two runs produce the same command.
+
+  Running it across the fleet: of the 23 repositories that gain the gate, 19
+  passed unchanged and 4 reported real shellcheck findings. Without
+  `shellcheck` installed it is a note naming the install, never a lesser check.
+
 ### Changed
 
 - Logs older than 14 days are removed from gate's own directory, which nothing

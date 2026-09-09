@@ -554,3 +554,50 @@ func TestEitherBunLockfileSpellingMarksTheWorkspace(t *testing.T) {
 		})
 	}
 }
+
+// Shell scripts belong to no toolchain, so nothing else claims them.
+func TestShellScriptsGetAShellGate(t *testing.T) {
+	dir := t.TempDir()
+	shellcheck := testutil.WriteExecutable(t, dir, filepath.Join("node_modules", ".bin", "shellcheck"))
+	testutil.Write(t, dir, "package.json", `{"name":"app"}`)
+	testutil.Write(t, dir, "scripts/deploy.sh", "#!/bin/sh\ntrue\n")
+	testutil.Write(t, dir, "build.sh", "#!/bin/sh\ntrue\n")
+	// Not the project's own, and a gate failing on a dependency's installer
+	// would be reporting on code the project cannot change.
+	testutil.Write(t, dir, "node_modules/pkg/install.sh", "#!/bin/sh\ntrue\n")
+
+	proj, err := Detect(dir)
+	qt.Assert(t, qt.IsNil(err))
+	gate := gateNamed(t, proj, "shell")
+	// Relative and sorted, so two runs produce the same command and the line
+	// stays readable.
+	qt.Check(t, qt.DeepEquals(gate.Argv, []string{shellcheck, "build.sh", "scripts/deploy.sh"}))
+	qt.Check(t, qt.Equals(gate.Source, "convention: shell scripts"))
+}
+
+// A gate that cannot run is a note naming its install, never a lesser check.
+func TestShellGateIsSkippedWithoutShellcheck(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	dir := t.TempDir()
+	testutil.Write(t, dir, "package.json", `{"name":"app"}`)
+	testutil.Write(t, dir, "scripts/deploy.sh", "#!/bin/sh\ntrue\n")
+
+	proj, err := Detect(dir)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsFalse(slices.ContainsFunc(proj.Gates, func(g Gate) bool { return g.Name == "shell" })),
+		qt.Commentf("a shell gate was claimed with no shellcheck to run it"))
+	qt.Check(t, qt.IsTrue(hasNote(proj, "brew install shellcheck")), qt.Commentf("notes = %v", proj.Notes))
+}
+
+// A repository with no scripts of its own gets neither a gate nor a note:
+// there is nothing to say, and a note per repository is noise.
+func TestNoShellGateWithoutScripts(t *testing.T) {
+	dir := t.TempDir()
+	testutil.WriteExecutable(t, dir, filepath.Join("node_modules", ".bin", "shellcheck"))
+	testutil.Write(t, dir, "package.json", `{"name":"app"}`)
+
+	proj, err := Detect(dir)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsFalse(slices.ContainsFunc(proj.Gates, func(g Gate) bool { return g.Name == "shell" })))
+	qt.Check(t, qt.IsFalse(hasNote(proj, "shellcheck")), qt.Commentf("notes = %v", proj.Notes))
+}

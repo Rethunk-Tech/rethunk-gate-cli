@@ -45,8 +45,8 @@ With no command, gate detects the project's gates and runs them.
 
 Commands:
   <command>     run that command as a gate
-  run NAME...   run the named gates: build, typecheck, lint, workflows, test,
-                vuln, and any others .gate.toml declares
+  run NAME...   run the named gates: build, typecheck, lint, workflows, shell,
+                test, vuln, and any others .gate.toml declares
   doctor        report what is cheap to fix here (read-only)
 
 Global flags (before everything else):

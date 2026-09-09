@@ -2,6 +2,7 @@ package detect
 
 import (
 	"encoding/json"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -290,6 +291,21 @@ func conventionGates(root string, proj *Project) ([]Gate, []skippedGate) {
 		}
 	}
 
+	// Shell scripts belong to no toolchain, so nothing above ever claims
+	// them: 23 of 55 repositories in this fleet carry scripts outside their
+	// vendored directories, and two had to declare a shellcheck gate by hand
+	// to get them read at all.
+	if scripts := shellScripts(root); len(scripts) > 0 {
+		if bin := resolve(root, proj, "shellcheck"); bin != "" {
+			gates = append(gates, Gate{
+				Name: "shell", Argv: append([]string{bin}, scripts...),
+				Source: "convention: shell scripts",
+			})
+		} else {
+			skipped = append(skipped, skippedGate{"shell", "shellcheck not installed; skipping the shell gate (brew install shellcheck)"})
+		}
+	}
+
 	if exists(filepath.Join(root, "supabase")) {
 		// Deliberately no gate. Supabase commands show up often in this
 		// fleet, but none of them is an unambiguous pass/fail check of the
@@ -299,6 +315,52 @@ func conventionGates(root string, proj *Project) ([]Gate, []skippedGate) {
 	}
 
 	return gates, skipped
+}
+
+// scriptDirsSkipped are directories whose shell scripts are not the
+// project's. Vendored and generated trees hold thousands of them, and a gate
+// that failed on a dependency's installer would be reporting on code the
+// project cannot change.
+var scriptDirsSkipped = map[string]bool{
+	".git": true, "node_modules": true, ".venv": true, "vendor": true,
+	"target": true, "dist": true, "build": true, ".next": true, ".turbo": true,
+}
+
+// shellScripts lists the project's own .sh files, relative to root and sorted
+// so two runs produce the same command.
+//
+// shellcheck takes files rather than a directory, so this is the one place
+// detection walks instead of stats. Measured across this fleet the walk costs
+// 4.6ms on the largest repository (76 scripts) and under 1ms on most, against
+// a 0.14s median gate -- and only a bare `gate` pays it, never a wrapped
+// command.
+//
+// Paths are relative because the whole list goes on one line in --list and in
+// the verdict. A repository with 76 scripts still reads as a paragraph; that
+// is the ceiling, and the fix is a display, not a shorter check. Checking a
+// subset would report a pass covering scripts nothing read.
+func shellScripts(root string) []string {
+	var found []string
+	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil // an unreadable directory is not this gate's business
+		}
+		if d.IsDir() {
+			if path != root && scriptDirsSkipped[d.Name()] {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(d.Name(), ".sh") {
+			return nil
+		}
+		if rel, err := filepath.Rel(root, path); err == nil {
+			found = append(found, filepath.ToSlash(rel))
+		}
+		return nil
+	})
+	slices.Sort(found)
+	return found
 }
 
 // resolve finds a binary, preferring the project's own copy.
