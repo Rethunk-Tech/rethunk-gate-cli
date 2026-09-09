@@ -79,6 +79,50 @@ as `[]` and never `null`, so a consumer can iterate without a nil check.
 not to `doctor` — `gate --json doctor` is refused rather than silently ignored.
 Doctor reports advice, not a verdict, and has no listing to serialise.
 
+### Streaming what a run did
+
+`--json` describes what *would* run. `--ndjson` runs the gates and writes one
+JSON line per gate the moment that gate finishes:
+
+```console
+$ gate --ndjson
+{"name":"lint","argv":["make","lint"],"display":"make lint","status":"ok","code":0,"ms":189,"log":"/var/tmp/gate/make-lint-2378129278.log"}
+{"name":"build","argv":["make","build"],"display":"make build","status":"ok","code":0,"ms":193,"log":"/var/tmp/gate/make-build-1076509735.log"}
+{"name":"test","argv":["make","test"],"display":"make test","status":"fail","code":2,"ms":3307,"log":"/var/tmp/gate/make-test-738824944.log"}
+```
+
+A stream rather than one document at the end, because that is the shape a
+concurrent run has: a ten-minute gate must not hold back the verdict on a
+two-second one. The order is **arrival order** — the order gates finished, not
+the order they were named — which is the only order a stream can honestly
+claim. The text report on stderr is still in declaration order, and the two are
+free to disagree.
+
+`status` is a word, never a code: `ok`, `fail`, `timeout`, `interrupted`,
+`not-found`, `error`, `skipped`. The codes collide by design — a command
+exiting 124 is not a timeout — so a consumer must never have to guess which of
+the two it is holding.
+
+`code` is what that gate contributes to gate's exit status, and `ms` how long
+it took. Both are **absent** for a gate that never ran: a skipped gate has no
+verdict, and `"code": 0` would claim a pass it never gave. `reason` says what a
+skipped gate was waiting on, or which limit a timeout passed; `error` carries
+gate's own failure — a log it could not finish — beside the command's verdict
+rather than in place of it.
+
+stdout carries the stream alone. `--ndjson` implies `--quiet`, because a human
+`gate: ok` line in the middle of it is a parse error for the consumer that
+asked for the machine shape; failures still narrate on stderr either way. It
+cannot be combined with `--json` or `--list`, which run nothing — that pairing
+would hand back an empty stream indistinguishable from a project with no gates.
+
+The exit status is unchanged: `--ndjson` is output only, like `--json`, and a
+sweep can read both.
+
+```bash
+for d in ~/src/*/; do gate -C "$d" --ndjson; done | jq -r 'select(.status != "ok") | "\(.name) \(.status) \(.log)"'
+```
+
 ### What it looks at, in order
 
 1. **`Makefile` targets** — a target that exists is a deliberate wrapper, and
@@ -243,6 +287,7 @@ what, why and fix.
 | `actions-stale-ref` | A shared action pinned behind the known tag |
 | `superseded-tooling` | eslint, mypy or black where the fleet moved on |
 | `missing-gate-*` | No test or typecheck gate declared or inferable |
+| `next-build-typecheck-race` | A Next project runs build and typecheck concurrently |
 
 Judgements are repository-wide where that is what matters: a release workflow
 omitting `run-govulncheck` while CI enables it is not a gap.
@@ -302,6 +347,14 @@ cannot collide. Logs are created **0600 in a 0700 directory** — they hold
 whatever the command printed, which can include tokens.
 `--log PATH` overrides the location entirely; that directory is the caller's
 and is never re-permissioned.
+
+Logs older than **14 days** are removed from gate's own directory. Nothing else
+does it, and the directory only grows: one operator's measured 811 logs in two
+days. Linux clears `/var/tmp` at 30 days, but the macOS and Windows temporary
+directories gate also writes to do not. The sweep runs at most once a day —
+a stamp file makes the cost one stat per run rather than one per log — and
+never touches a directory `--log` named, which is the caller's and holds files
+gate did not place.
 
 ## Exit codes
 

@@ -424,3 +424,55 @@ func checkNames(findings []Finding) []string {
 	}
 	return out
 }
+
+// nextProject plants the smallest Next project that has both gates to race:
+// a next dependency, and build and typecheck scripts for detection to find.
+func nextProject(t *testing.T, extra string) string {
+	t.Helper()
+	dir := t.TempDir()
+	// Config layering reads the user's file too, so a developer's own
+	// config must not decide whether this check fires.
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	testutil.Write(t, dir, "package.json",
+		`{"dependencies":{"next":"16.0.0"},"scripts":{"build":"next build","typecheck":"tsc --noEmit"}}`)
+	if extra != "" {
+		testutil.Write(t, dir, ".gate.toml", extra)
+	}
+	return dir
+}
+
+func TestNextBuildAndTypecheckRaceIsReported(t *testing.T) {
+	isolatePath(t)
+	findings, err := Run(nextProject(t, ""))
+	qt.Assert(t, qt.IsNil(err))
+	f, ok := findingNamed(findings, "next-build-typecheck-race")
+	qt.Assert(t, qt.IsTrue(ok), qt.Commentf("findings = %v", findings))
+	qt.Check(t, qt.Not(qt.Equals(f.Why, "")), qt.Commentf("finding = %+v", f))
+	qt.Check(t, qt.StringContains(f.Fix, "serial"))
+}
+
+// The finding is advice about an order the project has not stated. Once it
+// states one, repeating the advice is noise -- and noise is how a report stops
+// being read.
+func TestNextRaceIsSilentOnceTheOrderIsDeclared(t *testing.T) {
+	isolatePath(t)
+	dir := nextProject(t, "[gates.build]\nserial = true\n\n[gates.typecheck]\nserial = true\n")
+	findings, err := Run(dir)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsFalse(reported(findings, "next-build-typecheck-race")),
+		qt.Commentf("findings = %v", findings))
+}
+
+// next-themes, nextra and eslint-config-next are dependencies of projects that
+// are not Next projects, so the check reads the quoted key rather than the word.
+func TestNextRaceIgnoresADependencyMerelyNamedLikeNext(t *testing.T) {
+	isolatePath(t)
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	testutil.Write(t, dir, "package.json",
+		`{"dependencies":{"next-themes":"1.0.0"},"scripts":{"build":"vite build","typecheck":"tsc --noEmit"}}`)
+	findings, err := Run(dir)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsFalse(reported(findings, "next-build-typecheck-race")),
+		qt.Commentf("findings = %v", findings))
+}

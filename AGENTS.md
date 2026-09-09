@@ -40,6 +40,7 @@ Breaking one of these is silent.
 | A log close error is reported, not deferred away | Losing the log silently is the one failure nobody would notice |
 | An interrupted gate still reaches `writeTrailer` and `Close` | An unfinished file gate opened is left empty |
 | An interrupt reports the signal that reached *gate* | The child dies of the SIGKILL gate sent it |
+| `--ndjson` lines are written under a mutex, from the finishing gate's own goroutine | Concurrent gates would otherwise interleave into a line nothing can parse |
 
 ## Interrupts
 
@@ -130,4 +131,9 @@ command. Table: [docs/USAGE.md](docs/USAGE.md#exit-codes); constants in
 
 No state beyond log files. Logs go to `$TMPDIR`, or `/var/tmp` when unset —
 never `/tmp` on unix (`logDir` is build-tagged). `run` strings split `sh -c` vs
-`cmd /c`. Logs are 0600 in a 0700 directory; nothing in `gate` removes them.
+`cmd /c`. Logs are 0600 in a 0700 directory.
+
+Logs older than 14 days are swept from `gate`'s own directory, once per
+process and at most once a day — a stamp file makes that one stat rather than
+one per log. A directory `--log` names is never swept: `gate` does not delete
+files it did not place.

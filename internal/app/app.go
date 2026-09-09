@@ -57,6 +57,7 @@ Flags:
                 (gates run concurrently unless this, or .gate.toml, says not to)
   --list        print the gates that would run, and run nothing
   --json        the same listing as JSON, for a program to read
+  --ndjson      stream one JSON line per gate as it finishes, and run them
   --timeout D   kill a gate that runs longer than D (default 1m, 0 disables;
                 .gate.toml can set it per gate, and this beats that)
   --tail N      trailing lines to quote on failure (default 40)
@@ -120,6 +121,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	flags.BoolVar(&opts.serial, "serial", false, "")
 	flags.BoolVar(&opts.list, "list", false, "")
 	flags.BoolVar(&opts.jsonList, "json", false, "")
+	flags.BoolVar(&opts.ndjson, "ndjson", false, "")
 	flags.BoolVar(&showVersion, "version", false, "")
 	flags.StringVar(&opts.logPath, "log", "", "")
 	// Func rather than IntVar and DurationVar, so a refusal names what the
@@ -169,6 +171,19 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		return Success
 	}
 
+	// --json and --list run nothing, so asking for both leaves the consumer
+	// an empty stream it cannot tell from a project with no gates.
+	if opts.ndjson && (opts.jsonList || opts.list) {
+		fmt.Fprintln(stderr, "gate: --ndjson reports a run; --json and --list run nothing")
+		return InvalidUsage
+	}
+	// stdout carries the stream alone. A human ok line in the middle of it is
+	// a parse error for the consumer that asked for the machine shape, and
+	// failures still narrate on stderr either way.
+	if opts.ndjson {
+		opts.quiet = true
+	}
+
 	// "doctor" and "run" are the only words gate treats as its own rather than
 	// as a command. A real program by either name is still reachable as
 	// `gate -- doctor`, which is what -- is for.
@@ -177,8 +192,8 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		// render. Serving the human report to a consumer that asked for the
 		// machine shape says nothing and looks like it worked, which is the
 		// one failure mode a machine caller cannot detect.
-		if opts.jsonList {
-			fmt.Fprintln(stderr, "gate: --json describes the gate listing; doctor has no JSON form")
+		if opts.jsonList || opts.ndjson {
+			fmt.Fprintln(stderr, "gate: doctor has no JSON form; it reports advice, not a verdict")
 			fmt.Fprintln(stderr, "gate: run `gate doctor` for the report, or `gate --json` for the listing")
 			return InvalidUsage
 		}

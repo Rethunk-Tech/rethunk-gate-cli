@@ -4,6 +4,47 @@ Notable changes to `gate`. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `--ndjson`, one JSON line per gate written the moment that gate finishes.
+  `--json` describes what would run; this reports what a run did — `name`,
+  resolved `argv`, `display`, a `status` word, the `code` that gate contributes,
+  `ms`, the `log` path, and `reason`/`error` where there is more to say. The
+  shape is a stream rather than one document at the end because that is the
+  shape a concurrent run has: a ten-minute gate must not hold back the verdict
+  on a two-second one. Order is arrival order, which is the only order a stream
+  can honestly claim; the text report on stderr stays in declaration order.
+
+  `status` is a word and never a code, because gate's codes collide with the
+  command's by design — a command exiting 124 is not a timeout. `code` and `ms`
+  are absent for a gate that never ran, so a skipped gate cannot be read as a
+  pass. `--ndjson` implies `--quiet` so stdout carries the stream alone, and is
+  refused beside `--json` or `--list`, which run nothing.
+
+  What this closes: the fleet sweep already in the usage guide could report only
+  that *something* failed in a directory — not which gate, its status, or where
+  its log is.
+
+- `next-build-typecheck-race` in `doctor`: a Next project whose build and
+  typecheck gates would run at the same time, when both write `.next`. Advice
+  rather than inference — detection still schedules them concurrently until the
+  project states an order, because an order is a property of the project and
+  not of the commands. `serial` is by a wide margin the most-used key in the
+  fleet's `.gate.toml` files, and every use of it is a project that found this
+  out the hard way first.
+
+### Changed
+
+- Logs older than 14 days are removed from gate's own directory, which nothing
+  previously did: one operator's directory measured 811 logs in two days, and
+  only Linux clears `/var/tmp` on its own. The sweep runs once per process and
+  at most once a day, with a stamp file keeping the cost one stat per run rather
+  than one per log. A directory `--log` names is never swept — gate does not
+  delete files it did not place there. This reverses "nothing in `gate` removes
+  them" in `AGENTS.md`, which is corrected in the same commit.
+
 ## [0.4.0] — 2026-09-07
 
 ### Added

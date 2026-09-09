@@ -1628,3 +1628,111 @@ func TestJSONListingOmitsWhatTheTextListingOmits(t *testing.T) {
 		qt.Commentf("the workspace repeats the root: %q", stdout))
 	qt.Check(t, qt.StringContains(stdout, `"root"`), qt.Commentf("a detected project has a root to report: %q", stdout))
 }
+
+// The stream's contract: one line per gate, every gate, whatever happened to
+// it. A gate missing from the stream reads as one that passed, which is the
+// answer this tool exists never to give.
+func TestNDJSONReportsEveryGate(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "build:\n\texit 5\n\ntest:\n\ttrue\n")
+	// Serial, so the failing build stops test and leaves a skipped gate to
+	// report -- the outcome with no verdict of its own.
+	testutil.Write(t, root, ".gate.toml", "[gates.build]\nserial = true\n\n[gates.test]\nserial = true\n")
+
+	stdout, stderr, code := runGateTest(t, "-C", root, "--ndjson")
+	// make reports 2 for a failed recipe, whatever the recipe itself exited.
+	qt.Assert(t, qt.Equals(code, Code(2)), qt.Commentf("stderr = %q", stderr))
+
+	var got []result
+	for line := range strings.Lines(strings.TrimSpace(stdout)) {
+		var r result
+		qt.Assert(t, qt.IsNil(json.Unmarshal([]byte(line), &r)),
+			qt.Commentf("stdout line is not JSON: %q", line))
+		got = append(got, r)
+	}
+	qt.Assert(t, qt.Equals(len(got), 2), qt.Commentf("stdout = %q", stdout))
+
+	build, test := got[0], got[1]
+	qt.Check(t, qt.Equals(build.Name, "build"))
+	qt.Check(t, qt.Equals(build.Status, "fail"))
+	qt.Assert(t, qt.IsNotNil(build.Code))
+	// The command's own status, passed through -- the same byte the exit
+	// status carries.
+	qt.Check(t, qt.Equals(*build.Code, 2))
+	qt.Check(t, qt.IsTrue(exists(build.Log)), qt.Commentf("log = %q", build.Log))
+	qt.Assert(t, qt.IsNotNil(build.Ms))
+
+	qt.Check(t, qt.Equals(test.Name, "test"))
+	qt.Check(t, qt.Equals(test.Status, "skipped"))
+	// A gate that never ran has no verdict, and reporting `"code": 0` would
+	// invent the pass it never gave.
+	qt.Check(t, qt.IsNil(test.Code), qt.Commentf("code = %v", test.Code))
+	qt.Check(t, qt.Not(qt.Equals(test.Reason, "")))
+}
+
+// stdout carries the stream alone: a human line in the middle of it is a
+// parse error for the consumer that asked for the machine shape.
+func TestNDJSONKeepsStdoutMachineOnly(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "test:\n\ttrue\n")
+
+	stdout, stderr, code := runGateTest(t, "-C", root, "--ndjson")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.Not(qt.StringContains(stdout, "gate: ok")),
+		qt.Commentf("stdout = %q", stdout))
+
+	var r result
+	qt.Assert(t, qt.IsNil(json.Unmarshal([]byte(strings.TrimSpace(stdout)), &r)),
+		qt.Commentf("stdout = %q", stdout))
+	qt.Check(t, qt.Equals(r.Status, "ok"))
+	qt.Assert(t, qt.IsNotNil(r.Code))
+	qt.Check(t, qt.Equals(*r.Code, 0))
+}
+
+// --list and --json run nothing, so pairing either with --ndjson would hand
+// the caller an empty stream it cannot tell from a project with no gates.
+func TestNDJSONRefusesTheFlagsThatRunNothing(t *testing.T) {
+	t.Parallel()
+	for _, flag := range []string{"--list", "--json"} {
+		_, stderr, code := runGateTest(t, "--ndjson", flag, "true")
+		qt.Check(t, qt.Equals(code, InvalidUsage), qt.Commentf("%s: stderr = %q", flag, stderr))
+		qt.Check(t, qt.StringContains(stderr, "run nothing"))
+	}
+}
+
+// Logs are the only state gate leaves, and nothing else removes them: one
+// operator's directory measured 811 files in two days.
+func TestPruneRemovesOldLogsAndKeepsRecentOnes(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	old := filepath.Join(dir, "old.log")
+	recent := filepath.Join(dir, "recent.log")
+	other := filepath.Join(dir, "notes.txt")
+	for _, path := range []string{old, recent, other} {
+		if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	aged := time.Now().Add(-pruneAge - time.Hour)
+	for _, path := range []string{old, other} {
+		if err := os.Chtimes(path, aged, aged); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	pruneLogs(dir)
+	qt.Check(t, qt.IsFalse(exists(old)), qt.Commentf("a log past %s survived", pruneAge))
+	qt.Check(t, qt.IsTrue(exists(recent)), qt.Commentf("a log inside %s was removed", pruneAge))
+	// Only gate's own logs. Anything else in the directory is someone else's.
+	qt.Check(t, qt.IsTrue(exists(other)), qt.Commentf("a file that is not a log was removed"))
+
+	// A second sweep the same day is skipped, which is what keeps the cost one
+	// stat rather than one per log.
+	if err := os.Chtimes(recent, aged, aged); err != nil {
+		t.Fatal(err)
+	}
+	pruneLogs(dir)
+	qt.Check(t, qt.IsTrue(exists(recent)), qt.Commentf("the stamp did not stop a second sweep"))
+}

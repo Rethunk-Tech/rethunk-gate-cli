@@ -49,7 +49,12 @@ type options struct {
 	// jsonList prints the listing as JSON instead of as text. Output only:
 	// it changes nothing about detection, scheduling or the exit status.
 	jsonList bool
-	gates    []gateSpec
+
+	// ndjson streams one JSON line per gate as that gate finishes. Output
+	// only, like jsonList, and for the same reason: what a run does must not
+	// depend on who is reading it.
+	ndjson bool
+	gates  []gateSpec
 }
 
 // gateSpec is one command to run. argv is executed directly, without a shell,
@@ -194,6 +199,7 @@ func (r gateResult) outcome() gateOutcome {
 // clock" would not be.
 func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code {
 	results := make([]gateResult, len(opts.gates))
+	stream := newResultStream(stdout, opts.ndjson)
 
 	var wg sync.WaitGroup
 	for _, group := range schedule(opts.gates, opts.serial) {
@@ -210,6 +216,10 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 					break
 				}
 				results[i] = runOne(ctx, opts.gates[i], opts)
+				// Emitted here rather than after the wait: the stream's
+				// value is that a gate's outcome is readable while the slow
+				// one beside it is still running.
+				stream.emit(results[i])
 				// A gate that never reached its command carries the zero
 				// Code, which is Success. Only a gate that started has a
 				// verdict to read, so the chain stops on either.
@@ -232,6 +242,7 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 	for i := range results {
 		if results[i].spec.display == "" {
 			results[i] = gateResult{spec: opts.gates[i], skipped: true, skipReason: reason}
+			stream.emit(results[i])
 		}
 	}
 
@@ -455,6 +466,7 @@ func openLog(res *gateResult, spec gateSpec) (*os.File, error) {
 	if info, err := os.Stat(dir); err == nil && info.Mode().Perm() != 0o700 {
 		_ = os.Chmod(dir, 0o700)
 	}
+	pruneOnce.Do(func() { pruneLogs(dir) })
 	// CreateTemp settles the collision two gates with the same slug would
 	// otherwise have, and creates 0600 by definition.
 	f, err := os.CreateTemp(dir, slug(spec.argv)+"-*.log")
@@ -463,6 +475,58 @@ func openLog(res *gateResult, spec gateSpec) (*os.File, error) {
 	}
 	res.logPath = f.Name()
 	return f, nil
+}
+
+// pruneAge is how long a log stays. Long enough that a failure looked into
+// the following week still has its output, short enough that the directory
+// does not grow without bound: one operator's logs measured 811 files in two
+// days, and nothing else removes them. Linux clears /var/tmp at 30 days, but
+// the Windows and macOS temporary directories gate also writes to do not.
+const pruneAge = 14 * 24 * time.Hour
+
+// pruneStamp records the last sweep. With it the cost is one stat per run;
+// without it, a stat per log on a directory that only grows.
+const pruneStamp = ".last-prune"
+
+// pruneOnce bounds the sweep to once per process. A run with six gates opens
+// six logs, and the directory does not change underneath itself in between.
+// It sits here rather than inside pruneLogs so the sweep itself stays a plain
+// function a test can call twice.
+var pruneOnce sync.Once
+
+// pruneLogs removes gate's own logs once they are older than pruneAge.
+//
+// Only ever gate's own directory. A directory --log named is the caller's,
+// and gate does not delete files it did not place there.
+func pruneLogs(dir string) {
+	stamp := filepath.Join(dir, pruneStamp)
+	if info, err := os.Stat(stamp); err == nil && time.Since(info.ModTime()) < 24*time.Hour {
+		return
+	}
+	// Stamped before the sweep, not after. A sweep that cannot finish --
+	// interrupted, or a directory too large for the time a gate has --
+	// still moves the schedule forward instead of being retried in full
+	// on every run from then on.
+	if f, err := os.Create(stamp); err == nil {
+		_ = f.Close()
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	cutoff := time.Now().Add(-pruneAge)
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".log") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil || info.ModTime().After(cutoff) {
+			continue
+		}
+		// A removal that fails is not worth a word: housekeeping must never
+		// fail a run that passed, and the next sweep tries again.
+		_ = os.Remove(filepath.Join(dir, e.Name()))
+	}
 }
 
 // trailerPrefix marks gate's own line in a log. Distinctive enough that a

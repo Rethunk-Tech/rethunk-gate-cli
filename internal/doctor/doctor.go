@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/config"
 	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/detect"
 )
 
@@ -79,6 +80,7 @@ func Run(dir string) ([]Finding, error) {
 	checkNoCI(proj, add)
 	checkWorkflows(proj, add)
 	checkDeclaredGates(root, proj, add)
+	checkNextBuildRace(root, proj, add)
 
 	// Stable order: worse first, then by check name so two runs agree.
 	slices.SortStableFunc(findings, func(a, b Finding) int {
@@ -487,4 +489,70 @@ func checkDeclaredGates(root string, proj detect.Project, add func(Finding)) {
 			Fix:   "add a " + missing.name + " script",
 		})
 	}
+}
+
+// checkNextBuildRace fires where a Next project would run build and typecheck
+// at the same time.
+//
+// Both write .next in the project root, so run concurrently they interleave
+// in one directory and fail in ways that read as a broken build rather than a
+// broken schedule. Nothing detection can see says so: concurrency is the
+// right default and an order is a property of the project, not of the
+// commands (AGENTS.md, Concurrency). So this is advice, not inference -- gate
+// still runs them concurrently until the project says otherwise.
+//
+// The evidence is what the fleet already does: serial is the most-used key in
+// its .gate.toml files by a wide margin, and every use of it is a project
+// that found this the hard way first.
+func checkNextBuildRace(root string, proj detect.Project, add func(Finding)) {
+	pkg := readFile(filepath.Join(root, "package.json"))
+	// The quoted key, not the bare word: next-themes, nextra and eslint-config-next
+	// are all dependencies of projects that are not Next projects.
+	if !strings.Contains(pkg, `"next":`) {
+		return
+	}
+
+	// Config as well as detection, because either can supply the order: turbo
+	// dependsOn reaches Gate.Serial, and .gate.toml says it outright.
+	ordered := map[string]bool{}
+	for _, g := range proj.Gates {
+		ordered[g.Name] = g.Serial
+	}
+	cfg, err := config.Load(root)
+	if err != nil {
+		// An unreadable config is gate's own error to report when it runs;
+		// doctor advising around a file it could not parse would be a guess.
+		return
+	}
+	for name, c := range cfg.Gates {
+		// A config entry with no `run` only modifies a gate detection found:
+		// on its own it produces nothing, so it must not register a gate that
+		// will never be scheduled.
+		if _, found := ordered[name]; !found && c.Run == "" {
+			continue
+		}
+		if c.HasSerial {
+			ordered[name] = c.Serial
+			continue
+		}
+		if _, found := ordered[name]; !found {
+			ordered[name] = false
+		}
+	}
+
+	for _, name := range []string{"build", "typecheck"} {
+		if _, ok := ordered[name]; !ok {
+			return // only one of the pair exists, so there is nothing to race
+		}
+	}
+	if ordered["build"] && ordered["typecheck"] {
+		return
+	}
+	add(Finding{
+		Check: "next-build-typecheck-race",
+		Where: filepath.Join(root, "package.json"),
+		What:  "build and typecheck run concurrently, and both write .next",
+		Why:   "both write .next in this project root, so overlapping them races over one directory and surfaces as a build failure rather than a scheduling one",
+		Fix:   "set serial = true on gates.build and gates.typecheck in .gate.toml",
+	})
 }
