@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 
 	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/detect"
@@ -148,7 +149,13 @@ func writeListing(w io.Writer, project detect.Project, files []string, opts opti
 				// here: --list is the surface that answers "what exactly
 				// runs", and a detector you cannot inspect is one you end up
 				// fighting.
-				if argv := strings.Join(spec.argv, " "); argv != spec.display {
+				//
+				// Not for a shell gate, whose argv is the display with `sh -c`
+				// in front of it. Printing that restates the line above with a
+				// prefix, which is noise on every project that configures a
+				// gate -- and noise is how a listing stops being read.
+				argv := strings.Join(spec.argv, " ")
+				if argv != spec.display && !slices.Equal(spec.argv, shellArgv(spec.display)) {
 					fmt.Fprintf(w, "        runs %s\n", argv)
 				}
 				for _, shadowed := range spec.shadowed {

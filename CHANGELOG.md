@@ -71,6 +71,11 @@ Notable changes to `gate`. The format follows
   it is the only default that deletes something, so a line whose job is to
   state the defaults in force was saying less than it claimed to.
 
+- `--list` no longer restates a shell gate's argv. The `runs` line added for
+  the shell gate's summary display fired for every `.gate.toml` gate too, where
+  the argv is just the display with `sh -c` in front — noise on every project
+  that configures a gate.
+
 - The `shell` gate asks git which scripts are the project's own — `git ls-files
   --cached --others --exclude-standard` — instead of walking whatever is on
   disk. `Rethunk-Tech/engined` was failing its shell gate on

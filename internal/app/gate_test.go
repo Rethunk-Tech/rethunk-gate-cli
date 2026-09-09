@@ -1933,3 +1933,18 @@ func TestTheConventionShellGateSurvivesUnrelatedConfig(t *testing.T) {
 	stdout, _, _ := runGateTest(t, "-C", root, "--list")
 	qt.Check(t, qt.StringContains(stdout, "shellcheck (1 script)"), qt.Commentf("listing = %q", stdout))
 }
+
+// A shell gate's argv is its display with `sh -c` in front. Printing that back
+// restates the line above it with a prefix, on every project that configures a
+// gate -- and noise is how a listing stops being read.
+func TestListingDoesNotRestateAShellGatesArgv(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "test:\n\ttrue\n")
+	testutil.Write(t, root, ".gate.toml", "[gates.e2e]\nrun = \"echo e2e\"\n")
+
+	stdout, _, _ := runGateTest(t, "-C", root, "--list")
+	qt.Check(t, qt.StringContains(stdout, "echo e2e"), qt.Commentf("listing = %q", stdout))
+	qt.Check(t, qt.Not(qt.StringContains(stdout, "runs ")),
+		qt.Commentf("the listing restated a shell gate's argv: %q", stdout))
+}
