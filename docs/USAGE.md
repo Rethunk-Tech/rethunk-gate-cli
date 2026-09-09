@@ -188,6 +188,24 @@ the project writes can change it, `core.fsmonitor` is emptied so a repository
 cannot name a program for git to run on gate's behalf, and a 5s deadline means
 a wedged git cannot hang a gate.
 
+shellcheck runs at its own default severity, like every other convention tool
+here — `gate` picks the files, not the threshold. shellcheck's default includes
+`style` and `info`, which is stricter than most of these tools, and the lever
+for that belongs to the project rather than to `gate`: a `.shellcheckrc` at the
+repository root is read automatically.
+
+```
+severity=warning
+disable=SC1091
+```
+
+Measured across this fleet, `info` findings are most often `SC1091` — "Not
+following: … was not specified as input" — where the sourced path is built
+from a variable, which shellcheck cannot resolve even with `-x`. One repository
+fails its shell gate on eighteen of those and no warnings at all; a
+`.shellcheckrc` is the one line that settles it, and it settles it for every
+tool that reads shellcheck rather than for `gate` alone.
+
 Detection costs 7-8ms including the git spawn, against a 0.14s median gate, and
 is flat across repository size — asking git's index is cheaper on a large tree
 than the walk it replaced. Only a bare `gate` pays it; a wrapped command never
