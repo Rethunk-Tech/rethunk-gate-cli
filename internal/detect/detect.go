@@ -80,6 +80,11 @@ type Project struct {
 
 	// Notes explain what was found and what was deliberately skipped.
 	Notes []string
+
+	// Skipped is every note in Notes that reports a role left empty for want
+	// of a tool. Configuration can still fill that role, and detection never
+	// reads configuration, so the merge needs the role to withdraw the note.
+	Skipped []Skip
 }
 
 // gateOrder is the order gates run in. Build first because a test that needs
@@ -162,8 +167,9 @@ func Detect(dir string) (Project, error) {
 	// convention that would have filled it, and a listing that shows the gate
 	// beside a note that it was skipped contradicts itself.
 	for _, s := range skipped {
-		if _, claimed := byName[s.role]; !claimed {
-			proj.Notes = append(proj.Notes, s.note)
+		if _, claimed := byName[s.Role]; !claimed {
+			proj.Notes = append(proj.Notes, s.Note)
+			proj.Skipped = append(proj.Skipped, s)
 		}
 	}
 

@@ -277,6 +277,14 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		}
 
 		project = proj
+		// A config `run` fills a role detection left empty for want of a
+		// tool, so the note saying that role is skipped would contradict the
+		// gate --list prints for it.
+		project.Notes = slices.DeleteFunc(slices.Clone(proj.Notes), func(note string) bool {
+			return slices.ContainsFunc(proj.Skipped, func(s detect.Skip) bool {
+				return s.Note == note && cfg.Gates[s.Role].Run != ""
+			})
+		})
 		for _, g := range proj.Gates {
 			if len(roles) > 0 && !slices.Contains(roles, g.Name) {
 				continue

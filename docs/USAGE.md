@@ -293,7 +293,9 @@ Configuration **adds and overrides, never replaces**. Detection always runs, so
 a file mentioning one gate cannot remove the others, and `--list` still names
 where every gate came from — `from Makefile target test, overridden by
 /path/.gate.toml`. A gate that only config declares runs with bare `gate`, and
-is named the same way as any other: `gate run e2e`.
+is named the same way as any other: `gate run e2e`. A config `run` for a role
+detection left empty for want of a tool (`vuln` without `cargo-audit`, say)
+fills that role, so the note naming the missing tool is not printed.
 
 ### Which file wins
 

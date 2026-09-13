@@ -144,6 +144,14 @@ Notable changes to `gate`. The format follows
   delete files it did not place there. This reverses "nothing in `gate` removes
   them" in `AGENTS.md`, which is corrected in the same commit.
 
+### Fixed
+
+- A role filled by a `.gate.toml` `run` no longer carries the note that its
+  tool is missing. `[gates.vuln] run = "cargo deny --locked check advisories"`
+  listed and ran that gate while still printing `cargo-audit not installed;
+  skipping the vuln gate`. Every tool-missing note follows the same rule:
+  govulncheck, clippy, shellcheck and the absent `uv.lock`.
+
 ## [0.4.0] — 2026-09-07
 
 ### Added

@@ -154,14 +154,14 @@ func packageRunner(workspace string) []string {
 	return []string{"bun", "run"}
 }
 
-// skippedGate is a role the ladder deliberately left without a gate because
-// the tool that would run it is absent. It carries the role so Detect can say
-// so only where nothing else claimed that role -- a project whose Makefile
-// supplies the gate is not missing it, and listing the gate beside a note that
-// it was skipped states both halves of a contradiction.
-type skippedGate struct {
-	role string
-	note string
+// Skip is a role the ladder deliberately left without a gate because the tool
+// that would run it is absent. It carries the role so the note is made only
+// where nothing else claimed that role -- a project whose Makefile or
+// .gate.toml supplies the gate is not missing it, and listing the gate beside
+// a note that it was skipped states both halves of a contradiction.
+type Skip struct {
+	Role string
+	Note string
 }
 
 // conventionGates is the fallback ladder, used only for roles the project
@@ -172,9 +172,9 @@ type skippedGate struct {
 // not. They are reported by Detect rather than here, because whether the role
 // ended up filled by a declaration is not known until every source has been
 // collected.
-func conventionGates(root string, proj *Project) ([]Gate, []skippedGate) {
+func conventionGates(root string, proj *Project) ([]Gate, []Skip) {
 	var gates []Gate
-	var skipped []skippedGate
+	var skipped []Skip
 
 	if exists(filepath.Join(root, "go.mod")) {
 		gates = append(gates,
@@ -194,7 +194,7 @@ func conventionGates(root string, proj *Project) ([]Gate, []skippedGate) {
 		if bin := resolve(root, proj, "govulncheck"); bin != "" {
 			gates = append(gates, Gate{Name: "vuln", Argv: []string{bin, "./..."}, Source: "convention: go"})
 		} else {
-			skipped = append(skipped, skippedGate{"vuln", "govulncheck not installed; skipping the vuln gate (go install golang.org/x/vuln/cmd/govulncheck@latest)"})
+			skipped = append(skipped, Skip{"vuln", "govulncheck not installed; skipping the vuln gate (go install golang.org/x/vuln/cmd/govulncheck@latest)"})
 		}
 	}
 
@@ -219,12 +219,12 @@ func conventionGates(root string, proj *Project) ([]Gate, []skippedGate) {
 			// judges correctness beyond the compiler: `cargo check` is the
 			// compiler again, and rustfmt judges formatting, so either one as a
 			// lint gate would report something other than a lint result.
-			skipped = append(skipped, skippedGate{"lint", "clippy not installed; skipping the lint gate (rustup component add clippy)"})
+			skipped = append(skipped, Skip{"lint", "clippy not installed; skipping the lint gate (rustup component add clippy)"})
 		}
 		if resolve(root, proj, "cargo-audit") != "" {
 			gates = append(gates, Gate{Name: "vuln", Argv: []string{"cargo", "audit"}, Source: "convention: rust"})
 		} else {
-			skipped = append(skipped, skippedGate{"vuln", "cargo-audit not installed; skipping the vuln gate (cargo install cargo-audit)"})
+			skipped = append(skipped, Skip{"vuln", "cargo-audit not installed; skipping the vuln gate (cargo install cargo-audit)"})
 		}
 	}
 
@@ -275,7 +275,7 @@ func conventionGates(root string, proj *Project) ([]Gate, []skippedGate) {
 				Source: "convention: python",
 			})
 		} else {
-			skipped = append(skipped, skippedGate{"vuln", "no uv.lock; skipping the vuln gate (uv lock)"})
+			skipped = append(skipped, Skip{"vuln", "no uv.lock; skipping the vuln gate (uv lock)"})
 		}
 	}
 
@@ -316,7 +316,7 @@ func conventionGates(root string, proj *Project) ([]Gate, []skippedGate) {
 				Summary: fmt.Sprintf("shellcheck (%d script%s)", len(scripts), plural(len(scripts))),
 			})
 		} else {
-			skipped = append(skipped, skippedGate{"shell", "shellcheck not installed; skipping the shell gate (brew install shellcheck)"})
+			skipped = append(skipped, Skip{"shell", "shellcheck not installed; skipping the shell gate (brew install shellcheck)"})
 		}
 	}
 

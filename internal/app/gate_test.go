@@ -978,6 +978,37 @@ func TestAConfigRunSettlesAShadowConflict(t *testing.T) {
 		qt.Commentf("--list does not name what settled it: %q", stdout))
 }
 
+// Detection notes a role it left empty for want of a tool, but configuration
+// can fill that role, and a listing naming the configured gate beside a note
+// that the role is skipped contradicts itself.
+func TestAConfiguredGateWithdrawsTheSkipNoteForItsRole(t *testing.T) {
+	// Not parallel: PATH is emptied so the machine's own cargo-audit and
+	// shellcheck cannot decide whether the notes exist.
+	t.Setenv("PATH", filepath.Join(t.TempDir(), "no-such-bin"))
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	for _, tc := range []struct{ role, note string }{
+		{"vuln", "cargo-audit not installed"},
+		{"shell", "shellcheck not installed"},
+	} {
+		t.Run(tc.role, func(t *testing.T) {
+			root := t.TempDir()
+			testutil.Write(t, root, "Cargo.toml", "[package]\nname = \"demo\"\n")
+			testutil.Write(t, root, "build.sh", "#!/bin/sh\n")
+
+			stdout, _, _ := runGateTest(t, "-C", root, "--list")
+			qt.Check(t, qt.StringContains(stdout, tc.note),
+				qt.Commentf("nothing supplies the %s gate and nothing says so", tc.role))
+
+			testutil.Write(t, root, ".gate.toml", "[gates."+tc.role+"]\nrun = \"true\"\n")
+			stdout, _, _ = runGateTest(t, "-C", root, "--list")
+			qt.Check(t, qt.StringContains(stdout, "gates."+tc.role))
+			qt.Check(t, qt.Not(qt.StringContains(stdout, tc.note)),
+				qt.Commentf("the configured %s gate is listed and reported skipped: %q", tc.role, stdout))
+		})
+	}
+}
+
 // One path cannot hold several gates' logs, and silently sharing it would
 // destroy every gate's output but the last.
 func TestRunLogWithSeveralGatesIsRefused(t *testing.T) {
