@@ -8,6 +8,19 @@ Notable changes to `gate`. The format follows
 
 ### Added
 
+- `gate fix`, a verb that applies doctor findings whose check already names a
+  closed mechanical remedy. Doctor stays read-only: `gate --fix` as a flag is
+  refused with a pointer at `gate fix`, and `gate -- doctor` / `gate -- fix`
+  still mean programs of those names. `--dry-run` prints what would change and
+  writes nothing; `gate --json fix` reports each finding as `applied`,
+  `skipped`, or `dry-run`. Exit 0 when every finding was applied or skipped as
+  unappliable; a failed write is a failure.
+
+  Appliable: `next-build-typecheck-race`, `ci-govulncheck-off`,
+  `corepack-with-setup-bun`, `npx-in-bun-workspace`, `actions-floating-ref`,
+  `actions-stale-ref`. The rest skip with a reason — `go install` is not a repo
+  edit, a missing workflow needs a template, an aggregating job is a design.
+
 - `--ndjson`, one JSON line per gate written the moment that gate finishes.
   `--json` describes what would run; this reports what a run did — `name`,
   resolved `argv`, `display`, a `status` word, the `code` that gate contributes,

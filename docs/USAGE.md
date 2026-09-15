@@ -76,7 +76,8 @@ appears only where it differs from `root`. Collections are always present, empty
 as `[]` and never `null`, so a consumer can iterate without a nil check.
 
 `--json` names the gate listing, so it applies to `--list` and to a bare run.
-With `doctor` it names that report instead — see [`gate doctor`](#gate-doctor).
+With `doctor` or `fix` it names that report instead — see [`gate doctor`](#gate-doctor)
+and [`gate fix`](#gate-fix).
 
 ### Streaming what a run did
 
@@ -380,6 +381,47 @@ for d in ~/src/*/; do gate -C "$d" --json doctor | jq -r --arg d "$d" '.findings
 
 Judgements are repository-wide where that is what matters: a release workflow
 omitting `run-govulncheck` while CI enables it is not a gap.
+
+`gate --fix` as a flag is refused; the verb is [`gate fix`](#gate-fix).
+
+## `gate fix`
+
+Applies doctor findings whose check names a closed mechanical remedy. Doctor
+stays read-only: a separate verb is what keeps advice from becoming a silent
+rewrite.
+
+`gate fix` runs the same inspection as `gate doctor`, then edits only findings
+that can prove a post-state from `path` + `fix` without inventing files or
+guessing at YAML/TOML. Everything else is skipped with a reason.
+
+`gate fix --dry-run` prints what would change and writes nothing.
+`gate --json fix` reports each finding with `outcome` (`applied`, `skipped`, or
+`dry-run`) and a `reason` when it skipped. `--ndjson` is refused here, as it is
+for doctor: it streams what a run did, and fix is not a run.
+
+Exits 0 when there is nothing to apply, or every finding was applied or skipped
+as unappliable. A failed write is a failure. Advice that failed the build would
+stop being advice.
+
+```bash
+gate fix --dry-run
+gate --json fix
+```
+
+| Check | Apply |
+| --- | --- |
+| `next-build-typecheck-race` | `serial = true` on `gates.build` and `gates.typecheck` in `.gate.toml` |
+| `ci-govulncheck-off` | `run-govulncheck: "true"` on the named setup-go step |
+| `corepack-with-setup-bun` | drop the `corepack enable` step |
+| `npx-in-bun-workspace` | replace `npx` with `bunx` in the named file |
+| `actions-floating-ref` / `actions-stale-ref` | pin the named shared-action refs to the tag doctor already stated, never unrelated actions |
+| `go-no-govulncheck` | skip — `go install` is machine-wide |
+| `no-ci` | skip — a workflow needs a template choice |
+| `missing-gate-*` | skip — adding a script is ambiguous |
+| `ci-no-final-gate` | skip — an aggregating job is a design |
+| `superseded-tooling` | skip — Fix and Path do not uniquely name a file move |
+
+A program named `fix` is still `gate -- fix`.
 
 ## Timeouts
 
