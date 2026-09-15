@@ -36,6 +36,7 @@ const defaultTimeout = time.Minute
 const gateHelp = `usage: gate [-C <path>] [flags] [<command> [args...]]
        gate [-C <path>] [flags] run <name>...
        gate [-C <path>] doctor
+       gate [-C <path>] [--json] fix [--dry-run]
 
 gate runs a project's gates, keeps their complete output in a log, and prints
 one line. The command's exit status is the verdict, passed through unchanged --
@@ -48,6 +49,7 @@ Commands:
   run NAME...   run the named gates: build, typecheck, lint, workflows, shell,
                 test, vuln, and any others .gate.toml declares
   doctor        report what is cheap to fix here (read-only)
+  fix           apply doctor findings that name a closed mechanical remedy
 
 Global flags (before everything else):
   -C <path>     run as if gate had been started in <path>
@@ -57,7 +59,7 @@ Flags:
                 (gates run concurrently unless this, or .gate.toml, says not to)
   --list        print the gates that would run, and run nothing
   --json        the same listing as JSON, for a program to read
-                (with doctor, the findings as JSON)
+                (with doctor or fix, the findings as JSON)
   --ndjson      stream one JSON line per gate as it finishes, and run them
   --timeout D   kill a gate that runs longer than D (default 1m, 0 disables;
                 .gate.toml can set it per gate, and this beats that)
@@ -71,10 +73,10 @@ The first non-flag argument begins the command, and everything after it --
 including its own flags -- belongs to the command. 'gate test' runs the
 program, not the gate; 'gate run test' runs the gate. Use -- when the
 command's first token would otherwise look like a flag to gate, or when you
-mean a program named run or doctor: 'gate -- run x' runs a program called
+mean a program named run, doctor, or fix: 'gate -- run x' runs a program called
 run.
 
-Run 'gate doctor --help' for what doctor checks.
+Run 'gate doctor --help' for what doctor checks, 'gate fix --help' for apply.
 Full reference: docs/USAGE.md
 `
 
@@ -117,6 +119,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	timeout := defaultTimeout
 	timeoutSet := false
 	showVersion := false
+	refuseFix := false
 
 	dir, args, ok := parseChdir(args, stderr)
 	if !ok {
@@ -139,6 +142,10 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	flags.BoolVar(&opts.jsonList, "json", false, "")
 	flags.BoolVar(&opts.ndjson, "ndjson", false, "")
 	flags.BoolVar(&showVersion, "version", false, "")
+	// Recognised so `gate --fix` is not "unrecognized". Refused below: a
+	// global flag would look like a silent rewrite of doctor, which this
+	// verb exists to keep from happening.
+	flags.BoolVar(&refuseFix, "fix", false, "")
 	flags.StringVar(&opts.logPath, "log", "", "")
 	// Func rather than IntVar and DurationVar, so a refusal names what the
 	// flag takes. "invalid value for -timeout" is a worse message on the one
@@ -200,9 +207,14 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		opts.quiet = true
 	}
 
-	// "doctor" and "run" are the only words gate treats as its own rather than
-	// as a command. A real program by either name is still reachable as
-	// `gate -- doctor`, which is what -- is for.
+	if refuseFix {
+		fmt.Fprintln(stderr, "gate: --fix is not a flag; run `gate fix`")
+		return InvalidUsage
+	}
+
+	// "doctor", "fix", and "run" are the only words gate treats as its own
+	// rather than as a command. A real program by any of those names is still
+	// reachable as `gate -- doctor`, which is what -- is for.
 	if !explicit && len(args) == 1 && args[0] == "doctor" {
 		// --ndjson streams what a run did, and doctor runs nothing. --json
 		// is served: findings are a list with a stable schema, and a sweep
@@ -221,6 +233,18 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		(args[1] == "-h" || args[1] == "--help") {
 		fmt.Fprint(stdout, doctorHelp)
 		return Success
+	}
+
+	// fix takes its own flags (`--dry-run`), so the word is claimed the way
+	// `run` is: everything after it belongs to fix, and a program named fix
+	// is `gate -- fix`.
+	if !explicit && len(args) > 0 && args[0] == "fix" {
+		if opts.ndjson {
+			fmt.Fprintln(stderr, "gate: --ndjson streams a run; fix is not a run")
+			fmt.Fprintln(stderr, "gate: run `gate --json fix` for the report a program can read")
+			return InvalidUsage
+		}
+		return runFix(dir, args[1:], opts.jsonList, stdout, stderr)
 	}
 
 	command := args
