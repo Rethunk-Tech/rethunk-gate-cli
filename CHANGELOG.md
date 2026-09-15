@@ -66,6 +66,8 @@ Notable changes to `gate`. The format follows
 
 ### Changed
 
+- `doctor`'s `knownGoodActionsTag` is `v1.10`, the newest shared-actions tag,
+  so a repository still pinned at v1.9 is reported as behind.
 - `gate --version` names log retention: `logs /var/tmp/gate (kept 14 days)`.
   Every other value on that line can be moved by a flag; this one cannot, and
   it is the only default that deletes something, so a line whose job is to
