@@ -404,6 +404,7 @@ func dropCorepack(body string) (string, string) {
 
 func isCorepackEnable(line string) bool {
 	trimmed := strings.TrimSpace(line)
+	trimmed = strings.TrimPrefix(trimmed, "- ")
 	key, val, ok := strings.Cut(trimmed, ":")
 	if !ok || strings.TrimSpace(key) != "run" {
 		return false

@@ -1524,6 +1524,9 @@ func TestHelpSpellingsAgreeAndDoctorHasItsOwn(t *testing.T) {
 	if !strings.Contains(short, "doctor") {
 		t.Error("top-level help does not mention the doctor command")
 	}
+	if !strings.Contains(short, "fix") {
+		t.Error("top-level help does not mention the fix command")
+	}
 
 	doctorText, _, code := runGateTest(t, "doctor", "--help")
 	qt.Assert(t, qt.Equals(code, Success))
@@ -1978,4 +1981,121 @@ func TestListingDoesNotRestateAShellGatesArgv(t *testing.T) {
 	qt.Check(t, qt.StringContains(stdout, "echo e2e"), qt.Commentf("listing = %q", stdout))
 	qt.Check(t, qt.Not(qt.StringContains(stdout, "runs ")),
 		qt.Commentf("the listing restated a shell gate's argv: %q", stdout))
+}
+
+func TestFixFlagIsRefusedWithAPointerAtTheVerb(t *testing.T) {
+	t.Parallel()
+	_, stderr, code := runGateTest(t, "--fix")
+	qt.Assert(t, qt.Equals(code, InvalidUsage))
+	qt.Check(t, qt.StringContains(stderr, "gate fix"))
+	qt.Check(t, qt.Not(qt.StringContains(stderr, "unrecognized flag")))
+}
+
+func TestFixHelpIsItsOwn(t *testing.T) {
+	t.Parallel()
+	stdout, stderr, code := runGateTest(t, "fix", "--help")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.Equals(stdout, fixHelp))
+	qt.Check(t, qt.StringContains(stdout, "Doctor stays read-only"))
+	if stdout == gateHelp {
+		t.Error("gate fix --help printed the top-level help")
+	}
+}
+
+func TestFixDryRunWritesNothingAndJSONNamesTheOutcome(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, "package.json", `{"name":"demo"}`)
+	testutil.Write(t, root, "bun.lock", "")
+	wf := filepath.Join(".github", "workflows", "ci.yml")
+	testutil.Write(t, root, wf, "jobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-bun@main\n      - run: npx tsc\n")
+	before, err := os.ReadFile(filepath.Join(root, wf))
+	qt.Assert(t, qt.IsNil(err))
+
+	stdout, stderr, code := runGateTest(t, "-C", root, "--json", "fix", "--dry-run")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+
+	var got fixReport
+	qt.Assert(t, qt.IsNil(json.Unmarshal([]byte(stdout), &got)), qt.Commentf("stdout = %q", stdout))
+	qt.Assert(t, qt.Not(qt.Equals(len(got.Findings), 0)), qt.Commentf("stdout = %q", stdout))
+
+	var sawDry, sawSkip bool
+	for _, f := range got.Findings {
+		switch f.Outcome {
+		case "dry-run":
+			sawDry = true
+		case "skipped":
+			sawSkip = true
+			qt.Check(t, qt.Not(qt.Equals(f.Reason, "")), qt.Commentf("%s skipped with no reason", f.Check))
+		default:
+			t.Errorf("%s: outcome = %q, want dry-run or skipped", f.Check, f.Outcome)
+		}
+	}
+	qt.Check(t, qt.IsTrue(sawDry), qt.Commentf("no dry-run outcome: %+v", got.Findings))
+	qt.Check(t, qt.IsTrue(sawSkip), qt.Commentf("no skip outcome: %+v", got.Findings))
+
+	after, err := os.ReadFile(filepath.Join(root, wf))
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.Equals(string(after), string(before)))
+}
+
+func TestFixAppliesAndDoctorStillWritesNothing(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, "package.json", `{"name":"demo"}`)
+	testutil.Write(t, root, "bun.lock", "")
+	wf := filepath.Join(".github", "workflows", "ci.yml")
+	testutil.Write(t, root, wf, "jobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-bun@v1.11\n      - run: npx tsc\n")
+
+	stdout, stderr, code := runGateTest(t, "-C", root, "fix")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q stdout = %q", stderr, stdout))
+	qt.Check(t, qt.StringContains(stdout, "npx-in-bun-workspace"))
+	qt.Check(t, qt.StringContains(stdout, "applied"))
+
+	body, err := os.ReadFile(filepath.Join(root, wf))
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.StringContains(string(body), "bunx tsc"))
+
+	before := string(body)
+	_, _, code = runGateTest(t, "-C", root, "doctor")
+	qt.Assert(t, qt.Equals(code, Success))
+	after, err := os.ReadFile(filepath.Join(root, wf))
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.Equals(string(after), before), qt.Commentf("doctor wrote to the repository"))
+}
+
+func TestFixExitsZeroWhenEveryFindingIsUnappliable(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, "package.json", `{"devDependencies":{"eslint":"9.0.0"}}`)
+
+	stdout, stderr, code := runGateTest(t, "-C", root, "fix")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q stdout = %q", stderr, stdout))
+	qt.Check(t, qt.StringContains(stdout, "skipped"))
+	qt.Check(t, qt.StringContains(stdout, "superseded-tooling"))
+}
+
+func TestNDJSONIsRefusedForFix(t *testing.T) {
+	t.Parallel()
+	_, stderr, code := runGateTest(t, "--ndjson", "fix")
+	qt.Check(t, qt.Equals(code, InvalidUsage), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.StringContains(stderr, "--json fix"))
+}
+
+func TestOnlyBareFixIsClaimed(t *testing.T) {
+	t.Parallel()
+	_, stderr, code := runGateTest(t, "--log", tempLog(t), "--", "fix")
+	if strings.Contains(stderr, "finding(s)") || strings.Contains(stderr, "gate fix:") {
+		t.Error("`gate -- fix` ran gate's own fix rather than the program")
+	}
+	if code == Success {
+		t.Error("`gate -- fix` did not reach a program named fix")
+	}
+}
+
+func TestFixUnknownArgIsUsage(t *testing.T) {
+	t.Parallel()
+	_, stderr, code := runGateTest(t, "fix", "please")
+	qt.Assert(t, qt.Equals(code, InvalidUsage), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.StringContains(stderr, "--dry-run"))
 }
