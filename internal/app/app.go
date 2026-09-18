@@ -82,13 +82,17 @@ Run 'gate doctor --help' for what doctor checks, 'gate fix --help' for apply.
 Full reference: docs/USAGE.md
 `
 
-// doctorHelp is deliberately the same size as the top-level help. A
-// subcommand whose help outgrows the tool's own stops being read.
+// doctorHelp must not outgrow the top-level help. A subcommand whose help
+// outgrows the tool's own stops being read.
 const doctorHelp = `usage: gate [-C <path>] doctor
 
 Reports things about this project that are cheap to detect and worth fixing:
 missing vulnerability gates, CI gaps, superseded tooling and stale action
 pins.
+
+Checks: no-ci, go-no-govulncheck, ci-govulncheck-off, ci-no-final-gate,
+corepack-with-setup-bun, npx-in-bun-workspace, actions-floating-ref,
+actions-stale-ref, superseded-tooling, missing-gate-*, next-build-typecheck-race.
 
 Read-only. It never edits the repository and never runs a gate, and it exits 0
 whether or not it found anything -- advice that failed the build would stop

@@ -11,11 +11,14 @@ import (
 	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/fix"
 )
 
-// fixHelp is the same size as doctorHelp: a subcommand whose help outgrows
-// the tool's own stops being read.
+// fixHelp must not outgrow the top-level help. A subcommand whose help
+// outgrows the tool's own stops being read.
 const fixHelp = `usage: gate [-C <path>] [--json] fix [--dry-run]
 
-Applies doctor findings whose check names a closed mechanical remedy.
+Applies doctor findings whose check names a closed mechanical remedy:
+next-build-typecheck-race, ci-govulncheck-off, corepack-with-setup-bun,
+npx-in-bun-workspace, actions-floating-ref, actions-stale-ref. The rest skip
+with a reason.
 
 Doctor stays read-only: this is a different verb so advice cannot become a
 silent rewrite. Unappliable findings are skipped with a reason, never half-done.

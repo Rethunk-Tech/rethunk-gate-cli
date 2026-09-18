@@ -1531,8 +1531,13 @@ func TestHelpSpellingsAgreeAndDoctorHasItsOwn(t *testing.T) {
 	doctorText, _, code := runGateTest(t, "doctor", "--help")
 	qt.Assert(t, qt.Equals(code, Success))
 	qt.Check(t, qt.StringContains(doctorText, "Read-only"), qt.Commentf("doctor help does not state its central guarantee: %q", doctorText))
+	qt.Check(t, qt.StringContains(doctorText, "no-ci"), qt.Commentf("doctor help does not name check slugs: %q", doctorText))
+	qt.Check(t, qt.StringContains(doctorText, "next-build-typecheck-race"), qt.Commentf("doctor help does not name check slugs: %q", doctorText))
 	if doctorText == short {
 		t.Error("gate doctor --help printed the top-level help")
+	}
+	if len(doctorText) >= len(short) {
+		t.Errorf("doctor help is %d bytes; top-level help is %d; a subcommand whose help outgrows the tool's own stops being read", len(doctorText), len(short))
 	}
 }
 
@@ -2015,8 +2020,14 @@ func TestFixHelpIsItsOwn(t *testing.T) {
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
 	qt.Check(t, qt.Equals(stdout, fixHelp))
 	qt.Check(t, qt.StringContains(stdout, "Doctor stays read-only"))
+	qt.Check(t, qt.StringContains(stdout, "next-build-typecheck-race"))
+	qt.Check(t, qt.StringContains(stdout, "skipped"))
+	qt.Check(t, qt.StringContains(stdout, "Unappliable"))
 	if stdout == gateHelp {
 		t.Error("gate fix --help printed the top-level help")
+	}
+	if len(stdout) >= len(gateHelp) {
+		t.Errorf("fix help is %d bytes; top-level help is %d; a subcommand whose help outgrows the tool's own stops being read", len(stdout), len(gateHelp))
 	}
 }
 
