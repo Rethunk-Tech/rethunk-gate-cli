@@ -9,6 +9,9 @@
 # commit.
 coverage.html
 
+# Wave contracts and findings; never current for the next wave.
+/.orchestrate/
+
 # Local agent/editor settings. Nothing here is shared.
 /.claude/settings.local.json
 /.idea/
