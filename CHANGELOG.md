@@ -8,6 +8,14 @@ Notable changes to `gate`. The format follows
 
 ### Added
 
+### Changed
+
+### Fixed
+
+## [0.5.0] — 2026-09-18
+
+### Added
+
 - Per-gate `env`, `dir`, and `allow-failure` in `.gate.toml`, layered per key
   over the user config like every other setting. `env` merges per variable
   with literal values (no expansion) and reserves `GATE_ACTIVE_ROOTS`, which
