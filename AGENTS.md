@@ -20,9 +20,10 @@ only), and **status** (passed through unchanged). No per-runner parsers.
 
 ### The words gate claims
 
-Exactly two: **`doctor`** and **`run`**. A bare word cannot name a gate — project
-gate names are arbitrary. `run` is the only claimed word that takes arguments;
-`gate -- run x` runs a program called run.
+Exactly three: **`doctor`**, **`run`**, and **`fix`**. A bare word cannot name a
+gate — project gate names are arbitrary. `run` takes gate names; `fix` takes
+`--dry-run`. Programs of those names remain reachable as `gate -- run x`,
+`gate -- doctor`, `gate -- fix`.
 
 A name that resolves to no gate fails the whole run rather than the one name.
 
