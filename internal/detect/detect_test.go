@@ -592,6 +592,20 @@ func TestPnpmLockfileSelectsPnpmRunner(t *testing.T) {
 		qt.Commentf("a workspace member did not inherit the pnpm runner"))
 }
 
+// bun.lock is checked first. A workspace that also has pnpm-lock.yaml still
+// runs bun, so moving the pnpm case above IsBunWorkspace fails this.
+func TestBunLockfileBeatsPnpmWhenBothExist(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, "bun.lock", "")
+	testutil.Write(t, root, "pnpm-lock.yaml", "")
+	testutil.Write(t, root, "package.json", `{"scripts":{"test":"vitest"}}`)
+
+	proj := detect(t, root)
+	qt.Check(t, qt.Equals(gateNamed(t, proj, "test").Display(), "bun run test"),
+		qt.Commentf("bun.lock did not win over pnpm-lock.yaml"))
+}
+
 // Shell scripts belong to no toolchain, so nothing else claims them.
 func TestShellScriptsGetAShellGate(t *testing.T) {
 	dir := t.TempDir()

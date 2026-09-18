@@ -137,9 +137,11 @@ func packageJSONGates(root, workspace string, proj *Project) []Gate {
 }
 
 // packageRunner picks the package manager from the lockfile beside the
-// workspace root. The fleet is lopsided -- 32 bun.lock against 4
-// package-lock.json and 2 yarn.lock -- so bun remains the default when no
-// lockfile names another manager. A pnpm-lock.yaml selects pnpm.
+// workspace root. The first matching lockfile wins, bun before yarn, npm,
+// and pnpm, so a stray pnpm-lock.yaml beside bun.lock does not steal the
+// runner. The fleet is lopsided -- 32 bun.lock against 4 package-lock.json
+// and 2 yarn.lock -- so bun remains the default when no lockfile names
+// another manager.
 func packageRunner(workspace string) []string {
 	switch {
 	case IsBunWorkspace(workspace):
