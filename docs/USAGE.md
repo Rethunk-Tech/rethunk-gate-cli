@@ -280,15 +280,62 @@ timeout = "5m"
 
 [gates.test]
 serial = true
+
+[gates.docs]
+run = "mdbook build"
+dir = "docs"
+allow-failure = true
+
+[gates.docs.env]
+MDBOOK_VERSION = "0.4"
 ```
 
-`run`, `serial` and `timeout` are the only keys. `run` takes a shell string, so
-it can carry pipes and globs; the shell is `sh` on unix and `cmd` on Windows,
-which split their command lines by different rules. `timeout` takes the same
-value `--timeout` does — `5m`, `90s`, `1m30s`, or `0` to run that gate with no
-limit — and bounds only the gate it sits on. A value that is not a duration
-refuses the file, alongside any other unusable one, the same way a misspelled
-key does.
+`run`, `serial`, `timeout`, `dir`, `env` and `allow-failure` are the only
+keys. `run` takes a shell string, so it can carry pipes and globs; the shell
+is `sh` on unix and `cmd` on Windows, which split their command lines by
+different rules. `timeout` takes the same value `--timeout` does — `5m`,
+`90s`, `1m30s`, or `0` to run that gate with no limit — and bounds only the
+gate it sits on. A value that is not a duration refuses the file, alongside
+any other unusable one, the same way a misspelled key does.
+
+`dir` runs that gate in another directory — a docs site that only builds
+inside `docs/`, a suite that needs the fixture tree beside it. A relative
+path resolves against the project root, so the file says where the gate
+belongs rather than where the caller happened to stand. A directory that is
+not there refuses the run before anything starts: falling back to the root
+would run the gate somewhere its author did not choose, and say nothing about
+it. `workdir` is the same key under another spelling; one gate uses one of
+them, and a file setting both is refused.
+
+`env` carries per-gate environment variables, layered per variable rather
+than per table — a project setting one variable still inherits your values
+for the rest. Values are literal, with no `$VAR` expansion, so what runs is
+what the file says. They reach the command after the inherited environment,
+so the gate wins over a value it names. `GATE_ACTIVE_ROOTS` is reserved: it
+is how a gate knows its project is already running, and letting a file move
+it would re-open the loop that guard exists to close.
+
+`allow-failure` keeps a failing gate from failing the run — a docs preview
+or an experimental check whose signal is worth reading but not worth
+blocking on. `continue-on-error` is the same key under another spelling;
+again, one of them. What "allowed" changes, and what it leaves alone:
+
+- **Aggregate status**: ignored. The first *non-allowed* failure in
+  declaration order wins, and a run whose every failure was allowed exits 0.
+- **Text report**: still printed, marked `FAIL (allowed)` — allowing is
+  never hiding.
+- **`--ndjson`**: the `status` word still names what happened (`fail`,
+  `timeout`, `not-found`), with the gate's own `code` and `ms`, plus
+  `"allowed": true` so a consumer aggregating the stream agrees with gate's
+  own exit status.
+- **Log trailer**: unchanged — the actual outcome, as always the only thing
+  `gate` writes into a log.
+- **Serial groups**: run on past an allowed failure; a non-allowed one still
+  stops its group and the gates behind it are still reported as skipped.
+- **Not excusable**: interrupted and skipped gates have no verdict to
+  excuse, and gate's own log failure is still said out loud either way —
+  `allow-failure` excuses the command, not the guarantee its output
+  survived.
 
 Configuration **adds and overrides, never replaces**. Detection always runs, so
 a file mentioning one gate cannot remove the others, and `--list` still names
@@ -305,9 +352,16 @@ fills that role, so the note naming the missing tool is not printed.
 3. `$XDG_CONFIG_HOME/gate/config.toml`, or `~/.config/gate/config.toml`
 
 The layers merge **per key, not per file**: a project overriding one gate still
-inherits your settings for the rest. The project file is found from the
+inherits your settings for the rest. `env` merges one level deeper, per
+variable, since a whole-table merge would make one project variable discard
+every user default beside it. The project file is found from the
 *detected project root*, so `gate -C <elsewhere>` picks up that project's
 configuration rather than yours.
+
+`--list` and `--json` name the configured keys where they differ from the
+default — the resolved `dir`, the `env` variables in a stable order,
+`allow-failure` — and stay quiet about the rest, so a gate with nothing
+configured reads exactly as it always did.
 
 A file that cannot be understood is refused, never ignored — including a
 misspelled key, which would otherwise do nothing quietly. Every unknown key is

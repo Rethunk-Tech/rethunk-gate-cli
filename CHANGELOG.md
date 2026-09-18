@@ -8,6 +8,22 @@ Notable changes to `gate`. The format follows
 
 ### Added
 
+- Per-gate `env`, `dir`, and `allow-failure` in `.gate.toml`, layered per key
+  over the user config like every other setting. `env` merges per variable
+  with literal values (no expansion) and reserves `GATE_ACTIVE_ROOTS`, which
+  is how a gate knows its project is already running. `dir` moves one gate
+  off the project root — relative paths resolve against it, a missing
+  directory refuses the run — and `--list`/`--json` name the resolved move.
+  `allow-failure` keeps a failing gate out of the aggregate status and lets
+  its serial group run on, while the gate's own verdict still passes through
+  everywhere a verdict goes: the `FAIL (allowed)` line, the unchanged NDJSON
+  status word plus `"allowed": true`, and the log trailer.
+
+  `workdir` and `continue-on-error` are accepted as spellings of `dir` and
+  `allow-failure`; one gate uses one of each, and a file setting both is
+  refused. A deliberate `allow-failure = false` opts back out of a user-level
+  default, the way `serial = false` does.
+
 - `gate fix`, a verb that applies doctor findings whose check already names a
   closed mechanical remedy. Doctor stays read-only: `gate --fix` as a flag is
   refused with a pointer at `gate fix`, and `gate -- doctor` / `gate -- fix`
