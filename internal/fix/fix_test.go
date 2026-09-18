@@ -311,3 +311,25 @@ func TestGovulncheckJoinsAnExistingWithBlock(t *testing.T) {
 	qt.Check(t, qt.StringContains(string(body), "cache: true"))
 	qt.Check(t, qt.StringContains(string(body), `run-govulncheck: "true"`))
 }
+
+// The serial applier decodes .gate.toml strictly, so a file using keys the
+// applier does not set must still decode -- otherwise a project using the
+// newer config surface silently loses its fix.
+func TestSerialApplierKeepsNewConfigKeys(t *testing.T) {
+	isolatePath(t)
+	dir := t.TempDir()
+	testutil.Write(t, dir, "package.json",
+		`{"dependencies":{"next":"15.0.0"},"scripts":{"build":"true","typecheck":"true"}}`)
+	testutil.Write(t, dir, ".gate.toml",
+		"[gates.build]\ntimeout = \"5m\"\nallow-failure = true\n\n[gates.build.env]\nFOO = \"bar\"\n")
+
+	applyNamed(t, dir, "next-build-typecheck-race", false)
+
+	body, err := os.ReadFile(filepath.Join(dir, ".gate.toml"))
+	qt.Assert(t, qt.IsNil(err))
+	got := string(body)
+	qt.Check(t, qt.StringContains(got, "serial = true"))
+	qt.Check(t, qt.StringContains(got, `timeout = "5m"`))
+	qt.Check(t, qt.StringContains(got, "allow-failure = true"))
+	qt.Check(t, qt.StringContains(got, `FOO = "bar"`))
+}

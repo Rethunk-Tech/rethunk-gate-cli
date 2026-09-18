@@ -135,11 +135,19 @@ func writeFile(path, body string) error {
 
 // --- next-build-typecheck-race ---
 
+// Mirrors config's on-disk shape for decoding only: a key added there must
+// be added here, or this applier misreads a file using it as unmechanical
+// and skips a fix it could have applied.
 type tomlFile struct {
 	Gates map[string]struct {
-		Run     string  `toml:"run"`
-		Serial  *bool   `toml:"serial"`
-		Timeout *string `toml:"timeout"`
+		Run             string            `toml:"run"`
+		Serial          *bool             `toml:"serial"`
+		Timeout         *string           `toml:"timeout"`
+		Env             map[string]string `toml:"env"`
+		Dir             *string           `toml:"dir"`
+		Workdir         *string           `toml:"workdir"`
+		AllowFailure    *bool             `toml:"allow-failure"`
+		ContinueOnError *bool             `toml:"continue-on-error"`
 	} `toml:"gates"`
 }
 

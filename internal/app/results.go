@@ -47,6 +47,12 @@ type result struct {
 	// passed.
 	Reason string `json:"reason,omitempty"`
 
+	// Allowed marks a failure the project excused: the gate did fail -- the
+	// status word above still says so -- but the aggregate exit status
+	// ignored it. Absent rather than false where nothing was excused, so a
+	// line without it reads exactly as it always did.
+	Allowed bool `json:"allowed,omitempty"`
+
 	// Error is gate's own failure -- a log it could not finish -- reported
 	// beside the command's verdict rather than in place of it.
 	Error string `json:"error,omitempty"`
@@ -114,6 +120,13 @@ func (s *resultStream) emit(res gateResult) {
 	if !res.skipped {
 		ms := res.elapsed.Milliseconds()
 		rec.Code, rec.Ms = &code, &ms
+	}
+	// The status word still names what happened to the gate -- fail stays
+	// fail -- and this says the run ignored it. A consumer computing an
+	// aggregate from the stream must read this the way report does, or it
+	// will disagree with gate's own exit status about an allowed run.
+	if res.excused() {
+		rec.Allowed = true
 	}
 
 	s.mu.Lock()
