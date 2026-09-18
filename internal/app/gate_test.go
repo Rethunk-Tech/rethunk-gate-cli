@@ -1802,6 +1802,24 @@ func TestTimeoutRemedyIsPrintedOncePerRun(t *testing.T) {
 		qt.Commentf("stderr = %q", stderr))
 }
 
+// An allowed gate killed by the limit is still excused from the aggregate,
+// but the TIMEOUT line and its remedy are still printed: allowing is never
+// hiding, and the default kills roughly one working gate in ninety.
+func TestAllowedTimeoutStillPrintsRemedyAndStaysGreen(t *testing.T) {
+	setLogDir(t)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
+	testutil.Write(t, root, ".gate.toml", "[gates.a]\nrun = \"sleep 10\"\nallow-failure = true\n")
+
+	_, stderr, code := runGateTest(t, "-C", root, "--timeout", "300ms")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("an allowed timeout failed the run: %q", stderr))
+	qt.Check(t, qt.StringContains(stderr, "TIMEOUT"), qt.Commentf("the kill went unreported: %q", stderr))
+	qt.Check(t, qt.StringContains(stderr, "allowed"), qt.Commentf("the report does not say the timeout was allowed: %q", stderr))
+	qt.Check(t, qt.StringContains(stderr, "raise it"), qt.Commentf("the remedy was dropped for an allowed run: %q", stderr))
+}
+
 // A fleet sweep otherwise greps findings out of a layout written for a person,
 // which is the failure the machine shape exists to prevent.
 func TestDoctorJSONCarriesWhatTheReportDoes(t *testing.T) {

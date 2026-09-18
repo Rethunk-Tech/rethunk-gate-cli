@@ -148,15 +148,15 @@ func TestEnvMergesPerVariableNotPerTable(t *testing.T) {
 	qt.Check(t, qt.HasLen(cfg.Gates["lint"].Env, 0))
 }
 
-// dir and workdir are spellings of one key: either is accepted, both for one
-// gate is a disagreement with no local resolution, and an empty one would run
-// the gate wherever the caller happened to stand.
-func TestDirSpellings(t *testing.T) {
+// `dir` is the one spelling, and an empty one would run the gate wherever
+// the caller happened to stand. A retired alias such as `workdir` is refused
+// as an unknown key, the same as any typo, rather than silently accepted.
+func TestDirIsSingleSpelling(t *testing.T) {
 	isolate(t)
 
-	t.Run("workdir is accepted as dir", func(t *testing.T) {
+	t.Run("dir is accepted", func(t *testing.T) {
 		root := t.TempDir()
-		testutil.Write(t, root, ProjectFile, "[gates.test]\nworkdir = \"web\"\n")
+		testutil.Write(t, root, ProjectFile, "[gates.test]\ndir = \"web\"\n")
 
 		cfg, err := Load(root)
 		qt.Assert(t, qt.IsNil(err))
@@ -164,14 +164,12 @@ func TestDirSpellings(t *testing.T) {
 		qt.Check(t, qt.Equals(cfg.Gates["test"].Dir, "web"))
 	})
 
-	t.Run("both spellings are refused", func(t *testing.T) {
+	t.Run("workdir is refused as an unknown key", func(t *testing.T) {
 		root := t.TempDir()
-		testutil.Write(t, root, ProjectFile, "[gates.test]\ndir = \"a\"\nworkdir = \"b\"\n")
+		testutil.Write(t, root, ProjectFile, "[gates.test]\nworkdir = \"web\"\n")
 
 		_, err := Load(root)
 		qt.Assert(t, qt.IsNotNil(err))
-		qt.Check(t, qt.IsTrue(strings.Contains(err.Error(), "gates.test.dir")),
-			qt.Commentf("error = %v", err))
 		qt.Check(t, qt.IsTrue(strings.Contains(err.Error(), "workdir")),
 			qt.Commentf("error = %v", err))
 	})
@@ -187,15 +185,16 @@ func TestDirSpellings(t *testing.T) {
 	})
 }
 
-// allow-failure and continue-on-error are spellings of one key, and a
-// deliberate false is distinguishable from unset -- so a project can opt back
-// out of a user-level default the way serial does.
-func TestAllowFailureSpellings(t *testing.T) {
+// `allow-failure` is the one spelling, and a deliberate false is
+// distinguishable from unset -- so a project can opt back out of a user-level
+// default the way serial does. A retired alias such as `continue-on-error`
+// is refused as an unknown key, the same as any typo.
+func TestAllowFailureIsSingleSpelling(t *testing.T) {
 	home := isolate(t)
 	testutil.Write(t, home, "gate/config.toml", "[gates.test]\nallow-failure = true\n")
 
 	root := t.TempDir()
-	testutil.Write(t, root, ProjectFile, "[gates.test]\ncontinue-on-error = false\n")
+	testutil.Write(t, root, ProjectFile, "[gates.test]\nallow-failure = false\n")
 
 	cfg, err := Load(root)
 	qt.Assert(t, qt.IsNil(err))
@@ -204,11 +203,11 @@ func TestAllowFailureSpellings(t *testing.T) {
 
 	qt.Check(t, qt.IsFalse(cfg.Gates["lint"].HasAllowFailure))
 
-	both := t.TempDir()
-	testutil.Write(t, both, ProjectFile, "[gates.test]\nallow-failure = true\ncontinue-on-error = true\n")
-	_, err = Load(both)
+	alias := t.TempDir()
+	testutil.Write(t, alias, ProjectFile, "[gates.test]\ncontinue-on-error = true\n")
+	_, err = Load(alias)
 	qt.Assert(t, qt.IsNotNil(err))
-	qt.Check(t, qt.IsTrue(strings.Contains(err.Error(), "allow-failure")),
+	qt.Check(t, qt.IsTrue(strings.Contains(err.Error(), "continue-on-error")),
 		qt.Commentf("error = %v", err))
 }
 

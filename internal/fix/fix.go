@@ -141,14 +141,12 @@ func writeFile(path, body string) error {
 // and skips a fix it could have applied.
 type tomlFile struct {
 	Gates map[string]struct {
-		Run             string            `toml:"run"`
-		Serial          *bool             `toml:"serial"`
-		Timeout         *string           `toml:"timeout"`
-		Env             map[string]string `toml:"env"`
-		Dir             *string           `toml:"dir"`
-		Workdir         *string           `toml:"workdir"`
-		AllowFailure    *bool             `toml:"allow-failure"`
-		ContinueOnError *bool             `toml:"continue-on-error"`
+		Run          string            `toml:"run"`
+		Serial       *bool             `toml:"serial"`
+		Timeout      *string           `toml:"timeout"`
+		Env          map[string]string `toml:"env"`
+		Dir          *string           `toml:"dir"`
+		AllowFailure *bool             `toml:"allow-failure"`
 	} `toml:"gates"`
 }
 

@@ -91,21 +91,17 @@ type Config struct {
 // malformed duration is reported like an unknown key rather than decoded into
 // something that silently means "no limit".
 //
-// dir and workdir are spellings of one key, as are allow-failure and
-// continue-on-error: the file may use either spelling, but not both for one
-// gate, since two values for one key is a disagreement with no local
-// resolution. Both spellings have to be named here or DisallowUnknownFields
-// refuses the alias as a typo -- the exact failure the alias exists to avoid.
+// `dir` and `allow-failure` are the only spellings: a retired alias such as
+// `workdir` or `continue-on-error` is refused as an unknown key by
+// DisallowUnknownFields, the same as any typo, rather than silently accepted.
 type file struct {
 	Gates map[string]struct {
-		Run             string            `toml:"run"`
-		Serial          *bool             `toml:"serial"`
-		Timeout         *string           `toml:"timeout"`
-		Env             map[string]string `toml:"env"`
-		Dir             *string           `toml:"dir"`
-		Workdir         *string           `toml:"workdir"`
-		AllowFailure    *bool             `toml:"allow-failure"`
-		ContinueOnError *bool             `toml:"continue-on-error"`
+		Run          string            `toml:"run"`
+		Serial       *bool             `toml:"serial"`
+		Timeout      *string           `toml:"timeout"`
+		Env          map[string]string `toml:"env"`
+		Dir          *string           `toml:"dir"`
+		AllowFailure *bool             `toml:"allow-failure"`
 	} `toml:"gates"`
 }
 
@@ -226,32 +222,18 @@ func (c *Config) merge(path string, data []byte) error {
 			}
 			merged.HasEnv = true
 		}
-		// One key, two spellings -- and an empty directory is refused
+		// `dir` is the one spelling, and an empty directory is refused
 		// rather than resolved against nothing, which would run the gate
 		// wherever the caller happened to stand.
-		switch {
-		case g.Dir != nil && g.Workdir != nil:
-			unusable = append(unusable, fmt.Sprintf("gates.%s.dir and gates.%s.workdir are spellings of one key; keep one", name, name))
-		case g.Dir != nil:
+		if g.Dir != nil {
 			if *g.Dir == "" {
 				unusable = append(unusable, fmt.Sprintf("gates.%s.dir is empty", name))
 			} else {
 				merged.Dir, merged.HasDir = *g.Dir, true
 			}
-		case g.Workdir != nil:
-			if *g.Workdir == "" {
-				unusable = append(unusable, fmt.Sprintf("gates.%s.workdir is empty", name))
-			} else {
-				merged.Dir, merged.HasDir = *g.Workdir, true
-			}
 		}
-		switch {
-		case g.AllowFailure != nil && g.ContinueOnError != nil:
-			unusable = append(unusable, fmt.Sprintf("gates.%s.allow-failure and gates.%s.continue-on-error are spellings of one key; keep one", name, name))
-		case g.AllowFailure != nil:
+		if g.AllowFailure != nil {
 			merged.AllowFailure, merged.HasAllowFailure = *g.AllowFailure, true
-		case g.ContinueOnError != nil:
-			merged.AllowFailure, merged.HasAllowFailure = *g.ContinueOnError, true
 		}
 		c.Gates[name] = merged
 	}
