@@ -120,6 +120,9 @@ Notable changes to `gate`. The format follows
   shape as clippy, shellcheck, and govulncheck. A `.github/workflows` directory
   with no binary is explained rather than left looking like it had no convention.
 
+- A `pnpm-lock.yaml` at the workspace selects `pnpm run` for package.json
+  scripts. bun remains the default when no lockfile names another manager.
+
 - `doctor`'s `knownGoodActionsTag` is `v1.11`, the newest shared-actions tag,
   so a repository still pinned at v1.10 is reported as behind.
 - `gate --version` names log retention: `logs /var/tmp/gate (kept 14 days)`.

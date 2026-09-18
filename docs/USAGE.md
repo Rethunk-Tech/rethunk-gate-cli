@@ -261,7 +261,10 @@ the install, never a lesser check — the same rule the Rust tier follows.
 
 Tools are looked for in `node_modules/.bin` and `.venv/bin` before `PATH`, and
 the resolved path is what runs. Several of the best tools — `turbo`, `pyrefly`
-— are typically not on `PATH` at all.
+— are typically not on `PATH` at all. The lockfile at the workspace picks the
+package runner: `bun.lock`/`bun.lockb` → `bun run`, `yarn.lock` → `yarn`,
+`package-lock.json` → `npm run`, `pnpm-lock.yaml` → `pnpm run`, otherwise
+`bun run`.
 
 If two declarations claim one role with different commands, `gate` runs the
 higher-precedence one and says so:

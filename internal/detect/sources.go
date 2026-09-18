@@ -138,10 +138,8 @@ func packageJSONGates(root, workspace string, proj *Project) []Gate {
 
 // packageRunner picks the package manager from the lockfile beside the
 // workspace root. The fleet is lopsided -- 32 bun.lock against 4
-// package-lock.json and 2 yarn.lock -- so bun is the default and the others
-// are exceptions rather than peers. pnpm is deliberately absent: it appears in
-// commands but has zero lockfiles here, and a ladder for an ecosystem that
-// does not exist is speculative surface.
+// package-lock.json and 2 yarn.lock -- so bun remains the default when no
+// lockfile names another manager. A pnpm-lock.yaml selects pnpm.
 func packageRunner(workspace string) []string {
 	switch {
 	case IsBunWorkspace(workspace):
@@ -150,6 +148,8 @@ func packageRunner(workspace string) []string {
 		return []string{"yarn"}
 	case exists(filepath.Join(workspace, "package-lock.json")):
 		return []string{"npm", "run"}
+	case exists(filepath.Join(workspace, "pnpm-lock.yaml")):
+		return []string{"pnpm", "run"}
 	}
 	return []string{"bun", "run"}
 }

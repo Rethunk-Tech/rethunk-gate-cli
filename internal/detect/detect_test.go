@@ -571,6 +571,27 @@ func TestEitherBunLockfileSpellingMarksTheWorkspace(t *testing.T) {
 	}
 }
 
+// A recognised lockfile picks its own runner. Defaulting a pnpm workspace to
+// bun would run the wrong manager against that lockfile.
+func TestPnpmLockfileSelectsPnpmRunner(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, "pnpm-lock.yaml", "")
+	testutil.Write(t, root, "package.json", `{"scripts":{"test":"vitest"}}`)
+
+	proj := detect(t, root)
+	qt.Check(t, qt.Equals(gateNamed(t, proj, "test").Display(), "pnpm run test"),
+		qt.Commentf("the lockfile did not pick pnpm as the runner"))
+
+	pkg := filepath.Join(root, "packages", "web")
+	testutil.Write(t, pkg, "package.json", `{"scripts":{"test":"vitest"}}`)
+	member := detect(t, pkg)
+	qt.Check(t, qt.Equals(member.Workspace, root),
+		qt.Commentf("the lockfile root was not found"))
+	qt.Check(t, qt.Equals(gateNamed(t, member, "test").Display(), "pnpm run test"),
+		qt.Commentf("a workspace member did not inherit the pnpm runner"))
+}
+
 // Shell scripts belong to no toolchain, so nothing else claims them.
 func TestShellScriptsGetAShellGate(t *testing.T) {
 	dir := t.TempDir()
