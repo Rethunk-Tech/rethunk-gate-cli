@@ -158,6 +158,8 @@ refused: there is no run to measure.
    pytest`/`ruff`/`pyrefly` plus `uv audit` where a `uv.lock` exists,
    `biome`/`tsc`, `actionlint` where `.github/workflows` exists, and
    `shellcheck` over the project's own `.sh` files where it has any.
+   An absent `actionlint` is a note naming `brew install actionlint`, the same
+   rule as `shellcheck` and clippy.
 
 The Rust tier has no typecheck gate on purpose: `cargo build` type-checks as it
 compiles, and `cargo check` would compile the crate a second time for an answer

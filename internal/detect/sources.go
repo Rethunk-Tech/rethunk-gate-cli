@@ -301,6 +301,8 @@ func conventionGates(root string, proj *Project) ([]Gate, []Skip) {
 				Name: "workflows", Argv: []string{bin},
 				Source: "convention: .github/workflows",
 			})
+		} else {
+			skipped = append(skipped, Skip{"workflows", "actionlint not installed; skipping the workflows gate (brew install actionlint)"})
 		}
 	}
 

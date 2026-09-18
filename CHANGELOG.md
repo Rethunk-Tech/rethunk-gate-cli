@@ -116,6 +116,10 @@ Notable changes to `gate`. The format follows
 
 ### Changed
 
+- Missing `actionlint` is a skip note naming `brew install actionlint`, the same
+  shape as clippy, shellcheck, and govulncheck. A `.github/workflows` directory
+  with no binary is explained rather than left looking like it had no convention.
+
 - `doctor`'s `knownGoodActionsTag` is `v1.11`, the newest shared-actions tag,
   so a repository still pinned at v1.10 is reported as behind.
 - `gate --version` names log retention: `logs /var/tmp/gate (kept 14 days)`.

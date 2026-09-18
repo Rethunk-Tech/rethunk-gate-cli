@@ -357,6 +357,19 @@ func TestTheWorkflowLinterIsNamedWorkflowsAndCiIsNotAGate(t *testing.T) {
 		qt.Commentf("workflows gate runs %q", linter.Display()))
 }
 
+// A gate that cannot run is a note naming its install, never a silent skip.
+func TestWorkflowsGateIsSkippedWithoutActionlint(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	dir := t.TempDir()
+	testutil.Write(t, dir, ".github/workflows/ci.yml", "jobs: {}\n")
+
+	proj, err := Detect(dir)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsFalse(slices.ContainsFunc(proj.Gates, func(g Gate) bool { return g.Name == "workflows" })),
+		qt.Commentf("a workflows gate was claimed with no actionlint to run it"))
+	qt.Check(t, qt.IsTrue(hasNote(proj, "brew install actionlint")), qt.Commentf("notes = %v", proj.Notes))
+}
+
 // Supabase appears often in this fleet but has no unambiguous pass/fail check
 // of the working tree, so the decision not to invent one is recorded rather
 // than left as silence.
