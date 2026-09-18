@@ -19,9 +19,9 @@ Notable changes to `gate`. The format follows
   everywhere a verdict goes: the `FAIL (allowed)` line, the unchanged NDJSON
   status word plus `"allowed": true`, and the log trailer.
 
-  `workdir` and `continue-on-error` are accepted as spellings of `dir` and
-  `allow-failure`; one gate uses one of each, and a file setting both is
-  refused. A deliberate `allow-failure = false` opts back out of a user-level
+  `dir` and `allow-failure` are the only spellings: `workdir` and
+  `continue-on-error` are refused as unknown keys, the same as any typo.
+  A deliberate `allow-failure = false` opts back out of a user-level
   default, the way `serial = false` does.
 
 - `--profile`, two lines on stderr after a run: wall time against summed gate

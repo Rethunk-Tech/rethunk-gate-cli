@@ -326,8 +326,8 @@ path resolves against the project root, so the file says where the gate
 belongs rather than where the caller happened to stand. A directory that is
 not there refuses the run before anything starts: falling back to the root
 would run the gate somewhere its author did not choose, and say nothing about
-it. `workdir` is the same key under another spelling; one gate uses one of
-them, and a file setting both is refused.
+it. `dir` is the only spelling — a file using another name for the key
+is refused as an unknown key, the same as any typo.
 
 `env` carries per-gate environment variables, layered per variable rather
 than per table — a project setting one variable still inherits your values
@@ -339,8 +339,7 @@ it would re-open the loop that guard exists to close.
 
 `allow-failure` keeps a failing gate from failing the run — a docs preview
 or an experimental check whose signal is worth reading but not worth
-blocking on. `continue-on-error` is the same key under another spelling;
-again, one of them. What "allowed" changes, and what it leaves alone:
+blocking on. `allow-failure` is the only spelling. What "allowed" changes, and what it leaves alone:
 
 - **Aggregate status**: ignored. The first *non-allowed* failure in
   declaration order wins, and a run whose every failure was allowed exits 0.
@@ -509,7 +508,9 @@ its trailer records the timeout rather than an exit status that never happened.
 The whole process group is killed, not just the command: a test runner that
 forked workers would otherwise leave them holding a port.
 
-A killed gate says what to do about it, once per run however many overran:
+A killed gate says what to do about it, once per run however many overran —
+including a run whose every timeout was allowed, where the remedy line is
+printed beside the `TIMEOUT ... (allowed)` verdict rather than dropped:
 
 ```console
 gate: TIMEOUT after 1m0s  make test  (killed, not failed)
