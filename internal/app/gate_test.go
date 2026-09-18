@@ -2265,3 +2265,73 @@ func TestListingOmitsUnsetConfigKeys(t *testing.T) {
 		qt.Check(t, qt.Not(qt.StringContains(jsonOut, field)), qt.Commentf("json = %q", jsonOut))
 	}
 }
+
+// --profile names what the run cost without touching what it reports: the
+// slowest gates first on stderr, wall against summed gate time beside them.
+func TestProfileNamesSlowestFirst(t *testing.T) {
+	setLogDir(t)
+
+	root := gateProject(t, "sleep 0.3", "true")
+	stdout, stderr, code := runGateTest(t, "-C", root, "--profile")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("gate = %d, stderr = %q", code, stderr))
+
+	qt.Check(t, qt.StringContains(stderr, "gate: profile wall "))
+	qt.Check(t, qt.StringContains(stderr, "sum "))
+	qt.Check(t, qt.StringContains(stderr, "overlap"))
+	qt.Check(t, qt.StringContains(stdout, "gate: ok"), qt.Commentf("the text report went missing: %q", stdout))
+
+	_, slowest, found := strings.Cut(stderr, "gate: slowest ")
+	qt.Assert(t, qt.IsTrue(found), qt.Commentf("no slowest line: %q", stderr))
+	slow, fast := strings.Index(slowest, "sleep 0.3"), strings.Index(slowest, "true")
+	if slow < 0 || fast < 0 {
+		t.Fatalf("slowest line does not name both gates: %q", slowest)
+	}
+	if slow > fast {
+		t.Errorf("slowest line is not slowest-first: %q", slowest)
+	}
+}
+
+// Off by default: a line nobody asked for on every run is how output starts
+// being skipped.
+func TestProfileIsSilentUnlessAsked(t *testing.T) {
+	setLogDir(t)
+
+	root := gateProject(t, "true")
+	stdout, stderr, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.Not(qt.StringContains(stderr, "profile")), qt.Commentf("an unasked profile was printed: %q", stderr))
+	qt.Check(t, qt.Not(qt.StringContains(stdout, "profile")), qt.Commentf("an unasked profile was printed: %q", stdout))
+}
+
+// The profile goes to stderr, so the stream on stdout stays one JSON line
+// per gate in arrival order -- the contract the stream exists to keep.
+func TestProfileLeavesTheNDJSONStreamAlone(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "test:\n\ttrue\n")
+
+	stdout, stderr, code := runGateTest(t, "-C", root, "--ndjson", "--profile")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.StringContains(stderr, "gate: slowest"))
+
+	var r result
+	qt.Assert(t, qt.IsNil(json.Unmarshal([]byte(strings.TrimSpace(stdout)), &r)),
+		qt.Commentf("stdout is not one JSON line: %q", stdout))
+	qt.Check(t, qt.Equals(r.Status, "ok"))
+}
+
+// A profile needs a run to measure. The listings run nothing, and doctor and
+// fix are not runs, so there is no wall time and no slowest gate to name.
+func TestProfileRefusesWhatRunsNothing(t *testing.T) {
+	t.Parallel()
+	for _, args := range [][]string{
+		{"--profile", "--list", "true"},
+		{"--profile", "--json", "true"},
+		{"--profile", "doctor"},
+		{"--profile", "fix"},
+	} {
+		_, stderr, code := runGateTest(t, args...)
+		qt.Check(t, qt.Equals(code, InvalidUsage), qt.Commentf("gate %v = %d, want InvalidUsage -- stderr = %q", args, code, stderr))
+		qt.Check(t, qt.StringContains(stderr, "--profile"), qt.Commentf("refusal does not name the flag: %q", stderr))
+	}
+}

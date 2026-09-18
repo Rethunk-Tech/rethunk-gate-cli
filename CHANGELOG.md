@@ -24,6 +24,12 @@ Notable changes to `gate`. The format follows
   refused. A deliberate `allow-failure = false` opts back out of a user-level
   default, the way `serial = false` does.
 
+- `--profile`, two lines on stderr after a run: wall time against summed gate
+  time with the overlap, and the slowest gates first. Output only — the
+  per-gate `ms` was already in every NDJSON line, and the stream's
+  arrival-order contract and machine-only stdout are unchanged. Refused beside
+  `--list`, `--json`, `doctor` and `fix`, which have no run to measure.
+
 - `gate fix`, a verb that applies doctor findings whose check already names a
   closed mechanical remedy. Doctor stays read-only: `gate --fix` as a flag is
   refused with a pointer at `gate fix`, and `gate -- doctor` / `gate -- fix`

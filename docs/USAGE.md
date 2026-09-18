@@ -123,6 +123,28 @@ sweep can read both.
 for d in ~/src/*/; do gate -C "$d" --ndjson; done | jq -r 'select(.status != "ok") | "\(.name) \(.status) \(.log)"'
 ```
 
+### What a run cost
+
+`--profile` prints two lines on stderr after the run: wall time against
+summed gate time, and the slowest gates first.
+
+```console
+$ gate --profile
+gate: ok  make lint  189ms  /var/tmp/gate/make-lint-2378129278.log
+gate: ok  make test  3.307s  /var/tmp/gate/make-test-738824944.log
+gate: profile wall 3.312s sum 3.496s (1.1x overlap) across 2 gate(s)
+gate: slowest make test 3.307s, make lint 189ms
+```
+
+Output only, like `--ndjson`: what a run does never depends on who is
+reading it. The per-gate `ms` was already in every NDJSON line; this is the
+same numbers read after the fact rather than as they arrive, so the stream's
+arrival-order contract is unchanged and stdout stays machine-only — combine
+the two freely. A gate that never ran has no time to report and is left out
+of both the sum and the ranking, for the same reason it carries no `ms` in
+the stream. `--profile` beside `--list`, `--json`, `doctor` or `fix` is
+refused: there is no run to measure.
+
 ### What it looks at, in order
 
 1. **`Makefile` targets** — a target that exists is a deliberate wrapper, and

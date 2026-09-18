@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -54,7 +56,13 @@ type options struct {
 	// only, like jsonList, and for the same reason: what a run does must not
 	// depend on who is reading it.
 	ndjson bool
-	gates  []gateSpec
+
+	// profile prints what the run cost after it finishes: wall time against
+	// summed gate time, and the slowest gates first. Output only, like the
+	// two above: it goes to stderr, so the machine shapes on stdout are
+	// untouched.
+	profile bool
+	gates   []gateSpec
 }
 
 // gateSpec is one command to run. argv is executed directly, without a shell,
@@ -242,6 +250,7 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 	results := make([]gateResult, len(opts.gates))
 	stream := newResultStream(stdout, opts.ndjson)
 
+	started := time.Now()
 	var wg sync.WaitGroup
 	for _, group := range schedule(opts.gates, opts.serial) {
 		wg.Go(func() {
@@ -288,8 +297,15 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 			stream.emit(results[i])
 		}
 	}
+	// Measured around the gates, not the report: the profile answers what
+	// the run cost, and printing the answer is not part of it.
+	wall := time.Since(started)
 
-	return report(results, opts, stdout, stderr)
+	code := report(results, opts, stdout, stderr)
+	if opts.profile {
+		writeProfile(stderr, results, wall)
+	}
+	return code
 }
 
 // schedule returns index groups: gates within a group run in sequence, and
@@ -319,6 +335,50 @@ func schedule(gates []gateSpec, serial bool) [][]int {
 		out[chain] = append(out[chain], i)
 	}
 	return out
+}
+
+// writeProfile names what a run cost: wall time against summed gate time,
+// and the slowest gates first.
+//
+// stderr only, so the machine shapes on stdout -- --ndjson's stream above
+// all -- are untouched, and arrival order there is unchanged: this reads the
+// finished results after the fact rather than the stream as it happens. A
+// gate that never ran has no time to report and is left out of both the sum
+// and the ranking, for the same reason it carries no ms in the stream.
+func writeProfile(w io.Writer, results []gateResult, wall time.Duration) {
+	type slow struct {
+		name    string
+		elapsed time.Duration
+	}
+	var ran []slow
+	var sum time.Duration
+	for _, res := range results {
+		if res.skipped || !res.started {
+			continue
+		}
+		sum += res.elapsed
+		ran = append(ran, slow{res.spec.short(), res.elapsed})
+	}
+	slices.SortFunc(ran, func(a, b slow) int {
+		return cmp.Compare(b.elapsed, a.elapsed)
+	})
+
+	overlap := 1.0
+	if wall > 0 {
+		overlap = float64(sum) / float64(wall)
+	}
+	fmt.Fprintf(w, "gate: profile wall %s sum %s (%.1fx overlap) across %d gate(s)\n",
+		wall.Round(time.Millisecond), sum.Round(time.Millisecond), overlap, len(ran))
+
+	const slowest = 3
+	if len(ran) == 0 {
+		return
+	}
+	parts := make([]string, 0, min(slowest, len(ran)))
+	for _, s := range ran[:min(slowest, len(ran))] {
+		parts = append(parts, fmt.Sprintf("%s %s", s.name, s.elapsed.Round(time.Millisecond)))
+	}
+	fmt.Fprintf(w, "gate: slowest %s\n", strings.Join(parts, ", "))
 }
 
 // report prints every gate's outcome in declaration order and returns the
