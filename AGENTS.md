@@ -52,7 +52,9 @@ to the OS so a second Ctrl-C still ends gate.
 
 **Never `os.Chdir`.** Gates run concurrently; working directory is process-global.
 Each gate carries its own directory. Detected gates run at `proj.Root`; explicit
-commands run in the `-C` directory.
+commands run in the `-C` directory. Configuration `dir` moves one gate off the
+root — resolved against the root, refused when missing — and the listing names
+the move.
 
 ## Detection
 
@@ -147,14 +149,18 @@ turbo `dependsOn` between roles, `gates.<role>.serial` in `.gate.toml`, or
 `--serial`. Turbo's topological `"^build"` is not such an edge.
 
 `schedule` groups serial gates together; groups run concurrently. A failure
-stops its group; stopped gates are reported as skipped.
+stops its group, unless the project allowed it (`allow-failure`); stopped gates
+are reported as skipped.
 
 ## Exit codes
 
 The command's status passes through byte for byte, including values that collide
 with gate's own codes. Gate's codes apply only when it could not run the
 command. Table: [docs/USAGE.md](docs/USAGE.md#exit-codes); constants in
-`internal/app/code.go`.
+`internal/app/code.go`. The multi-gate aggregate is the first failure in
+declaration order — or the first *non-allowed* one where the project marked
+gates `allow-failure`, whose own verdicts still pass through everywhere a
+verdict goes.
 
 ## State
 

@@ -123,6 +123,28 @@ sweep can read both.
 for d in ~/src/*/; do gate -C "$d" --ndjson; done | jq -r 'select(.status != "ok") | "\(.name) \(.status) \(.log)"'
 ```
 
+### What a run cost
+
+`--profile` prints two lines on stderr after the run: wall time against
+summed gate time, and the slowest gates first.
+
+```console
+$ gate --profile
+gate: ok  make lint  189ms  /var/tmp/gate/make-lint-2378129278.log
+gate: ok  make test  3.307s  /var/tmp/gate/make-test-738824944.log
+gate: profile wall 3.312s sum 3.496s (1.1x overlap) across 2 gate(s)
+gate: slowest make test 3.307s, make lint 189ms
+```
+
+Output only, like `--ndjson`: what a run does never depends on who is
+reading it. The per-gate `ms` was already in every NDJSON line; this is the
+same numbers read after the fact rather than as they arrive, so the stream's
+arrival-order contract is unchanged and stdout stays machine-only — combine
+the two freely. A gate that never ran has no time to report and is left out
+of both the sum and the ranking, for the same reason it carries no `ms` in
+the stream. `--profile` beside `--list`, `--json`, `doctor` or `fix` is
+refused: there is no run to measure.
+
 ### What it looks at, in order
 
 1. **`Makefile` targets** — a target that exists is a deliberate wrapper, and
@@ -280,15 +302,61 @@ timeout = "5m"
 
 [gates.test]
 serial = true
+
+[gates.docs]
+run = "mdbook build"
+dir = "docs"
+allow-failure = true
+
+[gates.docs.env]
+MDBOOK_VERSION = "0.4"
 ```
 
-`run`, `serial` and `timeout` are the only keys. `run` takes a shell string, so
-it can carry pipes and globs; the shell is `sh` on unix and `cmd` on Windows,
-which split their command lines by different rules. `timeout` takes the same
-value `--timeout` does — `5m`, `90s`, `1m30s`, or `0` to run that gate with no
-limit — and bounds only the gate it sits on. A value that is not a duration
-refuses the file, alongside any other unusable one, the same way a misspelled
-key does.
+`run`, `serial`, `timeout`, `dir`, `env` and `allow-failure` are the only
+keys. `run` takes a shell string, so it can carry pipes and globs; the shell
+is `sh` on unix and `cmd` on Windows, which split their command lines by
+different rules. `timeout` takes the same value `--timeout` does — `5m`,
+`90s`, `1m30s`, or `0` to run that gate with no limit — and bounds only the
+gate it sits on. A value that is not a duration refuses the file, alongside
+any other unusable one, the same way a misspelled key does.
+
+`dir` runs that gate in another directory — a docs site that only builds
+inside `docs/`, a suite that needs the fixture tree beside it. A relative
+path resolves against the project root, so the file says where the gate
+belongs rather than where the caller happened to stand. A directory that is
+not there refuses the run before anything starts: falling back to the root
+would run the gate somewhere its author did not choose, and say nothing about
+it. `dir` is the only spelling — a file using another name for the key
+is refused as an unknown key, the same as any typo.
+
+`env` carries per-gate environment variables, layered per variable rather
+than per table — a project setting one variable still inherits your values
+for the rest. Values are literal, with no `$VAR` expansion, so what runs is
+what the file says. They reach the command after the inherited environment,
+so the gate wins over a value it names. `GATE_ACTIVE_ROOTS` is reserved: it
+is how a gate knows its project is already running, and letting a file move
+it would re-open the loop that guard exists to close.
+
+`allow-failure` keeps a failing gate from failing the run — a docs preview
+or an experimental check whose signal is worth reading but not worth
+blocking on. `allow-failure` is the only spelling. What "allowed" changes, and what it leaves alone:
+
+- **Aggregate status**: ignored. The first *non-allowed* failure in
+  declaration order wins, and a run whose every failure was allowed exits 0.
+- **Text report**: still printed, marked `FAIL (allowed)` — allowing is
+  never hiding.
+- **`--ndjson`**: the `status` word still names what happened (`fail`,
+  `timeout`, `not-found`), with the gate's own `code` and `ms`, plus
+  `"allowed": true` so a consumer aggregating the stream agrees with gate's
+  own exit status.
+- **Log trailer**: unchanged — the actual outcome, as always the only thing
+  `gate` writes into a log.
+- **Serial groups**: run on past an allowed failure; a non-allowed one still
+  stops its group and the gates behind it are still reported as skipped.
+- **Not excusable**: interrupted and skipped gates have no verdict to
+  excuse, and gate's own log failure is still said out loud either way —
+  `allow-failure` excuses the command, not the guarantee its output
+  survived.
 
 Configuration **adds and overrides, never replaces**. Detection always runs, so
 a file mentioning one gate cannot remove the others, and `--list` still names
@@ -305,9 +373,16 @@ fills that role, so the note naming the missing tool is not printed.
 3. `$XDG_CONFIG_HOME/gate/config.toml`, or `~/.config/gate/config.toml`
 
 The layers merge **per key, not per file**: a project overriding one gate still
-inherits your settings for the rest. The project file is found from the
+inherits your settings for the rest. `env` merges one level deeper, per
+variable, since a whole-table merge would make one project variable discard
+every user default beside it. The project file is found from the
 *detected project root*, so `gate -C <elsewhere>` picks up that project's
 configuration rather than yours.
+
+`--list` and `--json` name the configured keys where they differ from the
+default — the resolved `dir`, the `env` variables in a stable order,
+`allow-failure` — and stay quiet about the rest, so a gate with nothing
+configured reads exactly as it always did.
 
 A file that cannot be understood is refused, never ignored — including a
 misspelled key, which would otherwise do nothing quietly. Every unknown key is
@@ -413,7 +488,7 @@ gate --json fix
 | `next-build-typecheck-race` | `serial = true` on `gates.build` and `gates.typecheck` in `.gate.toml` |
 | `ci-govulncheck-off` | `run-govulncheck: "true"` on the named setup-go step |
 | `corepack-with-setup-bun` | drop the `corepack enable` step |
-| `npx-in-bun-workspace` | replace `npx` with `bunx` in the named file |
+| `npx-in-bun-workspace` | replace `npx` with `bunx` in the named workflow or `package.json` |
 | `actions-floating-ref` / `actions-stale-ref` | pin the named shared-action refs to the tag doctor already stated, never unrelated actions |
 | `go-no-govulncheck` | skip — `go install` is machine-wide |
 | `no-ci` | skip — a workflow needs a template choice |
@@ -433,7 +508,9 @@ its trailer records the timeout rather than an exit status that never happened.
 The whole process group is killed, not just the command: a test runner that
 forked workers would otherwise leave them holding a port.
 
-A killed gate says what to do about it, once per run however many overran:
+A killed gate says what to do about it, once per run however many overran —
+including a run whose every timeout was allowed, where the remedy line is
+printed beside the `TIMEOUT ... (allowed)` verdict rather than dropped:
 
 ```console
 gate: TIMEOUT after 1m0s  make test  (killed, not failed)

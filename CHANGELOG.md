@@ -8,6 +8,43 @@ Notable changes to `gate`. The format follows
 
 ### Added
 
+- Per-gate `env`, `dir`, and `allow-failure` in `.gate.toml`, layered per key
+  over the user config like every other setting. `env` merges per variable
+  with literal values (no expansion) and reserves `GATE_ACTIVE_ROOTS`, which
+  is how a gate knows its project is already running. `dir` moves one gate
+  off the project root — relative paths resolve against it, a missing
+  directory refuses the run — and `--list`/`--json` name the resolved move.
+  `allow-failure` keeps a failing gate out of the aggregate status and lets
+  its serial group run on, while the gate's own verdict still passes through
+  everywhere a verdict goes: the `FAIL (allowed)` line, the unchanged NDJSON
+  status word plus `"allowed": true`, and the log trailer.
+
+  `dir` and `allow-failure` are the only spellings: `workdir` and
+  `continue-on-error` are refused as unknown keys, the same as any typo.
+  A deliberate `allow-failure = false` opts back out of a user-level
+  default, the way `serial = false` does.
+
+- `--profile`, two lines on stderr after a run: wall time against summed gate
+  time with the overlap, and the slowest gates first. Output only — the
+  per-gate `ms` was already in every NDJSON line, and the stream's
+  arrival-order contract and machine-only stdout are unchanged. Refused beside
+  `--list`, `--json`, `doctor` and `fix`, which have no run to measure.
+
+- Wider `gate fix` coverage, two extensions where a closed mechanical remedy
+  exists. `npx-in-bun-workspace` now fires on `package.json` scripts too —
+  `bun run <script>` executes the string, so an `npx` inside it strands the
+  same lockfile a workflow `npx` would, and the fix is the same splice under
+  the same check name. Only scripts are read: prose mentioning `npx` is not
+  an invocation. `ci-govulncheck-off` now splices a single-line flow mapping
+  (`with: { cache: true }`) in place; quoted braces, multi-line values, and
+  trailing content past the mapping stay skipped rather than guessed at.
+
+  Surveyed and left skipping, with reasons: `superseded-tooling` (a move
+  needs a version and config choice), `missing-gate-*` (adding a script is
+  ambiguous), `no-ci` (a workflow needs a template choice), `ci-no-final-gate`
+  (an aggregating job is a design), `go-no-govulncheck` (`go install` is
+  machine-wide).
+
 - `gate fix`, a verb that applies doctor findings whose check already names a
   closed mechanical remedy. Doctor stays read-only: `gate --fix` as a flag is
   refused with a pointer at `gate fix`, and `gate -- doctor` / `gate -- fix`

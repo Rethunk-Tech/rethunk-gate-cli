@@ -1802,6 +1802,24 @@ func TestTimeoutRemedyIsPrintedOncePerRun(t *testing.T) {
 		qt.Commentf("stderr = %q", stderr))
 }
 
+// An allowed gate killed by the limit is still excused from the aggregate,
+// but the TIMEOUT line and its remedy are still printed: allowing is never
+// hiding, and the default kills roughly one working gate in ninety.
+func TestAllowedTimeoutStillPrintsRemedyAndStaysGreen(t *testing.T) {
+	setLogDir(t)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
+	testutil.Write(t, root, ".gate.toml", "[gates.a]\nrun = \"sleep 10\"\nallow-failure = true\n")
+
+	_, stderr, code := runGateTest(t, "-C", root, "--timeout", "300ms")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("an allowed timeout failed the run: %q", stderr))
+	qt.Check(t, qt.StringContains(stderr, "TIMEOUT"), qt.Commentf("the kill went unreported: %q", stderr))
+	qt.Check(t, qt.StringContains(stderr, "allowed"), qt.Commentf("the report does not say the timeout was allowed: %q", stderr))
+	qt.Check(t, qt.StringContains(stderr, "raise it"), qt.Commentf("the remedy was dropped for an allowed run: %q", stderr))
+}
+
 // A fleet sweep otherwise greps findings out of a layout written for a person,
 // which is the failure the machine shape exists to prevent.
 func TestDoctorJSONCarriesWhatTheReportDoes(t *testing.T) {
@@ -2098,4 +2116,240 @@ func TestFixUnknownArgIsUsage(t *testing.T) {
 	_, stderr, code := runGateTest(t, "fix", "please")
 	qt.Assert(t, qt.Equals(code, InvalidUsage), qt.Commentf("stderr = %q", stderr))
 	qt.Check(t, qt.StringContains(stderr, "--dry-run"))
+}
+
+// A gate's configured env reaches its command, layered the way every other
+// key is: the project file names FOO, the user file names BAZ, and the gate
+// sees both. Values are literal -- what the file says is what runs.
+func TestConfigEnvReachesTheGate(t *testing.T) {
+	setLogDir(t)
+	home := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", home)
+	testutil.Write(t, home, "gate/config.toml", "[gates.e2e.env]\nBAZ = \"qux\"\n")
+
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
+	testutil.Write(t, root, ".gate.toml",
+		"[gates.e2e]\nrun = \"test \\\"$FOO\\\" = bar && test \\\"$BAZ\\\" = qux\"\n\n[gates.e2e.env]\nFOO = \"bar\"\n")
+
+	_, stderr, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("the gate did not see its configured env: %q", stderr))
+}
+
+// dir moves one gate off the project root: the marker lands in sub/, not in
+// root/, and --list names the resolved directory so the move is inspectable.
+func TestConfigDirRunsTheGateThere(t *testing.T) {
+	setLogDir(t)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
+	qt.Assert(t, qt.IsNil(os.MkdirAll(filepath.Join(root, "sub"), 0o755)))
+	testutil.Write(t, root, ".gate.toml", "[gates.e2e]\nrun = \"touch marker\"\ndir = \"sub\"\n")
+
+	_, stderr, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.IsTrue(exists(filepath.Join(root, "sub", "marker"))),
+		qt.Commentf("the gate did not run in its configured directory"))
+	qt.Check(t, qt.IsFalse(exists(filepath.Join(root, "marker"))),
+		qt.Commentf("the gate ran at the project root despite dir"))
+
+	stdout, _, _ := runGateTest(t, "-C", root, "--list")
+	qt.Check(t, qt.StringContains(stdout, "dir "+filepath.Join(root, "sub")),
+		qt.Commentf("the listing does not name the resolved directory: %q", stdout))
+}
+
+// A configured directory that is not there refuses the run before anything
+// starts: falling back to the project root would run the gate somewhere its
+// author did not choose, and say nothing about it.
+func TestConfigDirMissingRefusesBeforeAnythingRuns(t *testing.T) {
+	setLogDir(t)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
+	testutil.Write(t, root, ".gate.toml",
+		"[gates.e2e]\nrun = \"true\"\ndir = \"nope\"\n\n[gates.aaa]\nrun = \"touch marker\"\n")
+
+	_, stderr, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, InvalidUsage), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.StringContains(stderr, "gates.e2e.dir"), qt.Commentf("the refusal does not name the gate: %q", stderr))
+	qt.Check(t, qt.IsFalse(exists(filepath.Join(root, "marker"))),
+		qt.Commentf("a gate ran despite the refused directory"))
+}
+
+// allow-failure excuses the aggregate but nothing else: the FAIL line still
+// names the failure, and --serial still runs the gate behind it rather than
+// reporting it skipped. Without the flag the same failure stops the group,
+// which the control case below proves.
+func TestAllowFailureKeepsTheAggregateGreenAndTheGroupRunning(t *testing.T) {
+	setLogDir(t)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	marker := filepath.Join(t.TempDir(), "second-ran")
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
+	testutil.Write(t, root, ".gate.toml",
+		"[gates.a]\nrun = \"exit 3\"\nallow-failure = true\n\n[gates.b]\nrun = \"touch "+marker+"\"\n")
+
+	_, stderr, code := runGateTest(t, "-C", root, "--serial")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("an allowed failure failed the run: %q", stderr))
+	qt.Check(t, qt.StringContains(stderr, "FAIL"), qt.Commentf("the failure went unreported: %q", stderr))
+	qt.Check(t, qt.StringContains(stderr, "allowed"), qt.Commentf("the report does not say the failure was allowed: %q", stderr))
+	qt.Check(t, qt.IsTrue(exists(marker)), qt.Commentf("the group stopped past an allowed failure"))
+	qt.Check(t, qt.Not(qt.StringContains(stderr, "SKIP")), qt.Commentf("a gate past an allowed failure was skipped: %q", stderr))
+}
+
+func TestAllowFailureFalseStillFailsAndStopsTheGroup(t *testing.T) {
+	setLogDir(t)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	marker := filepath.Join(t.TempDir(), "second-ran")
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
+	testutil.Write(t, root, ".gate.toml",
+		"[gates.a]\nrun = \"exit 3\"\nallow-failure = false\n\n[gates.b]\nrun = \"touch "+marker+"\"\n")
+
+	_, stderr, code := runGateTest(t, "-C", root, "--serial")
+	qt.Assert(t, qt.Equals(code, Code(3)), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.IsFalse(exists(marker)), qt.Commentf("the group ran on past a non-allowed failure"))
+	qt.Check(t, qt.StringContains(stderr, "SKIP"))
+}
+
+// The stream keeps the honest status word -- the gate did fail -- and marks
+// that the run ignored it, so a consumer aggregating the stream reads the
+// same verdict gate's own exit status carries.
+func TestAllowedFailureNDJSONKeepsTheWordAndMarksIt(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
+	testutil.Write(t, root, ".gate.toml", "[gates.e2e]\nrun = \"exit 3\"\nallow-failure = true\n")
+
+	stdout, stderr, code := runGateTest(t, "-C", root, "--ndjson")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("an allowed failure failed the run: %q", stderr))
+
+	var r result
+	qt.Assert(t, qt.IsNil(json.Unmarshal([]byte(strings.TrimSpace(stdout)), &r)),
+		qt.Commentf("stdout = %q", stdout))
+	qt.Check(t, qt.Equals(r.Status, "fail"))
+	qt.Check(t, qt.IsTrue(r.Allowed))
+	qt.Assert(t, qt.IsNotNil(r.Code))
+	qt.Check(t, qt.Equals(*r.Code, 3))
+}
+
+// --list names every configured key that differs from the default, in a
+// stable order, and --json carries the same facts for a program to read. A
+// gate without any of them prints exactly what it always did.
+func TestListingShowsConfiguredEnvDirAndAllowFailure(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
+	qt.Assert(t, qt.IsNil(os.MkdirAll(filepath.Join(root, "sub"), 0o755)))
+	testutil.Write(t, root, ".gate.toml",
+		"[gates.e2e]\nrun = \"true\"\ndir = \"sub\"\nallow-failure = true\n\n[gates.e2e.env]\nB = \"2\"\nA = \"1\"\n")
+
+	stdout, _, code := runGateTest(t, "-C", root, "--list")
+	qt.Assert(t, qt.Equals(code, Success))
+	for _, want := range []string{"dir " + filepath.Join(root, "sub"), "env A=1 B=2", "allow-failure"} {
+		qt.Check(t, qt.StringContains(stdout, want), qt.Commentf("listing = %q", stdout))
+	}
+
+	jsonOut, _, code := runGateTest(t, "-C", root, "--json")
+	qt.Assert(t, qt.Equals(code, Success))
+	var got listing
+	qt.Assert(t, qt.IsNil(json.Unmarshal([]byte(jsonOut), &got)), qt.Commentf("stdout is not JSON: %q", jsonOut))
+	qt.Assert(t, qt.Equals(len(got.Gates), 1), qt.Commentf("gates = %+v", got.Gates))
+	gate := got.Gates[0]
+	qt.Check(t, qt.Equals(gate.Dir, filepath.Join(root, "sub")))
+	qt.Check(t, qt.DeepEquals(gate.Env, map[string]string{"A": "1", "B": "2"}))
+	qt.Check(t, qt.IsTrue(gate.AllowFailure))
+}
+
+// A gate with nothing configured keeps the old shape: no dir, no env, no
+// allow_failure -- additive fields must not rewrite lines that have nothing
+// new to say.
+func TestListingOmitsUnsetConfigKeys(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
+	testutil.Write(t, root, ".gate.toml", "[gates.e2e]\nrun = \"true\"\n")
+
+	stdout, _, _ := runGateTest(t, "-C", root, "--list")
+	qt.Check(t, qt.Not(qt.StringContains(stdout, "dir ")), qt.Commentf("listing = %q", stdout))
+	qt.Check(t, qt.Not(qt.StringContains(stdout, "allow-failure")), qt.Commentf("listing = %q", stdout))
+
+	jsonOut, _, _ := runGateTest(t, "-C", root, "--json")
+	for _, field := range []string{`"dir"`, `"env"`, `"allow_failure"`} {
+		qt.Check(t, qt.Not(qt.StringContains(jsonOut, field)), qt.Commentf("json = %q", jsonOut))
+	}
+}
+
+// --profile names what the run cost without touching what it reports: the
+// slowest gates first on stderr, wall against summed gate time beside them.
+func TestProfileNamesSlowestFirst(t *testing.T) {
+	setLogDir(t)
+
+	root := gateProject(t, "sleep 0.3", "true")
+	stdout, stderr, code := runGateTest(t, "-C", root, "--profile")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("gate = %d, stderr = %q", code, stderr))
+
+	qt.Check(t, qt.StringContains(stderr, "gate: profile wall "))
+	qt.Check(t, qt.StringContains(stderr, "sum "))
+	qt.Check(t, qt.StringContains(stderr, "overlap"))
+	qt.Check(t, qt.StringContains(stdout, "gate: ok"), qt.Commentf("the text report went missing: %q", stdout))
+
+	_, slowest, found := strings.Cut(stderr, "gate: slowest ")
+	qt.Assert(t, qt.IsTrue(found), qt.Commentf("no slowest line: %q", stderr))
+	slow, fast := strings.Index(slowest, "sleep 0.3"), strings.Index(slowest, "true")
+	if slow < 0 || fast < 0 {
+		t.Fatalf("slowest line does not name both gates: %q", slowest)
+	}
+	if slow > fast {
+		t.Errorf("slowest line is not slowest-first: %q", slowest)
+	}
+}
+
+// Off by default: a line nobody asked for on every run is how output starts
+// being skipped.
+func TestProfileIsSilentUnlessAsked(t *testing.T) {
+	setLogDir(t)
+
+	root := gateProject(t, "true")
+	stdout, stderr, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.Not(qt.StringContains(stderr, "profile")), qt.Commentf("an unasked profile was printed: %q", stderr))
+	qt.Check(t, qt.Not(qt.StringContains(stdout, "profile")), qt.Commentf("an unasked profile was printed: %q", stdout))
+}
+
+// The profile goes to stderr, so the stream on stdout stays one JSON line
+// per gate in arrival order -- the contract the stream exists to keep.
+func TestProfileLeavesTheNDJSONStreamAlone(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "test:\n\ttrue\n")
+
+	stdout, stderr, code := runGateTest(t, "-C", root, "--ndjson", "--profile")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.StringContains(stderr, "gate: slowest"))
+
+	var r result
+	qt.Assert(t, qt.IsNil(json.Unmarshal([]byte(strings.TrimSpace(stdout)), &r)),
+		qt.Commentf("stdout is not one JSON line: %q", stdout))
+	qt.Check(t, qt.Equals(r.Status, "ok"))
+}
+
+// A profile needs a run to measure. The listings run nothing, and doctor and
+// fix are not runs, so there is no wall time and no slowest gate to name.
+func TestProfileRefusesWhatRunsNothing(t *testing.T) {
+	t.Parallel()
+	for _, args := range [][]string{
+		{"--profile", "--list", "true"},
+		{"--profile", "--json", "true"},
+		{"--profile", "doctor"},
+		{"--profile", "fix"},
+	} {
+		_, stderr, code := runGateTest(t, args...)
+		qt.Check(t, qt.Equals(code, InvalidUsage), qt.Commentf("gate %v = %d, want InvalidUsage -- stderr = %q", args, code, stderr))
+		qt.Check(t, qt.StringContains(stderr, "--profile"), qt.Commentf("refusal does not name the flag: %q", stderr))
+	}
 }

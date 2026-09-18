@@ -48,6 +48,30 @@ type Gate struct {
 	Timeout    time.Duration
 	HasTimeout bool
 
+	// Env carries per-gate environment variables, layered per variable
+	// rather than per table: a project that sets one variable still
+	// inherits the user's values for the rest. Values are literal -- no
+	// $VAR expansion -- so what runs is what the file says. HasEnv
+	// distinguishes "not set" from a table that happens to be empty.
+	Env    map[string]string
+	HasEnv bool
+
+	// Dir runs this gate in a directory other than its default (the
+	// project root for detected and configured gates). Relative paths
+	// resolve against the project root. HasDir distinguishes "not set"
+	// from an empty value, which is refused rather than guessed at.
+	Dir    string
+	HasDir bool
+
+	// AllowFailure keeps a failing gate from failing the run: the gate's
+	// own verdict is still reported -- the FAIL line, the NDJSON status
+	// word, the log trailer -- but the aggregate exit status ignores it,
+	// and a serial group runs on past it. HasAllowFailure distinguishes
+	// "not set" from a deliberate false, so a project can opt back out
+	// of a user-level default the way serial does.
+	AllowFailure    bool
+	HasAllowFailure bool
+
 	// Source is the file this gate's settings came from, so --list can name
 	// it. A gate that loses its source silently undoes the point of --list.
 	Source string
@@ -66,13 +90,26 @@ type Config struct {
 // project turn off a user-level default. Timeout stays a string here so a
 // malformed duration is reported like an unknown key rather than decoded into
 // something that silently means "no limit".
+//
+// `dir` and `allow-failure` are the only spellings: a retired alias such as
+// `workdir` or `continue-on-error` is refused as an unknown key by
+// DisallowUnknownFields, the same as any typo, rather than silently accepted.
 type file struct {
 	Gates map[string]struct {
-		Run     string  `toml:"run"`
-		Serial  *bool   `toml:"serial"`
-		Timeout *string `toml:"timeout"`
+		Run          string            `toml:"run"`
+		Serial       *bool             `toml:"serial"`
+		Timeout      *string           `toml:"timeout"`
+		Env          map[string]string `toml:"env"`
+		Dir          *string           `toml:"dir"`
+		AllowFailure *bool             `toml:"allow-failure"`
 	} `toml:"gates"`
 }
+
+// reservedEnv names variables a gate must not set. The runner appends a
+// gate's env after its own, so a setting here would displace gate's own
+// mechanism rather than the command's environment -- and displacing
+// GATE_ACTIVE_ROOTS re-opens the detection loop that guard exists to close.
+const reservedEnv = "GATE_ACTIVE_ROOTS"
 
 // ParseTimeout reads a timeout wherever one is written -- the --timeout flag
 // and a gate's own `timeout` key both come through here, so `5m`, `90s` and a
@@ -166,6 +203,37 @@ func (c *Config) merge(path string, data []byte) error {
 			} else {
 				merged.Timeout, merged.HasTimeout = d, true
 			}
+		}
+		// Env layers per variable, not per table: the nearer file overrides
+		// the variables it names and inherits the rest, the same promise
+		// Load makes per key. Sorted below with the rest, because map
+		// iteration would otherwise report the same file differently each
+		// time.
+		if g.Env != nil {
+			if merged.Env == nil {
+				merged.Env = map[string]string{}
+			}
+			for k, v := range g.Env {
+				if k == "" || strings.ContainsAny(k, "=\x00") || k == reservedEnv {
+					unusable = append(unusable, fmt.Sprintf("gates.%s.env has an unusable variable name %q", name, k))
+					continue
+				}
+				merged.Env[k] = v
+			}
+			merged.HasEnv = true
+		}
+		// `dir` is the one spelling, and an empty directory is refused
+		// rather than resolved against nothing, which would run the gate
+		// wherever the caller happened to stand.
+		if g.Dir != nil {
+			if *g.Dir == "" {
+				unusable = append(unusable, fmt.Sprintf("gates.%s.dir is empty", name))
+			} else {
+				merged.Dir, merged.HasDir = *g.Dir, true
+			}
+		}
+		if g.AllowFailure != nil {
+			merged.AllowFailure, merged.HasAllowFailure = *g.AllowFailure, true
 		}
 		c.Gates[name] = merged
 	}

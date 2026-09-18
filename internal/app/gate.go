@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -54,7 +56,13 @@ type options struct {
 	// only, like jsonList, and for the same reason: what a run does must not
 	// depend on who is reading it.
 	ndjson bool
-	gates  []gateSpec
+
+	// profile prints what the run cost after it finishes: wall time against
+	// summed gate time, and the slowest gates first. Output only, like the
+	// two above: it goes to stderr, so the machine shapes on stdout are
+	// untouched.
+	profile bool
+	gates   []gateSpec
 }
 
 // gateSpec is one command to run. argv is executed directly, without a shell,
@@ -81,6 +89,24 @@ type gateSpec struct {
 	// set 0 runs unbounded.
 	timeout    time.Duration
 	hasTimeout bool
+
+	// env carries per-gate environment variables from configuration,
+	// appended after the process environment so the gate wins. Values are
+	// literal: no expansion happens here, so what runs is what the file
+	// said.
+	env map[string]string
+
+	// allowFailure keeps this gate's failure out of the aggregate status
+	// and lets a serial group run on past it. Only the aggregate is
+	// excused: the gate's own verdict is still reported everywhere a
+	// verdict goes -- the FAIL line, the NDJSON status word, the log
+	// trailer -- so allowing is never hiding.
+	allowFailure bool
+
+	// hasDir records that dir came from configuration rather than the
+	// default. The listing prints a configured directory and stays quiet
+	// about the default, which every detected gate shares.
+	hasDir bool
 
 	// role is the gate's name -- build, test, and so on -- for detected and
 	// configured gates, and empty for a command the caller named. It is what
@@ -193,17 +219,38 @@ func (r gateResult) outcome() gateOutcome {
 	return outcomeRan
 }
 
+// excused reports whether this gate failed in a way the project allowed.
+//
+// Only a command's own verdict can be excused: a gate that never started,
+// one the run interrupted, or one that was skipped has no verdict to excuse.
+// Gate's own log failure is still said out loud either way -- allow-failure
+// excuses the command, not the guarantee that its output survived.
+func (r gateResult) excused() bool {
+	if !r.spec.allowFailure {
+		return false
+	}
+	switch r.outcome() {
+	case outcomeRan:
+		return r.code != Success
+	case outcomeNotFound, outcomeTimedOut:
+		return true
+	}
+	return false
+}
+
 // runGates runs every gate and returns the aggregate status.
 //
 // The verdict is always a command's own exit status, never a reading of its
 // output. With one gate that means the status passes through untouched; with
 // several, the first failure in the order they were named wins, which is
 // deterministic and explainable in a way "whichever failed first in wall
-// clock" would not be.
+// clock" would not be. A gate the project marked allow-failure never moves
+// the aggregate, whatever its own verdict was.
 func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code {
 	results := make([]gateResult, len(opts.gates))
 	stream := newResultStream(stdout, opts.ndjson)
 
+	started := time.Now()
 	var wg sync.WaitGroup
 	for _, group := range schedule(opts.gates, opts.serial) {
 		wg.Go(func() {
@@ -225,8 +272,10 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 				stream.emit(results[i])
 				// A gate that never reached its command carries the zero
 				// Code, which is Success. Only a gate that started has a
-				// verdict to read, so the chain stops on either.
-				if !results[i].started || results[i].code != Success {
+				// verdict to read, so the chain stops on either -- unless
+				// the project allowed this failure, in which case the
+				// group runs on past it.
+				if !results[i].started || (results[i].code != Success && !results[i].excused()) {
 					break
 				}
 			}
@@ -248,8 +297,15 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 			stream.emit(results[i])
 		}
 	}
+	// Measured around the gates, not the report: the profile answers what
+	// the run cost, and printing the answer is not part of it.
+	wall := time.Since(started)
 
-	return report(results, opts, stdout, stderr)
+	code := report(results, opts, stdout, stderr)
+	if opts.profile {
+		writeProfile(stderr, results, wall)
+	}
+	return code
 }
 
 // schedule returns index groups: gates within a group run in sequence, and
@@ -279,6 +335,50 @@ func schedule(gates []gateSpec, serial bool) [][]int {
 		out[chain] = append(out[chain], i)
 	}
 	return out
+}
+
+// writeProfile names what a run cost: wall time against summed gate time,
+// and the slowest gates first.
+//
+// stderr only, so the machine shapes on stdout -- --ndjson's stream above
+// all -- are untouched, and arrival order there is unchanged: this reads the
+// finished results after the fact rather than the stream as it happens. A
+// gate that never ran has no time to report and is left out of both the sum
+// and the ranking, for the same reason it carries no ms in the stream.
+func writeProfile(w io.Writer, results []gateResult, wall time.Duration) {
+	type slow struct {
+		name    string
+		elapsed time.Duration
+	}
+	var ran []slow
+	var sum time.Duration
+	for _, res := range results {
+		if res.skipped || !res.started {
+			continue
+		}
+		sum += res.elapsed
+		ran = append(ran, slow{res.spec.short(), res.elapsed})
+	}
+	slices.SortFunc(ran, func(a, b slow) int {
+		return cmp.Compare(b.elapsed, a.elapsed)
+	})
+
+	overlap := 1.0
+	if wall > 0 {
+		overlap = float64(sum) / float64(wall)
+	}
+	fmt.Fprintf(w, "gate: profile wall %s sum %s (%.1fx overlap) across %d gate(s)\n",
+		wall.Round(time.Millisecond), sum.Round(time.Millisecond), overlap, len(ran))
+
+	const slowest = 3
+	if len(ran) == 0 {
+		return
+	}
+	parts := make([]string, 0, min(slowest, len(ran)))
+	for _, s := range ran[:min(slowest, len(ran))] {
+		parts = append(parts, fmt.Sprintf("%s %s", s.name, s.elapsed.Round(time.Millisecond)))
+	}
+	fmt.Fprintf(w, "gate: slowest %s\n", strings.Join(parts, ", "))
 }
 
 // report prints every gate's outcome in declaration order and returns the
@@ -314,13 +414,21 @@ func report(results []gateResult, opts options, stdout, stderr io.Writer) Code {
 			if !sawTimeout {
 				killed, sawTimeout = res.spec.role, true
 			}
-			fmt.Fprintf(stderr, "gate: TIMEOUT after %s  %s  (killed, not failed)\n",
-				res.spec.timeout, res.spec.short())
+			allowed := ""
+			if res.excused() {
+				allowed = "; allowed"
+			}
+			fmt.Fprintf(stderr, "gate: TIMEOUT after %s  %s  (killed, not failed%s)\n",
+				res.spec.timeout, res.spec.short(), allowed)
 			writeFailureRegion(stderr, res.tracker)
 			fmt.Fprintf(stderr, "gate: partial log  %s\n", res.logPath)
 			code = TimedOut
 		case outcomeNotFound:
-			fmt.Fprintf(stderr, "gate: cannot run %q\n", res.spec.short())
+			allowed := ""
+			if res.excused() {
+				allowed = " (allowed)"
+			}
+			fmt.Fprintf(stderr, "gate: cannot run %q%s\n", res.spec.short(), allowed)
 			code = NotFound
 		case outcomeRan:
 			if res.code == Success {
@@ -329,8 +437,12 @@ func report(results []gateResult, opts options, stdout, stderr io.Writer) Code {
 						res.spec.short(), res.elapsed.Round(time.Millisecond), res.logPath)
 				}
 			} else {
-				fmt.Fprintf(stderr, "gate: FAIL exit %d  %s  %s\n",
-					int(res.code), res.spec.short(), res.elapsed.Round(time.Millisecond))
+				allowed := ""
+				if res.excused() {
+					allowed = " (allowed)"
+				}
+				fmt.Fprintf(stderr, "gate: FAIL%s exit %d  %s  %s\n",
+					allowed, int(res.code), res.spec.short(), res.elapsed.Round(time.Millisecond))
 				writeFailureRegion(stderr, res.tracker)
 				fmt.Fprintf(stderr, "gate: full log  %s\n", res.logPath)
 			}
@@ -347,7 +459,10 @@ func report(results []gateResult, opts options, stdout, stderr io.Writer) Code {
 				code = Fatal
 			}
 		}
-		if aggregate == Success {
+		// An allowed gate never moves the aggregate: the project said this
+		// failure is not a verdict on the run. Everything else about it is
+		// still reported above, so allowing is never hiding.
+		if aggregate == Success && !res.excused() {
 			aggregate = code
 		}
 	}
@@ -405,6 +520,15 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 	cmd.WaitDelay = 5 * time.Second
 	cmd.Dir = spec.dir
 	cmd.Env = markRoot(spec.dir)
+	// Appended after the process environment, so the gate wins over an
+	// inherited value the way a prefix on the command line would. os/exec
+	// keeps the last of duplicate keys, which is what makes appending an
+	// override rather than a second value. GATE_ACTIVE_ROOTS cannot be
+	// among them: config refuses it, so the recursion guard below survives
+	// whatever a gate's own env says.
+	for k, v := range spec.env {
+		cmd.Env = append(cmd.Env, k+"="+v)
+	}
 	cmd.Stdin = nil
 	// One writer for both streams, so interleaving in the log matches what a
 	// terminal would have shown. Splitting them would reorder the very lines

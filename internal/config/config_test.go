@@ -124,6 +124,132 @@ func TestUnusableTimeoutsAreRefusedAllAtOnce(t *testing.T) {
 	}
 }
 
+// Env layers per variable rather than per table: the nearer file overrides
+// the variables it names and inherits the rest. A per-table merge would make
+// one project variable discard every user default beside it.
+func TestEnvMergesPerVariableNotPerTable(t *testing.T) {
+	home := isolate(t)
+	testutil.Write(t, home, "gate/config.toml", "[gates.test.env]\nFOO = \"user\"\nBAR = \"user\"\n")
+
+	root := t.TempDir()
+	testutil.Write(t, root, ProjectFile, "[gates.test.env]\nFOO = \"project\"\n")
+
+	cfg, err := Load(root)
+	qt.Assert(t, qt.IsNil(err))
+
+	// The nearer file wins the variable it set...
+	qt.Check(t, qt.Equals(cfg.Gates["test"].Env["FOO"], "project"))
+	// ...and leaves the one it did not mention alone.
+	qt.Check(t, qt.Equals(cfg.Gates["test"].Env["BAR"], "user"))
+	qt.Check(t, qt.IsTrue(cfg.Gates["test"].HasEnv))
+
+	// A gate nobody mentioned sets nothing, and does not claim to have said so.
+	qt.Check(t, qt.IsFalse(cfg.Gates["lint"].HasEnv))
+	qt.Check(t, qt.HasLen(cfg.Gates["lint"].Env, 0))
+}
+
+// `dir` is the one spelling, and an empty one would run the gate wherever
+// the caller happened to stand. A retired alias such as `workdir` is refused
+// as an unknown key, the same as any typo, rather than silently accepted.
+func TestDirIsSingleSpelling(t *testing.T) {
+	isolate(t)
+
+	t.Run("dir is accepted", func(t *testing.T) {
+		root := t.TempDir()
+		testutil.Write(t, root, ProjectFile, "[gates.test]\ndir = \"web\"\n")
+
+		cfg, err := Load(root)
+		qt.Assert(t, qt.IsNil(err))
+		qt.Check(t, qt.IsTrue(cfg.Gates["test"].HasDir))
+		qt.Check(t, qt.Equals(cfg.Gates["test"].Dir, "web"))
+	})
+
+	t.Run("workdir is refused as an unknown key", func(t *testing.T) {
+		root := t.TempDir()
+		testutil.Write(t, root, ProjectFile, "[gates.test]\nworkdir = \"web\"\n")
+
+		_, err := Load(root)
+		qt.Assert(t, qt.IsNotNil(err))
+		qt.Check(t, qt.IsTrue(strings.Contains(err.Error(), "workdir")),
+			qt.Commentf("error = %v", err))
+	})
+
+	t.Run("empty is refused", func(t *testing.T) {
+		root := t.TempDir()
+		testutil.Write(t, root, ProjectFile, "[gates.test]\ndir = \"\"\n")
+
+		_, err := Load(root)
+		qt.Assert(t, qt.IsNotNil(err))
+		qt.Check(t, qt.IsTrue(strings.Contains(err.Error(), "gates.test.dir")),
+			qt.Commentf("error = %v", err))
+	})
+}
+
+// `allow-failure` is the one spelling, and a deliberate false is
+// distinguishable from unset -- so a project can opt back out of a user-level
+// default the way serial does. A retired alias such as `continue-on-error`
+// is refused as an unknown key, the same as any typo.
+func TestAllowFailureIsSingleSpelling(t *testing.T) {
+	home := isolate(t)
+	testutil.Write(t, home, "gate/config.toml", "[gates.test]\nallow-failure = true\n")
+
+	root := t.TempDir()
+	testutil.Write(t, root, ProjectFile, "[gates.test]\nallow-failure = false\n")
+
+	cfg, err := Load(root)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsTrue(cfg.Gates["test"].HasAllowFailure))
+	qt.Check(t, qt.IsFalse(cfg.Gates["test"].AllowFailure))
+
+	qt.Check(t, qt.IsFalse(cfg.Gates["lint"].HasAllowFailure))
+
+	alias := t.TempDir()
+	testutil.Write(t, alias, ProjectFile, "[gates.test]\ncontinue-on-error = true\n")
+	_, err = Load(alias)
+	qt.Assert(t, qt.IsNotNil(err))
+	qt.Check(t, qt.IsTrue(strings.Contains(err.Error(), "continue-on-error")),
+		qt.Commentf("error = %v", err))
+}
+
+// The runner appends a gate's env after its own, so GATE_ACTIVE_ROOTS would
+// displace the recursion guard rather than the command's environment -- and
+// re-open the detection loop that guard exists to close.
+func TestReservedAndMalformedEnvNamesAreRefused(t *testing.T) {
+	isolate(t)
+
+	for _, tc := range []struct {
+		name string
+		body string
+		want string
+	}{
+		{"reserved", "[gates.test.env]\nGATE_ACTIVE_ROOTS = \"x\"\n", "GATE_ACTIVE_ROOTS"},
+		{"equals", "[gates.test.env]\n\"A=B\" = \"x\"\n", "A=B"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			testutil.Write(t, root, ProjectFile, tc.body)
+
+			_, err := Load(root)
+			qt.Assert(t, qt.IsNotNil(err))
+			qt.Check(t, qt.IsTrue(strings.Contains(err.Error(), tc.want)),
+				qt.Commentf("error = %v", err))
+		})
+	}
+}
+
+// An env value that is not a string is refused rather than decoded into
+// something that silently means nothing.
+func TestNonStringEnvValueIsRefused(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	testutil.Write(t, root, ProjectFile, "[gates.test.env]\nFOO = 3\n")
+
+	_, err := Load(root)
+	qt.Assert(t, qt.IsNotNil(err))
+	qt.Check(t, qt.IsTrue(strings.Contains(err.Error(), ProjectFile)),
+		qt.Commentf("error = %v", err))
+}
+
 // A typo must not degrade to defaults. `timout = "10m"` silently ignored is
 // the classic configuration failure, and reporting only the first unknown key
 // would make fixing a file a game of whack-a-mole -- which is why

@@ -55,6 +55,20 @@ type listedGate struct {
 	// Shadows lists competing declarations this gate outranks.
 	Shadows []string `json:"shadows"`
 
+	// Dir is where this gate runs when configuration moved it off the
+	// default. Absent where the gate runs at the project root like every
+	// other detected gate, so a listing without it reads as it always did.
+	Dir string `json:"dir,omitempty"`
+
+	// Env carries the gate's configured environment variables. Absent
+	// where the gate inherits the process environment unchanged.
+	Env map[string]string `json:"env,omitempty"`
+
+	// AllowFailure marks a gate whose failure does not fail the run.
+	// Absent where a failure fails like any other, so the common case is
+	// unchanged.
+	AllowFailure bool `json:"allow_failure,omitempty"`
+
 	// Group is the scheduling group. Gates sharing a group run one after
 	// another; groups run concurrently.
 	Group int `json:"group"`
@@ -80,12 +94,15 @@ func writeListingJSON(w io.Writer, project detect.Project, files []string, opts 
 		for _, i := range indexes {
 			spec := opts.gates[i]
 			out.Gates = append(out.Gates, listedGate{
-				Name:    spec.role,
-				Argv:    array(spec.argv),
-				Display: spec.display,
-				Source:  spec.source,
-				Shadows: array(spec.shadowed),
-				Group:   group,
+				Name:         spec.role,
+				Argv:         array(spec.argv),
+				Display:      spec.display,
+				Source:       spec.source,
+				Shadows:      array(spec.shadowed),
+				Dir:          spec.listDir(),
+				Env:          spec.env,
+				AllowFailure: spec.allowFailure,
+				Group:        group,
 			})
 		}
 	}
@@ -161,6 +178,18 @@ func writeListing(w io.Writer, project detect.Project, files []string, opts opti
 				for _, shadowed := range spec.shadowed {
 					fmt.Fprintf(w, "        shadows %s\n", shadowed)
 				}
+				// Configuration beyond run/serial/timeout, printed where it
+				// differs from the default. A gate without any of these
+				// prints exactly what it always did.
+				if dir := spec.listDir(); dir != "" {
+					fmt.Fprintf(w, "        dir %s\n", dir)
+				}
+				if len(spec.env) > 0 {
+					fmt.Fprintf(w, "        env %s\n", formatEnv(spec.env))
+				}
+				if spec.allowFailure {
+					fmt.Fprintf(w, "        allow-failure\n")
+				}
 				continue
 			}
 			fmt.Fprintf(w, "%s%s\n", lead, spec.display)
@@ -171,6 +200,31 @@ func writeListing(w io.Writer, project detect.Project, files []string, opts opti
 		fmt.Fprintf(w, "config %s\n", f)
 	}
 	writeNotes(w, project)
+}
+
+// listDir reports a configured gate directory for the listing, and nothing
+// for the default: every detected gate runs at the project root, and
+// repeating that on each line is noise on the way to the lines that differ.
+func (s gateSpec) listDir() string {
+	if !s.hasDir {
+		return ""
+	}
+	return s.dir
+}
+
+// formatEnv renders configured variables in a stable order, so two runs
+// print the same line. Map iteration is not ordered, which a listing must be.
+func formatEnv(env map[string]string) string {
+	keys := make([]string, 0, len(env))
+	for k := range env {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	pairs := make([]string, 0, len(env))
+	for _, k := range keys {
+		pairs = append(pairs, k+"="+env[k])
+	}
+	return strings.Join(pairs, " ")
 }
 
 // writeNotes prints what detection found but deliberately did not turn into a

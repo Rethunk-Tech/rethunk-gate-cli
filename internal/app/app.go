@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -61,6 +62,7 @@ Flags:
   --json        the same listing as JSON, for a program to read
                 (with doctor or fix, the findings as JSON)
   --ndjson      stream one JSON line per gate as it finishes, and run them
+  --profile     after the run, print wall time, summed gate time, and slowest gates
   --timeout D   kill a gate that runs longer than D (default 1m, 0 disables;
                 .gate.toml can set it per gate, and this beats that)
   --tail N      trailing lines to quote on failure (default 40)
@@ -141,6 +143,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	flags.BoolVar(&opts.list, "list", false, "")
 	flags.BoolVar(&opts.jsonList, "json", false, "")
 	flags.BoolVar(&opts.ndjson, "ndjson", false, "")
+	flags.BoolVar(&opts.profile, "profile", false, "")
 	flags.BoolVar(&showVersion, "version", false, "")
 	// Recognised so `gate --fix` is not "unrecognized". Refused below: a
 	// global flag would look like a silent rewrite of doctor, which this
@@ -200,6 +203,12 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		fmt.Fprintln(stderr, "gate: --ndjson reports a run; --json and --list run nothing")
 		return InvalidUsage
 	}
+	// A profile needs a run to measure. The listings run nothing, so there
+	// is no wall time and no slowest gate to name.
+	if opts.profile && (opts.jsonList || opts.list) {
+		fmt.Fprintln(stderr, "gate: --profile reports a run; --json and --list run nothing")
+		return InvalidUsage
+	}
 	// stdout carries the stream alone. A human ok line in the middle of it is
 	// a parse error for the consumer that asked for the machine shape, and
 	// failures still narrate on stderr either way.
@@ -225,6 +234,10 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 			fmt.Fprintln(stderr, "gate: run `gate --json doctor` for the report a program can read")
 			return InvalidUsage
 		}
+		if opts.profile {
+			fmt.Fprintln(stderr, "gate: --profile reports a run; doctor runs nothing")
+			return InvalidUsage
+		}
 		return runDoctor(dir, opts.jsonList, stdout, stderr)
 	}
 	// Only these two spellings are gate's; `gate doctor <anything else>` still
@@ -242,6 +255,10 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		if opts.ndjson {
 			fmt.Fprintln(stderr, "gate: --ndjson streams a run; fix is not a run")
 			fmt.Fprintln(stderr, "gate: run `gate --json fix` for the report a program can read")
+			return InvalidUsage
+		}
+		if opts.profile {
+			fmt.Fprintln(stderr, "gate: --profile reports a run; fix is not a run")
 			return InvalidUsage
 		}
 		return runFix(dir, args[1:], opts.jsonList, stdout, stderr)
@@ -346,6 +363,23 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 				if c.HasTimeout {
 					spec.timeout, spec.hasTimeout = c.Timeout, true
 				}
+				// The rest of the per-gate surface follows the same rule --
+				// set only where the file said so, so one gate's settings
+				// never leak onto another.
+				if c.HasEnv {
+					spec.env = maps.Clone(c.Env)
+				}
+				if c.HasDir {
+					resolved, err := resolveGateDir(c.Dir, proj.Root)
+					if err != nil {
+						fmt.Fprintf(stderr, "gate: gates.%s.dir %q: %v\n", g.Name, c.Dir, err)
+						return InvalidUsage
+					}
+					spec.dir, spec.hasDir = resolved, true
+				}
+				if c.HasAllowFailure {
+					spec.allowFailure = c.AllowFailure
+				}
 				spec.source = g.Source + ", overridden by " + c.Source
 			}
 			opts.gates = append(opts.gates, spec)
@@ -376,10 +410,23 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 				serial:     c.Serial,
 				timeout:    c.Timeout,
 				hasTimeout: c.HasTimeout,
+				env:        maps.Clone(c.Env),
 				role:       name,
 				source:     c.Source + " gates." + name,
 				dir:        proj.Root,
 			})
+			if c.HasDir {
+				resolved, err := resolveGateDir(c.Dir, proj.Root)
+				if err != nil {
+					fmt.Fprintf(stderr, "gate: gates.%s.dir %q: %v\n", name, c.Dir, err)
+					return InvalidUsage
+				}
+				opts.gates[len(opts.gates)-1].dir = resolved
+				opts.gates[len(opts.gates)-1].hasDir = true
+			}
+			if c.HasAllowFailure {
+				opts.gates[len(opts.gates)-1].allowFailure = c.AllowFailure
+			}
 		}
 
 		configured = cfg
@@ -465,4 +512,26 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	}
 
 	return runGates(ctx, opts, stdout, stderr)
+}
+
+// resolveGateDir turns a gate's configured directory into the absolute path
+// that gate will run in. Relative paths resolve against the project root --
+// the same base a detected gate runs at -- so the file says where the gate
+// belongs rather than where the caller happened to stand.
+//
+// A missing or non-directory value refuses the run: falling back to the
+// project root would run the gate somewhere its author did not choose, and
+// say nothing about it.
+func resolveGateDir(value, root string) (string, error) {
+	if !filepath.IsAbs(value) {
+		value = filepath.Join(root, value)
+	}
+	info, err := os.Stat(value)
+	if err != nil {
+		return "", err
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("not a directory")
+	}
+	return value, nil
 }

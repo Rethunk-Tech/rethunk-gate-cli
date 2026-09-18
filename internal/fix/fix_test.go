@@ -3,6 +3,7 @@ package fix
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -219,16 +220,31 @@ func TestUnappliableSkips(t *testing.T) {
 	}
 }
 
-func TestAmbiguousYAMLIsSkipped(t *testing.T) {
+// A single-line flow mapping is a closed splice: the braces name exactly
+// where the key goes, so `with: { cache: true }` gains the key in place.
+func TestFlowStyleWithGetsTheKey(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "ci.yml")
 	testutil.Write(t, dir, "ci.yml",
 		"jobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-go@v1.11\n        with: { cache: true }\n")
-	before, err := os.ReadFile(path)
-	qt.Assert(t, qt.IsNil(err))
 
 	r, err := Apply(doctor.Finding{
+		Check: "ci-govulncheck-off",
+		Path:  path,
+		Fix:   `set run-govulncheck: "true" on the setup-go step`,
+	}, false)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Assert(t, qt.Equals(r.Outcome, Applied), qt.Commentf("reason = %q", r.Reason))
+
+	body, err := os.ReadFile(path)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.StringContains(string(body), `with: { cache: true, run-govulncheck: "true" }`),
+		qt.Commentf("body = %q", body))
+
+	// And the second run is a skip, not a second key: the finding is already
+	// in its named post-state.
+	r, err = Apply(doctor.Finding{
 		Check: "ci-govulncheck-off",
 		Path:  path,
 		Fix:   `set run-govulncheck: "true" on the setup-go step`,
@@ -237,9 +253,61 @@ func TestAmbiguousYAMLIsSkipped(t *testing.T) {
 	qt.Check(t, qt.Equals(r.Outcome, Skipped))
 	qt.Check(t, qt.Not(qt.Equals(r.Reason, "")))
 
-	after, err := os.ReadFile(path)
+	// An empty mapping takes the key alone rather than a leading comma.
+	empty := t.TempDir()
+	emptyPath := filepath.Join(empty, "ci.yml")
+	testutil.Write(t, empty, "ci.yml",
+		"jobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-go@v1.11\n        with: {}\n")
+	r, err = Apply(doctor.Finding{
+		Check: "ci-govulncheck-off",
+		Path:  emptyPath,
+		Fix:   `set run-govulncheck: "true" on the setup-go step`,
+	}, false)
 	qt.Assert(t, qt.IsNil(err))
-	qt.Check(t, qt.Equals(string(after), string(before)))
+	qt.Assert(t, qt.Equals(r.Outcome, Applied), qt.Commentf("reason = %q", r.Reason))
+	emptyBody, err := os.ReadFile(emptyPath)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.StringContains(string(emptyBody), `with: {run-govulncheck: "true"}`),
+		qt.Commentf("body = %q", emptyBody))
+}
+
+// What the splice cannot prove stays a skip: quoted braces a naive search
+// would misread, a value spanning lines, and content past the mapping whose
+// place the key would take is unknowable.
+func TestUnprovableFlowStyleWithIsSkipped(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		with string
+	}{
+		{"quoted braces", `with: { name: "{x}" }`},
+		{"value spans lines", `with: { cache:`},
+		{"trailing comment", `with: { cache: true } # keep`},
+		{"not a mapping", `with: { cache }`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			path := filepath.Join(dir, "ci.yml")
+			testutil.Write(t, dir, "ci.yml",
+				"jobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-go@v1.11\n        "+tc.with+"\n")
+			before, err := os.ReadFile(path)
+			qt.Assert(t, qt.IsNil(err))
+
+			r, err := Apply(doctor.Finding{
+				Check: "ci-govulncheck-off",
+				Path:  path,
+				Fix:   `set run-govulncheck: "true" on the setup-go step`,
+			}, false)
+			qt.Assert(t, qt.IsNil(err))
+			qt.Check(t, qt.Equals(r.Outcome, Skipped))
+			qt.Check(t, qt.Not(qt.Equals(r.Reason, "")))
+
+			after, err := os.ReadFile(path)
+			qt.Assert(t, qt.IsNil(err))
+			qt.Check(t, qt.Equals(string(after), string(before)))
+		})
+	}
 }
 
 func TestExistingGateTomlKeepsUnrelatedKeys(t *testing.T) {
@@ -310,4 +378,56 @@ func TestGovulncheckJoinsAnExistingWithBlock(t *testing.T) {
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.StringContains(string(body), "cache: true"))
 	qt.Check(t, qt.StringContains(string(body), `run-govulncheck: "true"`))
+}
+
+// The serial applier decodes .gate.toml strictly, so a file using keys the
+// applier does not set must still decode -- otherwise a project using the
+// newer config surface silently loses its fix.
+func TestSerialApplierKeepsNewConfigKeys(t *testing.T) {
+	isolatePath(t)
+	dir := t.TempDir()
+	testutil.Write(t, dir, "package.json",
+		`{"dependencies":{"next":"15.0.0"},"scripts":{"build":"true","typecheck":"true"}}`)
+	testutil.Write(t, dir, ".gate.toml",
+		"[gates.build]\ntimeout = \"5m\"\nallow-failure = true\n\n[gates.build.env]\nFOO = \"bar\"\n")
+
+	applyNamed(t, dir, "next-build-typecheck-race", false)
+
+	body, err := os.ReadFile(filepath.Join(dir, ".gate.toml"))
+	qt.Assert(t, qt.IsNil(err))
+	got := string(body)
+	qt.Check(t, qt.StringContains(got, "serial = true"))
+	qt.Check(t, qt.StringContains(got, `timeout = "5m"`))
+	qt.Check(t, qt.StringContains(got, "allow-failure = true"))
+	qt.Check(t, qt.StringContains(got, `FOO = "bar"`))
+}
+
+// The package.json finding clears through the same verb: dry-run reports
+// and writes nothing, the apply swaps the invocation, and doctor goes quiet
+// -- with the file still parsing as JSON afterwards.
+func TestPackageScriptsNpxClearsThroughDoctor(t *testing.T) {
+	isolatePath(t)
+	dir := t.TempDir()
+	testutil.Write(t, dir, "bun.lock", "")
+	testutil.Write(t, dir, "package.json", `{"scripts":{"typecheck":"npx tsc --noEmit"}}`)
+	path := filepath.Join(dir, "package.json")
+
+	applyNamed(t, dir, "npx-in-bun-workspace", true)
+	dry, err := os.ReadFile(path)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.StringContains(string(dry), "npx tsc"))
+
+	applyNamed(t, dir, "npx-in-bun-workspace", false)
+	body, err := os.ReadFile(path)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.StringContains(string(body), "bunx tsc"))
+	qt.Check(t, qt.Not(qt.StringContains(string(body), "npx ")))
+	qt.Check(t, qt.IsNil(json.Unmarshal(body, &struct {
+		Scripts map[string]string `json:"scripts"`
+	}{})), qt.Commentf("the splice broke the JSON: %q", body))
+
+	findings, err := doctor.Run(dir)
+	qt.Assert(t, qt.IsNil(err))
+	_, still := findingNamed(findings, "npx-in-bun-workspace")
+	qt.Check(t, qt.IsFalse(still), qt.Commentf("doctor still reports npx-in-bun-workspace: %v", findings))
 }
