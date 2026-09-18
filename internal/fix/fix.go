@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/config"
@@ -353,12 +354,68 @@ func addGovulncheck(lines []string, usesAt int) ([]string, []string, bool) {
 			return insertLines(lines, j+1, key), []string{key}, true
 		}
 		if ind == usesIndent && strings.HasPrefix(trimmed, "with:") {
+			// A single-line flow mapping is still a closed splice: the
+			// braces name exactly where the key goes. Anything else on a
+			// `with:` line -- a value spanning lines, quoted braces -- is
+			// not provable and stays a refusal.
+			if next, changed, ok := spliceFlowWith(next); ok {
+				if !changed {
+					return lines, nil, true
+				}
+				out := slices.Clone(lines)
+				out[j] = next
+				return out, []string{next}, true
+			}
 			return nil, nil, false
 		}
 	}
 	with := strings.Repeat(" ", usesIndent) + "with:"
 	key := strings.Repeat(" ", usesIndent+2) + `run-govulncheck: "true"`
 	return insertLines(lines, usesAt+1, with, key), []string{with, key}, true
+}
+
+// spliceFlowWith inserts run-govulncheck into a single-line flow mapping:
+//
+//	`with: { cache: true }` becomes `with: { cache: true, run-govulncheck: "true" }`.
+//
+// It returns the line, whether it changed, and whether the line was provable
+// at all. A mapping that already names the key is provable but unchanged,
+// which is how the caller tells "done" from "spliced". Anything else --
+// unbalanced braces, quoted braces that a naive search would misread, a value
+// spanning lines, trailing content past the mapping -- is unprovable, and the
+// caller skips the finding rather than guessing at YAML.
+func spliceFlowWith(line string) (string, bool, bool) {
+	_, after, ok := strings.Cut(line, "with:")
+	if !ok {
+		return "", false, false
+	}
+	open := strings.Index(after, "{")
+	close := strings.LastIndex(after, "}")
+	if open < 0 || close < open {
+		return "", false, false
+	}
+	// Only whitespace between `with:` and the mapping, and nothing past it:
+	// the whole value has to be the one mapping on this one line.
+	if strings.TrimSpace(after[:open]) != "" || strings.TrimSpace(after[close+1:]) != "" {
+		return "", false, false
+	}
+	inner := after[open+1 : close]
+	if strings.ContainsAny(inner, "\"'{}") {
+		return "", false, false
+	}
+	// A mapping entry carries a colon; without one this is not a mapping to
+	// splice into, whatever it is.
+	if strings.TrimSpace(inner) != "" && !strings.Contains(inner, ":") {
+		return "", false, false
+	}
+	if strings.Contains(inner, "run-govulncheck") {
+		return line, false, true
+	}
+	head := line[:strings.Index(line, "{")+1]
+	if strings.TrimSpace(inner) == "" {
+		return head + `run-govulncheck: "true"` + "}", true, true
+	}
+	return head + " " + strings.TrimSpace(inner) + `, run-govulncheck: "true" }`, true, true
 }
 
 func stepHasGovulncheck(lines []string, start, usesIndent int) bool {

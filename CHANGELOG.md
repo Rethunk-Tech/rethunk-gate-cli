@@ -30,6 +30,21 @@ Notable changes to `gate`. The format follows
   arrival-order contract and machine-only stdout are unchanged. Refused beside
   `--list`, `--json`, `doctor` and `fix`, which have no run to measure.
 
+- Wider `gate fix` coverage, two extensions where a closed mechanical remedy
+  exists. `npx-in-bun-workspace` now fires on `package.json` scripts too —
+  `bun run <script>` executes the string, so an `npx` inside it strands the
+  same lockfile a workflow `npx` would, and the fix is the same splice under
+  the same check name. Only scripts are read: prose mentioning `npx` is not
+  an invocation. `ci-govulncheck-off` now splices a single-line flow mapping
+  (`with: { cache: true }`) in place; quoted braces, multi-line values, and
+  trailing content past the mapping stay skipped rather than guessed at.
+
+  Surveyed and left skipping, with reasons: `superseded-tooling` (a move
+  needs a version and config choice), `missing-gate-*` (adding a script is
+  ambiguous), `no-ci` (a workflow needs a template choice), `ci-no-final-gate`
+  (an aggregating job is a design), `go-no-govulncheck` (`go install` is
+  machine-wide).
+
 - `gate fix`, a verb that applies doctor findings whose check already names a
   closed mechanical remedy. Doctor stays read-only: `gate --fix` as a flag is
   refused with a pointer at `gate fix`, and `gate -- doctor` / `gate -- fix`

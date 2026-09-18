@@ -7,6 +7,7 @@
 package doctor
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -93,6 +94,7 @@ func Run(dir string) ([]Finding, error) {
 	checkGoVuln(root, proj, add)
 	checkNoCI(proj, cfg, add)
 	checkWorkflows(proj, add)
+	checkNpxInPackageScripts(root, proj, add)
 	checkDeclaredGates(root, proj, add)
 	checkNextBuildRace(root, proj, cfg, add)
 
@@ -497,6 +499,55 @@ func usesMatrix(body string) bool {
 
 func hasAggregatingGate(body string) bool {
 	return strings.Contains(body, "if: always()") && strings.Contains(body, "needs:")
+}
+
+// checkNpxInPackageScripts extends npx-in-bun-workspace to the project's own
+// scripts. `bun run <script>` executes the string, so an npx inside it
+// strands the same package-lock.json a workflow npx would -- and the fix is
+// the same splice, which is why this reuses the check name rather than
+// inventing one.
+//
+// Only scripts are read, not the whole file: a description mentioning npx is
+// prose, not an invocation, and flagging it would teach people to skip the
+// output the same way a stale pin they cannot act on would.
+func checkNpxInPackageScripts(root string, proj detect.Project, add func(Finding)) {
+	body := readFile(filepath.Join(root, "package.json"))
+	if body == "" {
+		return
+	}
+	var pkg struct {
+		Scripts map[string]string `json:"scripts"`
+	}
+	if err := json.Unmarshal([]byte(body), &pkg); err != nil {
+		return
+	}
+	invokes := false
+	for _, script := range pkg.Scripts {
+		if strings.Contains(script, "npx ") {
+			invokes = true
+			break
+		}
+	}
+	if !invokes {
+		return
+	}
+	// The lockfile is the repository's in a workspace and the package's in a
+	// standalone project, the same split the workflow check makes: either one
+	// makes bunx the right tool for these scripts.
+	if !detect.IsBunWorkspace(root) {
+		repo, ok := repoRoot(proj.Root)
+		if !ok || !detect.IsBunWorkspace(repo) {
+			return
+		}
+	}
+	add(Finding{
+		Warn:  true,
+		Check: "npx-in-bun-workspace",
+		Where: filepath.Join(root, "package.json"),
+		What:  "npx runs inside a bun workspace",
+		Why:   "npx can strand a package-lock.json, which Next then takes as the Turbopack root",
+		Fix:   "use bunx",
+	})
 }
 
 // checkDeclaredGates reports roles a project simply has no check for.

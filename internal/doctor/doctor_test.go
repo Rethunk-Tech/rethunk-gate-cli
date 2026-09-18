@@ -510,3 +510,42 @@ func TestNoCIStaysSilentWithNothingToRun(t *testing.T) {
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.IsFalse(reported(findings, "no-ci")), qt.Commentf("findings = %v", findings))
 }
+
+// npx in a package.json script strands the same lockfile a workflow npx
+// would: `bun run <script>` executes the string, so the check fires there
+// too, under the same name because the fix is the same splice.
+func TestNpxInPackageScriptsIsReported(t *testing.T) {
+	isolatePath(t)
+	dir := t.TempDir()
+	testutil.Write(t, dir, "bun.lock", "")
+	testutil.Write(t, dir, "package.json", `{"scripts":{"typecheck":"npx tsc --noEmit"}}`)
+
+	findings, err := Run(dir)
+	qt.Assert(t, qt.IsNil(err))
+	f, ok := findingNamed(findings, "npx-in-bun-workspace")
+	qt.Assert(t, qt.IsTrue(ok), qt.Commentf("findings = %v", checkNames(findings)))
+	qt.Check(t, qt.Equals(f.Where, "package.json"), qt.Commentf("finding = %+v", f))
+	qt.Check(t, qt.IsTrue(f.Warn))
+}
+
+// Precision in both directions: prose mentioning npx is not an invocation,
+// and an npx outside a bun workspace is not this check's business.
+func TestNpxInPackageScriptsFiresOnlyOnInvocations(t *testing.T) {
+	isolatePath(t)
+
+	prose := t.TempDir()
+	testutil.Write(t, prose, "bun.lock", "")
+	testutil.Write(t, prose, "package.json",
+		`{"description":"run it with npx foo","scripts":{"test":"vitest run"}}`)
+	findings, err := Run(prose)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsFalse(reported(findings, "npx-in-bun-workspace")),
+		qt.Commentf("prose was read as an invocation: %v", checkNames(findings)))
+
+	plain := t.TempDir()
+	testutil.Write(t, plain, "package.json", `{"scripts":{"typecheck":"npx tsc --noEmit"}}`)
+	findings, err = Run(plain)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsFalse(reported(findings, "npx-in-bun-workspace")),
+		qt.Commentf("an npx outside a bun workspace was flagged: %v", checkNames(findings)))
+}

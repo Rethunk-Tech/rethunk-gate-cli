@@ -489,7 +489,7 @@ gate --json fix
 | `next-build-typecheck-race` | `serial = true` on `gates.build` and `gates.typecheck` in `.gate.toml` |
 | `ci-govulncheck-off` | `run-govulncheck: "true"` on the named setup-go step |
 | `corepack-with-setup-bun` | drop the `corepack enable` step |
-| `npx-in-bun-workspace` | replace `npx` with `bunx` in the named file |
+| `npx-in-bun-workspace` | replace `npx` with `bunx` in the named workflow or `package.json` |
 | `actions-floating-ref` / `actions-stale-ref` | pin the named shared-action refs to the tag doctor already stated, never unrelated actions |
 | `go-no-govulncheck` | skip — `go install` is machine-wide |
 | `no-ci` | skip — a workflow needs a template choice |
