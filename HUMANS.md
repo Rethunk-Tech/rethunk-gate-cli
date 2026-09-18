@@ -4,11 +4,21 @@ Running and using `gate`.
 
 ## Install
 
+Without a clone:
+
+```bash
+go install github.com/Rethunk-Tech/rethunk-gate-cli/cmd/gate@latest
+```
+
+[GitHub Releases](https://github.com/Rethunk-Tech/rethunk-gate-cli/releases) ship attested binaries for linux, darwin, and windows (OS/arch artifacts). Binaries do not need a local Go toolchain.
+
+From a clone:
+
 ```bash
 make install     # go install ./cmd/gate into your GOBIN
 ```
 
-Requires Go 1.27 or newer.
+Source and `go install` require Go 1.27 or newer.
 
 ## Using it
 
