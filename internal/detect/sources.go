@@ -235,10 +235,16 @@ func conventionGates(root string, proj *Project) ([]Gate, []Skip) {
 		// project's own declarations before executing, so a declared pytest or
 		// ruff that is not on disk yet exists by the time the gate runs.
 		// Probing first would refuse a gate that works.
-		gates = append(gates,
-			Gate{Name: "test", Argv: []string{"uv", "run", "pytest"}, Source: "convention: python"},
-			Gate{Name: "lint", Argv: []string{"uv", "run", "ruff", "check", "."}, Source: "convention: python"},
-		)
+		//
+		// The test gate still needs pytest declared somewhere: pytest exits 5
+		// when it collects nothing, so a project with no tests (a fixture, a
+		// lint-only tool) would fail a gate it never asked for.
+		if declaresPytest(root) {
+			gates = append(gates, Gate{Name: "test", Argv: []string{"uv", "run", "pytest"}, Source: "convention: python"})
+		} else {
+			skipped = append(skipped, Skip{"test", "pytest not declared and no tests/ or conftest.py; skipping the test gate"})
+		}
+		gates = append(gates, Gate{Name: "lint", Argv: []string{"uv", "run", "ruff", "check", "."}, Source: "convention: python"})
 		// pyrefly (99 uses) against mypy (4): the fleet has already moved,
 		// so the newer checker leads and mypy is the fallback.
 		//
@@ -551,4 +557,21 @@ func turboGates(workspace string, proj *Project) []Gate {
 		gates[i].Serial = serial[gates[i].Name]
 	}
 	return gates
+}
+
+// declaresPytest reports whether a Python project has asked for pytest: named
+// in a manifest (a dependency, a plugin, or its own config table), or given the
+// layout pytest discovers. Textual, like every other manifest read here.
+func declaresPytest(root string) bool {
+	for _, name := range []string{"pytest.ini", "conftest.py", "tests", "test"} {
+		if exists(filepath.Join(root, name)) {
+			return true
+		}
+	}
+	for _, name := range []string{"pyproject.toml", "setup.cfg", "tox.ini"} {
+		if data, err := os.ReadFile(filepath.Join(root, name)); err == nil && strings.Contains(string(data), "pytest") {
+			return true
+		}
+	}
+	return false
 }

@@ -12,6 +12,11 @@ Notable changes to `gate`. The format follows
 
 ### Fixed
 
+- The Python `test` convention gate is detected only where pytest is declared
+  (a manifest names it, or a `tests/`, `test/`, `conftest.py`, or `pytest.ini`
+  exists). A project with no tests got `uv run pytest`, which exits 5 on
+  collecting nothing; it now gets a note instead.
+
 ## [0.5.0] — 2026-09-18
 
 ### Added

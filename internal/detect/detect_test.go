@@ -327,6 +327,29 @@ func TestThePythonVulnGateFollowsTheLockfile(t *testing.T) {
 	qt.Check(t, qt.IsTrue(hasNote(proj, "uv.lock")), qt.Commentf("notes = %v", proj.Notes))
 }
 
+// pytest exits 5 when it collects nothing, so a Python project that never
+// asked for pytest must not get a test gate that can only fail.
+func TestThePythonTestGateNeedsPytestDeclared(t *testing.T) {
+	t.Parallel()
+
+	bare := t.TempDir()
+	testutil.Write(t, bare, "pyproject.toml", "[project]\nname = \"demo\"\n")
+	proj := detect(t, bare)
+	qt.Check(t, qt.IsFalse(slices.ContainsFunc(proj.Gates, func(g Gate) bool {
+		return g.Name == "test"
+	})), qt.Commentf("a pytest gate was claimed for a project with no tests"))
+	qt.Check(t, qt.IsTrue(hasNote(proj, "pytest not declared")), qt.Commentf("notes = %v", proj.Notes))
+
+	declared := t.TempDir()
+	testutil.Write(t, declared, "pyproject.toml", "[dependency-groups]\ndev = [\"pytest>=8\"]\n")
+	qt.Check(t, qt.Equals(gateNamed(t, detect(t, declared), "test").Display(), "uv run pytest"))
+
+	laidOut := t.TempDir()
+	testutil.Write(t, laidOut, "pyproject.toml", "[project]\nname = \"demo\"\n")
+	testutil.Write(t, laidOut, "tests/test_demo.py", "")
+	gateNamed(t, detect(t, laidOut), "test")
+}
+
 // "ci" meant two different things: the convention ladder's workflow linter,
 // and a project's own "run everything" target. Claiming the latter would run
 // every gate twice, so it is deliberately not a gate -- and the linter is
