@@ -6,6 +6,8 @@ Notable changes to `gate`. The format follows
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-19
+
 ### Added
 
 - Cache awareness. A gate served fully or partly from turbo's, `go test`'s,
