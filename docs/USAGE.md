@@ -145,6 +145,47 @@ of both the sum and the ranking, for the same reason it carries no `ms` in
 the stream. `--profile` beside `--list`, `--json`, `doctor` or `fix` is
 refused: there is no run to measure.
 
+### Cache awareness
+
+A gate's exit status is always the verdict, but a status of 0 can mean either
+"this ran and passed" or "a build tool answered from its own cache without
+touching the work" — and those read identically unless something says
+otherwise. `gate` reads the same output its log already keeps for the
+markers turbo, `go test`, and make themselves print, and adds a label:
+
+```console
+$ gate
+gate: ok  turbo run lint typecheck test build  20ms  /var/tmp/gate/turbo-run-ci-114970238.log  (cached)
+gate: ok  go test ./...  3.7s  /var/tmp/gate/go-test-728104553.log  (2/5 cached)
+```
+
+`(cached)` is every unit of work served from cache; `(N/M cached)` is some of
+it. Neither ever changes the exit status or which gate's own verdict decides
+the aggregate — this is display, the same as `--profile`'s timing, added
+beside a verdict the command already gave rather than in place of one.
+Recognised:
+
+| Tool | Marker |
+| --- | --- |
+| turbo | its own `Cached:  N cached, M total` summary line, printed on every run |
+| `go test` | `(cached)` on a package's `ok`/`FAIL` line, in place of a real duration |
+| GNU make | `'<target>' is up to date.`, and only when every line the gate printed was one of those — make names no total to weigh a partial against |
+
+A gate whose output carries none of these reads exactly as it always did:
+this cannot tell "ran fresh" from "a marker this build does not recognise"
+apart, and reporting a guess would be worse than reporting nothing.
+
+`--force-cache` re-runs a gate for real: `TURBO_FORCE=1` on every gate
+(harmless where nothing reads it), `-count=1` appended to a `go test`
+command, `-B` (always make) appended to a Makefile target. A `.gate.toml`
+`run` gate is a shell string gate cannot see inside, so it gets
+`TURBO_FORCE` alone.
+
+```console
+TURBO_FORCE=1 bun run ci   # by hand, project by project
+gate --force-cache          # every gate in this run, whatever tool it is
+```
+
 ### What it looks at, in order
 
 1. **`Makefile` targets** — a target that exists is a deliberate wrapper, and

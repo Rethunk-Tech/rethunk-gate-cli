@@ -16,7 +16,17 @@ is ~71% overhead on the common case.
 ## Delegation boundary
 
 `gate` owns **capture** (both streams merged), **summary** (bounded tail, display
-only), and **status** (passed through unchanged). No per-runner parsers.
+only), and **status** (passed through unchanged). No per-runner parsers change
+what `gate` reports as the verdict.
+
+**Cache awareness is the one deliberate exception**, and it stays on the
+display side of that line: `internal/app/cache.go` reads the same bytes the
+log already keeps, for the handful of markers turbo, `go test` and `make`
+themselves print, and turns them into a label beside the ok line and an
+NDJSON `cache` field. It never sets a `Code`, never moves the aggregate, and
+degrades to silence — not a guess — on any output it does not recognise. See
+cache.go's own doc comment for why that direction is safe and the other one
+is not.
 
 ### The words gate claims
 
@@ -152,6 +162,38 @@ turbo `dependsOn` between roles, `gates.<role>.serial` in `.gate.toml`, or
 `schedule` groups serial gates together; groups run concurrently. A failure
 stops its group, unless the project allowed it (`allow-failure`); stopped gates
 are reported as skipped.
+
+## Cache awareness
+
+Markers recognised, each verified against the real tool rather than assumed:
+turbo's own summary line (`Cached:  N cached, M total`, present on every run,
+cached or not — the `>>> FULL TURBO` suffix is not needed and is not
+matched), `go test`'s per-package `(cached)` on its `ok`/`FAIL` line, and GNU
+make's `'<target>' is up to date.` A verdict is **full**, **partial**, or
+absent; absent covers a gate that ran fresh and a gate whose output this
+build does not recognise identically — see cache.go for why collapsing those
+two is the safe direction. `nx` and a bare `bun run` script are not among
+them: neither appears in this fleet, and `bun run` alone has no cache layer
+of its own to report on.
+
+**Report, never refuse.** The one invariant is that the wrapped command's
+exit status is the verdict; a gate that turned a fully-cached pass into a
+failure would invent one instead, exactly what this tool exists not to do. A
+fully-cached result is not itself wrong — turbo's cache is content-addressed,
+so it is telling the truth about the inputs not having changed — the failure
+mode in the AGENTS.md history this feature answers was a green nobody could
+tell apart from a green that ran, not a green that lied. Visibility settles
+that: the label, and `--force-cache` for the caller who wants to rule the
+cache out, not gate rewriting a status the command never gave.
+
+`--force-cache` is a single, global flag — not a per-gate `.gate.toml` key,
+because the case for it (about to push, want a real answer once) is a
+one-off, not a standing project setting. It sets `TURBO_FORCE=1`
+unconditionally (harmless for anything that never reads it) and rewrites
+argv only where it can name the tool with certainty: `go test` gets
+`-count=1`, a Makefile target gets `make -B`. A `run` gate is a shell
+string (`sh -c <string>`), and gate does not parse shell to find a `go test`
+or `make` buried inside one — TURBO_FORCE is what it gets.
 
 ## Exit codes
 

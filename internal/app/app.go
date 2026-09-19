@@ -63,6 +63,8 @@ Flags:
                 (with doctor or fix, the findings as JSON)
   --ndjson      stream one JSON line per gate as it finishes, and run them
   --profile     after the run, print wall time, summed gate time, and slowest gates
+  --force-cache re-run turbo, go test, and make targets rather than serve them
+                from their own cache (also sets TURBO_FORCE=1)
   --timeout D   kill a gate that runs longer than D (default 1m, 0 disables;
                 .gate.toml can set it per gate, and this beats that)
   --tail N      trailing lines to quote on failure (default 40)
@@ -148,6 +150,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	flags.BoolVar(&opts.jsonList, "json", false, "")
 	flags.BoolVar(&opts.ndjson, "ndjson", false, "")
 	flags.BoolVar(&opts.profile, "profile", false, "")
+	flags.BoolVar(&opts.forceCache, "force-cache", false, "")
 	flags.BoolVar(&showVersion, "version", false, "")
 	// Recognised so `gate --fix` is not "unrecognized". Refused below: a
 	// global flag would look like a silent rewrite of doctor, which this
@@ -474,6 +477,15 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	for i := range opts.gates {
 		if timeoutSet || !opts.gates[i].hasTimeout {
 			opts.gates[i].timeout = timeout
+		}
+	}
+
+	// Applied before --list/--json so both answer the question they exist
+	// to answer -- what will actually run -- rather than the command as
+	// detection found it before forcing rewrote it.
+	if opts.forceCache {
+		for i := range opts.gates {
+			applyForceCache(&opts.gates[i])
 		}
 	}
 

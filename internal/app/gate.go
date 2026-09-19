@@ -62,7 +62,11 @@ type options struct {
 	// two above: it goes to stderr, so the machine shapes on stdout are
 	// untouched.
 	profile bool
-	gates   []gateSpec
+
+	// forceCache re-runs a gate that turbo, `go test`, or make could
+	// otherwise answer from cache. See cache.go, applyForceCache.
+	forceCache bool
+	gates      []gateSpec
 }
 
 // gateSpec is one command to run. argv is executed directly, without a shell,
@@ -153,6 +157,7 @@ type gateResult struct {
 	elapsed  time.Duration
 	logPath  string
 	tracker  *lineTracker
+	cache    cacheVerdict
 	notFound bool
 	timedOut bool
 	fatalErr error
@@ -433,8 +438,12 @@ func report(results []gateResult, opts options, stdout, stderr io.Writer) Code {
 		case outcomeRan:
 			if res.code == Success {
 				if !opts.quiet {
-					fmt.Fprintf(stdout, "gate: ok  %s  %s  %s\n",
-						res.spec.short(), res.elapsed.Round(time.Millisecond), res.logPath)
+					cached := ""
+					if label := res.cache.label(); label != "" {
+						cached = "  (" + label + ")"
+					}
+					fmt.Fprintf(stdout, "gate: ok  %s  %s  %s%s\n",
+						res.spec.short(), res.elapsed.Round(time.Millisecond), res.logPath, cached)
 				}
 			} else {
 				allowed := ""
@@ -502,6 +511,7 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 	}
 
 	res.tracker = newLineTracker(opts.tail)
+	cache := newCacheScanner()
 
 	runCtx := ctx
 	if spec.timeout > 0 {
@@ -533,7 +543,7 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 	// One writer for both streams, so interleaving in the log matches what a
 	// terminal would have shown. Splitting them would reorder the very lines
 	// a failure is read from.
-	sink := io.MultiWriter(logFile, res.tracker)
+	sink := io.MultiWriter(logFile, res.tracker, cache)
 	cmd.Stdout = sink
 	cmd.Stderr = sink
 
@@ -547,6 +557,8 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 	// without inventing a newline the command did not write.
 	danglingLine := res.tracker.pending()
 	res.tracker.close()
+	cache.close()
+	res.cache = cache.verdict()
 
 	switch {
 	case spec.timeout > 0 && errors.Is(runCtx.Err(), context.DeadlineExceeded):

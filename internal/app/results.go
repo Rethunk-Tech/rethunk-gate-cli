@@ -56,6 +56,14 @@ type result struct {
 	// Error is gate's own failure -- a log it could not finish -- reported
 	// beside the command's verdict rather than in place of it.
 	Error string `json:"error,omitempty"`
+
+	// Cache is what this gate's own output said about being served from a
+	// cache: "cached" for entirely, "N/M cached" for partly, absent where
+	// nothing was detected -- which covers both a gate that ran fresh and
+	// one whose output this build of gate does not recognise. It never
+	// changes Status or Code; see cache.go for why the exit status is
+	// always the verdict.
+	Cache string `json:"cache,omitempty"`
 }
 
 // resultStream writes one JSON line per gate. Gates finish concurrently, so
@@ -128,6 +136,7 @@ func (s *resultStream) emit(res gateResult) {
 	if res.excused() {
 		rec.Allowed = true
 	}
+	rec.Cache = res.cache.label()
 
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -8,6 +8,14 @@ Notable changes to `gate`. The format follows
 
 ### Added
 
+- Cache awareness. A gate served fully or partly from turbo's, `go test`'s,
+  or make's own cache is now labelled on the ok line — `(cached)` or
+  `(N/M cached)` — and in the NDJSON record's new `cache` field, so a green
+  gate that never touched the work no longer reads the same as one that did.
+  Detection is display-only: it never changes a gate's exit status or the
+  aggregate. `--force-cache` re-runs a gate for real (`TURBO_FORCE=1` on
+  every gate, `go test -count=1`, `make -B`).
+
 ### Changed
 
 ### Fixed

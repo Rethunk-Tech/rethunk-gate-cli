@@ -2364,3 +2364,104 @@ func TestProfileRefusesWhatRunsNothing(t *testing.T) {
 		qt.Check(t, qt.StringContains(stderr, "--profile"), qt.Commentf("refusal does not name the flag: %q", stderr))
 	}
 }
+
+// Cache awareness (cache.go) never touches the exit status -- these tests
+// exercise it through Run so a change to the ok line or the NDJSON record
+// is caught the same way any other output regression here is, rather than
+// only at the cacheScanner unit level.
+
+// A gate whose own output carries turbo's exact summary line reports it on
+// the ok line, distinctly from a gate that ran fresh -- the gap the two
+// measured cases in this repository's history (a fully-cached `bun run ci`
+// reading identically to a real one) exists to close.
+func TestOkLineNamesAFullyCachedGate(t *testing.T) {
+	t.Parallel()
+	log := tempLog(t)
+
+	stdout, stderr, code := runGateTest(t, "--log", log,
+		"sh", "-c", "printf 'Cached:    2 cached, 2 total\\n  Time:    10ms >>> FULL TURBO\\n'")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.StringContains(stdout, "(cached)"), qt.Commentf("stdout = %q", stdout))
+}
+
+// A partial cache is reported as a fraction, not folded into the same word
+// as a full one -- the two are different facts about the run.
+func TestOkLineNamesAPartiallyCachedGate(t *testing.T) {
+	t.Parallel()
+	log := tempLog(t)
+
+	stdout, stderr, code := runGateTest(t, "--log", log,
+		"sh", "-c", "printf 'Cached:    2 cached, 4 total\\n  Time:    1.2s\\n'")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.StringContains(stdout, "(2/4 cached)"), qt.Commentf("stdout = %q", stdout))
+}
+
+// A gate whose output carries no marker gate recognises reads exactly as it
+// always did -- the safe direction for a parser of another program's text.
+func TestOkLineStaysPlainWithNoCacheMarker(t *testing.T) {
+	t.Parallel()
+	log := tempLog(t)
+
+	stdout, stderr, code := runGateTest(t, "--log", log, "sh", "-c", "echo hello")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.Not(qt.StringContains(stdout, "cached")), qt.Commentf("stdout = %q", stdout))
+}
+
+// The NDJSON record carries the same label as the text report, so a
+// consumer computing its own summary from the stream sees what a person
+// reading stderr would.
+func TestNDJSONCarriesTheCacheLabel(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "test:\n\tprintf 'Cached:    3 cached, 3 total\\n'\n")
+
+	stdout, stderr, code := runGateTest(t, "-C", root, "--ndjson")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+
+	var r result
+	qt.Assert(t, qt.IsNil(json.Unmarshal([]byte(strings.TrimSpace(stdout)), &r)),
+		qt.Commentf("stdout is not one JSON line: %q", stdout))
+	qt.Check(t, qt.Equals(r.Cache, "cached"))
+}
+
+// --force-cache rewrites a `go test` gate so Go's own cache cannot answer
+// for it, and sets TURBO_FORCE unconditionally so a shell-string gate that
+// happens to invoke turbo is covered too. A fake `go` on PATH stands in for
+// the real tool so the test proves what gate executed rather than what the
+// real go toolchain decided to do with it.
+func TestForceCacheRewritesAGoTestGateAndSetsTurboForce(t *testing.T) {
+	bin := t.TempDir()
+	script := "#!/bin/sh\necho \"argv: $*\"\necho \"TURBO_FORCE=$TURBO_FORCE\"\n"
+	if err := os.WriteFile(filepath.Join(bin, "go"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	log := tempLog(t)
+
+	stdout, stderr, code := runGateTest(t, "--force-cache", "--log", log, "go", "test", "./...")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.StringContains(stdout, "go test -count=1 ./..."),
+		qt.Commentf("stdout = %q", stdout))
+
+	output, _ := splitLog(t, log)
+	qt.Check(t, qt.StringContains(output, "argv: test -count=1 ./..."), qt.Commentf("log = %q", output))
+	qt.Check(t, qt.StringContains(output, "TURBO_FORCE=1"), qt.Commentf("log = %q", output))
+}
+
+// Without --force-cache, a gate that would have been rewritten runs exactly
+// as named -- forcing is opt-in, never inferred from the gate's shape.
+func TestWithoutForceCacheAGoTestGateIsUnchanged(t *testing.T) {
+	bin := t.TempDir()
+	script := "#!/bin/sh\necho \"argv: $*\"\n"
+	if err := os.WriteFile(filepath.Join(bin, "go"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	log := tempLog(t)
+
+	_, stderr, code := runGateTest(t, "--log", log, "go", "test", "./...")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+
+	output, _ := splitLog(t, log)
+	qt.Check(t, qt.StringContains(output, "argv: test ./..."), qt.Commentf("log = %q", output))
+}

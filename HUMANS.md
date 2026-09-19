@@ -37,6 +37,14 @@ gate: ok  make build   138ms  /var/tmp/gate/make-build-114970238.log
 gate: ok  make lint    134ms  /var/tmp/gate/make-lint-728104553.log
 ```
 
-`gate --list` shows what it picked. `gate run test` runs one gate by name.
-`gate doctor` reports what is cheap to fix here. `gate --help` lists every flag.
-Detection, `.gate.toml`, and exit codes: [docs/USAGE.md](docs/USAGE.md).
+A gate that turbo, `go test`, or make served from its own cache says so:
+
+```console
+$ gate
+gate: ok  turbo run lint typecheck test build  20ms  /var/tmp/gate/turbo-run-ci-114970238.log  (cached)
+```
+
+`--force-cache` re-runs it for real. `gate --list` shows what it picked.
+`gate run test` runs one gate by name. `gate doctor` reports what is cheap to
+fix here. `gate --help` lists every flag.
+Detection, `.gate.toml`, cache awareness, and exit codes: [docs/USAGE.md](docs/USAGE.md).

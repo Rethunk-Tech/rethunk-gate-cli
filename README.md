@@ -27,8 +27,9 @@ Prerequisites and full install notes: [HUMANS.md](HUMANS.md).
 
 ## Highlights
 
-- **Exit status is the verdict** — passed through unchanged; output is never parsed.
+- **Exit status is the verdict** — passed through unchanged; the aggregate is never inferred from output.
 - **Complete log** — bounded on-screen summary; failures quote a tail and name the log.
+- **Cache-aware** — flags a gate turbo, `go test`, or make served from its own cache instead of running; `--force-cache` re-runs it for real.
 - **Auto-detects gates** — Makefile, `package.json`, `turbo.json`, then conventions for Go, Rust, Python, Node, workflows and shell scripts; `.gate.toml` adjusts without replacing.
 - **Concurrent by default** — `--serial` or `.gate.toml` when one gate needs another's result.
 - **Ctrl-C kills the tree** — trailer still written; stopped gates reported as skipped.
