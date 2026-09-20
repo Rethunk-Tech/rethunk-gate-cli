@@ -6,6 +6,11 @@ Notable changes to `gate`. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- The shell gate runs `shellcheck -x`, so a script that sources a sibling
+  library no longer fails the gate with an SC1091 info finding.
+
 ## [0.6.0] - 2026-09-19
 
 ### Added

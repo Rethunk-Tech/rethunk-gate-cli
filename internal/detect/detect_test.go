@@ -645,7 +645,7 @@ func TestShellScriptsGetAShellGate(t *testing.T) {
 	gate := gateNamed(t, proj, "shell")
 	// Relative and sorted, so two runs produce the same command and the line
 	// stays readable.
-	qt.Check(t, qt.DeepEquals(gate.Argv, []string{shellcheck, "build.sh", "scripts/deploy.sh"}))
+	qt.Check(t, qt.DeepEquals(gate.Argv, []string{shellcheck, "-x", "build.sh", "scripts/deploy.sh"}))
 	qt.Check(t, qt.Equals(gate.Source, "convention: shell scripts"))
 }
 
@@ -752,7 +752,7 @@ func TestIgnoredScriptsAreNotTheProjectsOwn(t *testing.T) {
 	// Untracked but not ignored still counts: a script written a minute ago
 	// is the project's, and waiting for a commit to check it is the wrong
 	// moment to start.
-	qt.Check(t, qt.DeepEquals(gate.Argv[1:], []string{"scripts/real.sh"}),
+	qt.Check(t, qt.DeepEquals(gate.Argv[2:], []string{"scripts/real.sh"}),
 		qt.Commentf("argv = %v", gate.Argv))
 }
 
@@ -766,5 +766,5 @@ func TestScriptsAreWalkedOutsideARepository(t *testing.T) {
 	proj, err := Detect(dir)
 	qt.Assert(t, qt.IsNil(err))
 	gate := gateNamed(t, proj, "shell")
-	qt.Check(t, qt.DeepEquals(gate.Argv[1:], []string{"scripts/real.sh"}))
+	qt.Check(t, qt.DeepEquals(gate.Argv[2:], []string{"scripts/real.sh"}))
 }

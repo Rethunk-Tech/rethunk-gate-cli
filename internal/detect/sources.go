@@ -321,7 +321,9 @@ func conventionGates(root string, proj *Project) ([]Gate, []Skip) {
 	if scripts := shellScripts(root); len(scripts) > 0 {
 		if bin := resolve(root, proj, "shellcheck"); bin != "" {
 			gates = append(gates, Gate{
-				Name: "shell", Argv: append([]string{bin}, scripts...),
+				// -x: without it every `source "$dir/lib.sh"` is an SC1091 info
+				// finding, which exits 1 and fails the gate on correct code.
+				Name: "shell", Argv: append([]string{bin, "-x"}, scripts...),
 				Source:  "convention: shell scripts",
 				Summary: fmt.Sprintf("shellcheck (%d script%s)", len(scripts), plural(len(scripts))),
 			})

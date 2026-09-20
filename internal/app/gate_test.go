@@ -1910,13 +1910,13 @@ func TestShellGateShowsASummaryAndStillRunsEveryScript(t *testing.T) {
 	qt.Check(t, qt.Equals(shell.Display, "shellcheck (2 scripts)"))
 	// Argv is untouched: what runs is every script, and a consumer
 	// reproducing the gate needs the whole command.
-	qt.Check(t, qt.DeepEquals(shell.Argv, []string{shellcheck, "build.sh", "scripts/deploy.sh"}))
+	qt.Check(t, qt.DeepEquals(shell.Argv, []string{shellcheck, "-x", "build.sh", "scripts/deploy.sh"}))
 
 	// --list still answers "what exactly runs", which is the whole point of
 	// it; the summary must not become a detector that cannot be inspected.
 	listOut, _, _ := runGateTest(t, "-C", root, "--list")
 	qt.Check(t, qt.StringContains(listOut, "shellcheck (2 scripts)"))
-	qt.Check(t, qt.StringContains(listOut, "runs "+shellcheck+" build.sh scripts/deploy.sh"))
+	qt.Check(t, qt.StringContains(listOut, "runs "+shellcheck+" -x build.sh scripts/deploy.sh"))
 }
 
 // One script is one script. A count that reads "1 scripts" is a line someone
