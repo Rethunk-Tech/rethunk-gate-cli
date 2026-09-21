@@ -768,3 +768,48 @@ func TestScriptsAreWalkedOutsideARepository(t *testing.T) {
 	gate := gateNamed(t, proj, "shell")
 	qt.Check(t, qt.DeepEquals(gate.Argv[2:], []string{"scripts/real.sh"}))
 }
+
+// golangci-lint's default is a global file lock: a second instance exits
+// "parallel golangci-lint is running" instead of waiting. The convention
+// command is what a Go repo with no Makefile lint target actually runs, so
+// a fleet sweep of those would fail lint for holding the lock, not for
+// findings.
+func TestGoLintConventionAllowsParallelRunners(t *testing.T) {
+	dir := t.TempDir()
+	name := "golangci-lint"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	bin := testutil.WriteExecutable(t, dir, filepath.Join("bin", name))
+	t.Setenv("PATH", filepath.Join(dir, "bin"))
+	testutil.Write(t, dir, "go.mod", "module demo\n\ngo 1.26\n")
+
+	lint := gateNamed(t, detect(t, dir), "lint")
+	qt.Check(t, qt.DeepEquals(lint.Argv, []string{bin, "run", "--allow-parallel-runners", "./..."}),
+		qt.Commentf("lint = %v", lint.Argv))
+}
+
+// A solution-style tsconfig typechecked without -b exits 0 having checked
+// nothing. The convention is the only command those projects run if they
+// declared no typecheck script, so --noEmit alone is a green that covered
+// no work.
+func TestTscConventionUsesBuildModeWhenTsconfigHasReferences(t *testing.T) {
+	t.Parallel()
+	withRefs := t.TempDir()
+	tsc := testutil.WriteExecutable(t, withRefs, filepath.Join("node_modules", ".bin", "tsc"))
+	testutil.Write(t, withRefs, "package.json", `{"name":"app"}`)
+	testutil.Write(t, withRefs, "tsconfig.json", `{"files":[],"references":[{"path":"./tsconfig.app.json"}]}`)
+
+	typecheck := gateNamed(t, detect(t, withRefs), "typecheck")
+	qt.Check(t, qt.DeepEquals(typecheck.Argv, []string{tsc, "-b", "--noEmit"}),
+		qt.Commentf("typecheck = %v", typecheck.Argv))
+
+	plain := t.TempDir()
+	plainTsc := testutil.WriteExecutable(t, plain, filepath.Join("node_modules", ".bin", "tsc"))
+	testutil.Write(t, plain, "package.json", `{"name":"app"}`)
+	testutil.Write(t, plain, "tsconfig.json", `{"compilerOptions":{"strict":true}}`)
+
+	plainGate := gateNamed(t, detect(t, plain), "typecheck")
+	qt.Check(t, qt.DeepEquals(plainGate.Argv, []string{plainTsc, "--noEmit"}),
+		qt.Commentf("-b on a tsconfig with no references: %v", plainGate.Argv))
+}

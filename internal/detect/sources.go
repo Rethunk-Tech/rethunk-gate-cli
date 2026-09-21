@@ -186,7 +186,15 @@ func conventionGates(root string, proj *Project) ([]Gate, []Skip) {
 		// golangci-lint (153 uses) subsumes go vet (220), so it wins where
 		// it is installed and vet is the fallback rather than both running.
 		if bin := resolve(root, proj, "golangci-lint"); bin != "" {
-			gates = append(gates, Gate{Name: "lint", Argv: []string{bin, "run", "./..."}, Source: "convention: go"})
+			// --allow-parallel-runners: golangci-lint takes a global file lock
+			// and a second instance exits "parallel golangci-lint is running"
+			// rather than waiting. gate runs concurrently by default and is
+			// the fleet-sweep wrapper, so the convention command failing
+			// because another repo's lint holds the lock is a false failure
+			// of this project's lint. Every Makefile in this fleet that
+			// wraps golangci already passes the flag; the convention was
+			// the one path that did not.
+			gates = append(gates, Gate{Name: "lint", Argv: []string{bin, "run", "--allow-parallel-runners", "./..."}, Source: "convention: go"})
 		} else {
 			gates = append(gates, Gate{Name: "lint", Argv: []string{"go", "vet", "./..."}, Source: "convention: go"})
 		}
@@ -295,7 +303,17 @@ func conventionGates(root string, proj *Project) ([]Gate, []Skip) {
 			gates = append(gates, Gate{Name: "lint", Argv: []string{bin, "check", "."}, Source: "convention: node"})
 		}
 		if bin := resolve(root, proj, "tsc"); bin != "" {
-			gates = append(gates, Gate{Name: "typecheck", Argv: []string{bin, "--noEmit"}, Source: "convention: node"})
+			// Bare tsc loads tsconfig.json. A solution-style file
+			// (files: [] plus references) typechecked without -b exits 0
+			// having checked nothing -- a pass covering work that never
+			// ran. -b is only that case: without references it is not
+			// required, and on its own it writes a .tsbuildinfo nothing
+			// reuses unless the project already set incremental.
+			argv := []string{bin, "--noEmit"}
+			if tsconfigHasProjectReferences(root) {
+				argv = []string{bin, "-b", "--noEmit"}
+			}
+			gates = append(gates, Gate{Name: "typecheck", Argv: argv, Source: "convention: node"})
 		}
 	}
 
@@ -559,6 +577,18 @@ func turboGates(workspace string, proj *Project) []Gate {
 		gates[i].Serial = serial[gates[i].Name]
 	}
 	return gates
+}
+
+// tsconfigHasProjectReferences reports whether the tsconfig tsc actually
+// loads -- tsconfig.json at the project root -- names project references.
+// Textual, like declaresPytest: tsconfig is often JSONC, and a parser that
+// rejected comments would miss the file the compiler accepts.
+func tsconfigHasProjectReferences(root string) bool {
+	data, err := os.ReadFile(filepath.Join(root, "tsconfig.json"))
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(data), `"references"`)
 }
 
 // declaresPytest reports whether a Python project has asked for pytest: named

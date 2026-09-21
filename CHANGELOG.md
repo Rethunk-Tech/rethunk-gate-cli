@@ -10,6 +10,16 @@ Notable changes to `gate`. The format follows
 
 - The shell gate runs `shellcheck -x`, so a script that sources a sibling
   library no longer fails the gate with an SC1091 info finding.
+- The Go convention lint gate passes `--allow-parallel-runners`. golangci-lint
+  takes a global file lock and a second instance exits rather than waiting, so
+  a concurrent fleet sweep of repositories without a Makefile lint wrapper
+  failed lint for holding the lock, not for findings. Every Makefile in this
+  fleet that wraps golangci already passed the flag; the inferred command was
+  the one path that did not.
+- The Node convention typecheck gate runs `tsc -b --noEmit` when
+  `tsconfig.json` names project references. A solution-style tsconfig
+  typechecked without `-b` exits 0 having checked nothing — a pass covering
+  work that never ran. Projects without references keep `tsc --noEmit`.
 
 ## [0.6.0] - 2026-09-19
 

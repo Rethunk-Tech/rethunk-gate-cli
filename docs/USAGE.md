@@ -194,13 +194,15 @@ gate --force-cache          # every gate in this run, whatever tool it is
    is the real entry point.
 3. **`package.json` scripts** — the project's own declared commands.
 4. **Conventions** — only for roles nothing above declares: `go build`/`go
-   test`/`golangci-lint`/`govulncheck`, `cargo build`/`cargo test`/`cargo
-   clippy`/`cargo audit` where a `Cargo.toml` exists, `uv run
-   pytest`/`ruff`/`pyrefly` plus `uv audit` where a `uv.lock` exists
-   (pytest only where a manifest names it or a `tests/`, `test/`,
-   `conftest.py`, or `pytest.ini` exists),
-   `biome`/`tsc`, `actionlint` where `.github/workflows` exists, and
-   `shellcheck` over the project's own `.sh` files where it has any.
+   test`/`golangci-lint run --allow-parallel-runners`/`govulncheck`, `cargo
+   build`/`cargo test`/`cargo clippy`/`cargo audit` where a `Cargo.toml`
+   exists, `uv run pytest`/`ruff`/`pyrefly` plus `uv audit` where a
+   `uv.lock` exists (pytest only where a manifest names it or a `tests/`,
+   `test/`, `conftest.py`, or `pytest.ini` exists), `biome`/`tsc --noEmit`
+   (`tsc -b --noEmit` when `tsconfig.json` names project references — without
+   `-b` a solution-style file exits 0 having checked nothing), `actionlint`
+   where `.github/workflows` exists, and `shellcheck` over the project's own
+   `.sh` files where it has any.
    An absent `actionlint` is a note naming `brew install actionlint`, the same
    rule as `shellcheck` and clippy.
 
