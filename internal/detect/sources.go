@@ -156,6 +156,24 @@ func packageRunner(workspace string) []string {
 	return []string{"bun", "run"}
 }
 
+// frozenInstall is the install that brings node_modules in line with the
+// lockfile in workspace without rewriting it, or nil where there is no
+// lockfile. Same precedence as packageRunner, so the installer is the
+// manager the gates run under.
+func frozenInstall(workspace string) []string {
+	switch {
+	case IsBunWorkspace(workspace):
+		return []string{"bun", "install", "--frozen-lockfile"}
+	case exists(filepath.Join(workspace, "yarn.lock")):
+		return []string{"yarn", "install", "--frozen-lockfile"}
+	case exists(filepath.Join(workspace, "package-lock.json")):
+		return []string{"npm", "ci"}
+	case exists(filepath.Join(workspace, "pnpm-lock.yaml")):
+		return []string{"pnpm", "install", "--frozen-lockfile"}
+	}
+	return nil
+}
+
 // Skip is a role the ladder deliberately left without a gate because the tool
 // that would run it is absent. It carries the role so the note is made only
 // where nothing else claimed that role -- a project whose Makefile or

@@ -28,6 +28,22 @@ func plantBin(t *testing.T, dir, name string) string {
 	return testutil.WriteExecutable(t, dir, filepath.Join("node_modules", ".bin", name))
 }
 
+// fakeBun puts a `bun` first on PATH that appends its argv and working
+// directory to the returned file and exits with status. A bun.lock fixture
+// makes gate run a frozen install before any gate, and neither the real bun
+// (absent in CI) nor a real install belongs in a test about something else.
+func fakeBun(t *testing.T, status int) string {
+	t.Helper()
+	bin := t.TempDir()
+	calls := filepath.Join(t.TempDir(), "bun-calls")
+	script := fmt.Sprintf("#!/bin/sh\necho \"$PWD: $*\" >> %q\necho bun-said-this\nexit %d\n", calls, status)
+	if err := os.WriteFile(filepath.Join(bin, "bun"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return calls
+}
+
 // exists reports whether a path is present. Almost every fixture here proves
 // a gate ran, or did not, by whether it created a marker file.
 func exists(path string) bool {
@@ -530,6 +546,7 @@ func TestResolvedPathIsShortenedOnTheVerdictLineOnly(t *testing.T) {
 	plantBin(t, root, "tsc")
 	testutil.Write(t, root, "package.json", `{"name":"app"}`)
 	testutil.Write(t, root, "bun.lock", "")
+	fakeBun(t, 0)
 	logs := t.TempDir()
 	t.Setenv("TMPDIR", logs)
 
@@ -891,6 +908,7 @@ func TestAShadowWarningNamesItsFixOnceAndCannotBeSilenced(t *testing.T) {
 	// fails formatting would fail this test for an unrelated reason.
 	testutil.Write(t, root, "package.json", "{\n\t\"scripts\": {\n\t\t\"test\": \"vitest run\"\n\t}\n}\n")
 	testutil.Write(t, root, "bun.lock", "")
+	fakeBun(t, 0)
 	plantBin(t, root, "tsc")
 	t.Setenv("TMPDIR", t.TempDir())
 
@@ -958,6 +976,7 @@ func TestAConfigRunSettlesAShadowConflict(t *testing.T) {
 	testutil.Write(t, root, "Makefile", "test:\n\ttrue\n")
 	testutil.Write(t, root, "package.json", "{\n\t\"scripts\": {\n\t\t\"test\": \"vitest run\"\n\t}\n}\n")
 	testutil.Write(t, root, "bun.lock", "")
+	fakeBun(t, 0)
 	plantBin(t, root, "tsc")
 
 	// Unresolved, it warns.
@@ -2464,4 +2483,46 @@ func TestWithoutForceCacheAGoTestGateIsUnchanged(t *testing.T) {
 
 	output, _ := splitLog(t, log)
 	qt.Check(t, qt.StringContains(output, "argv: test ./..."), qt.Commentf("log = %q", output))
+}
+
+// A workspace with a lockfile gets its frozen install once, from the
+// workspace root, before any gate -- and a package run from a member
+// directory installs the workspace, not the member.
+func TestFrozenInstallRunsOnceInTheWorkspaceBeforeTheGates(t *testing.T) {
+	calls := fakeBun(t, 0)
+	t.Setenv("TMPDIR", t.TempDir())
+	ws := t.TempDir()
+	testutil.Write(t, ws, "bun.lock", "")
+	member := filepath.Join(ws, "packages", "a")
+	marker := filepath.Join(t.TempDir(), "install-seen")
+	testutil.Write(t, member, "Makefile", "test:\n\tcp "+calls+" "+marker+"\nlint:\n\ttrue\n")
+
+	_, stderr, code := runGateTest(t, "-C", member)
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.StringContains(stderr, "gate: install: bun install --frozen-lockfile (in "+ws+")"))
+	got, err := os.ReadFile(calls)
+	if err != nil {
+		t.Fatal(err)
+	}
+	qt.Check(t, qt.Equals(string(got), ws+": install --frozen-lockfile\n"))
+	qt.Check(t, qt.IsTrue(exists(marker)), qt.Commentf("the test gate ran before the install finished"))
+	qt.Check(t, qt.Not(qt.StringContains(stderr, "bun-said-this")), qt.Commentf("a passing install was quoted: %q", stderr))
+}
+
+// A failed frozen install is the run's verdict: its exit status passes
+// through, its output is quoted, and no gate runs against node_modules it
+// just failed to bring up to date.
+func TestAFailedFrozenInstallFailsTheRunBeforeAnyGate(t *testing.T) {
+	fakeBun(t, 7)
+	t.Setenv("TMPDIR", t.TempDir())
+	root := t.TempDir()
+	marker := filepath.Join(root, "test-ran")
+	testutil.Write(t, root, "bun.lock", "")
+	testutil.Write(t, root, "Makefile", "test:\n\ttouch "+marker+"\n")
+
+	_, stderr, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Code(7)), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.StringContains(stderr, "bun-said-this"))
+	qt.Check(t, qt.StringContains(stderr, "gate: FAIL install: bun install --frozen-lockfile (exit 7)"))
+	qt.Check(t, qt.IsFalse(exists(marker)), qt.Commentf("a gate ran after the install failed"))
 }

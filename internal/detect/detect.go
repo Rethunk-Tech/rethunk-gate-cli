@@ -76,6 +76,12 @@ type Project struct {
 	// manifest" and "workspace root" are usually different.
 	Workspace string
 
+	// Install is the frozen install gate runs once, in Workspace, before any
+	// gate: gates run against whatever node_modules holds, and one left over
+	// from an older lockfile typechecks code CI rejects. Nil without a
+	// lockfile.
+	Install []string
+
 	Gates []Gate
 
 	// Notes explain what was found and what was deliberately skipped.
@@ -114,6 +120,7 @@ func Detect(dir string) (Project, error) {
 	}
 	if ws, ok := findUp(proj.Root, workspaceNames); ok {
 		proj.Workspace = ws
+		proj.Install = frozenInstall(ws)
 	}
 
 	byName := map[string]Gate{}

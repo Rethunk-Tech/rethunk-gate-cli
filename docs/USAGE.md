@@ -79,6 +79,18 @@ as `[]` and never `null`, so a consumer can iterate without a nil check.
 With `doctor` or `fix` it names that report instead — see [`gate doctor`](#gate-doctor)
 and [`gate fix`](#gate-fix).
 
+### Frozen install
+
+Where the workspace holds a lockfile, a bare `gate` or `gate run` first runs
+the frozen install for it once, from the workspace root, before any gate:
+`bun install --frozen-lockfile`, `yarn install --frozen-lockfile`, `npm ci`, or
+`pnpm install --frozen-lockfile`, in the same lockfile precedence the package
+runner uses. It prints `gate: install: <command> (in <workspace>)` on stderr.
+A failed install is the run's verdict: its output is quoted, its exit status
+passes through, and no gate runs. Without it, gates typecheck against whatever
+`node_modules` holds, which passes code CI's fresh install rejects. A wrapped
+command, `--list` and `--json` never install.
+
 ### Streaming what a run did
 
 `--json` describes what *would* run. `--ndjson` runs the gates and writes one

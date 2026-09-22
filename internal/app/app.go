@@ -10,6 +10,7 @@ import (
 	"io"
 	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -527,7 +528,34 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		return InvalidUsage
 	}
 
+	if code := frozenInstall(ctx, project, stderr); code != Success {
+		return code
+	}
 	return runGates(ctx, opts, stdout, stderr)
+}
+
+// frozenInstall runs the project's frozen install once, before any gate, and
+// fails the run when it fails: a lockfile out of step with package.json is a
+// failure CI reports too, and gates run over a stale node_modules pass code CI
+// rejects. Its output is quoted only on failure, on stderr, so stdout stays
+// the gates' own (NDJSON included).
+func frozenInstall(ctx context.Context, project detect.Project, stderr io.Writer) Code {
+	if len(project.Install) == 0 {
+		return Success
+	}
+	display := strings.Join(project.Install, " ")
+	fmt.Fprintf(stderr, "gate: install: %s (in %s)\n", display, project.Workspace)
+	cmd := exec.CommandContext(ctx, project.Install[0], project.Install[1:]...)
+	cmd.Dir = project.Workspace
+	cmd.Env = markRoot(project.Root)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		return Success
+	}
+	_, _ = stderr.Write(out)
+	code := resolveCode(err)
+	fmt.Fprintf(stderr, "gate: FAIL install: %s (exit %d); no gate was run\n", display, code)
+	return code
 }
 
 // resolveGateDir turns a gate's configured directory into the absolute path
