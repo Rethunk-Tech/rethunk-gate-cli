@@ -22,6 +22,8 @@ pre-commit:
     - name: lint
       run: gate run lint
 
+    - name: gitleaks
+      run: gitleaks git --pre-commit --staged --redact --no-banner --log-level warn
 pre-push:
   jobs:
     # Everything, because this is the last point before the code leaves the
