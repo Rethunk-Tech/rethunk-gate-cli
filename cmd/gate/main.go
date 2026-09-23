@@ -45,7 +45,7 @@ func main() {
 	}()
 
 	code := app.Run(ctx, version, os.Args[1:], os.Stdout, os.Stderr)
-	// The signal that reached gate, not the SIGKILL gate sent the child --
+	// The signal that reached gate, not the one gate sent the child --
 	// reporting the latter would name gate's own mechanism as the cause.
 	if num := received.Load(); num != 0 {
 		code = app.Signaled(int(num))

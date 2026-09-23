@@ -619,8 +619,12 @@ overruns is **killed, not failed** — it exits 124, `timeout(1)`'s status and
 not one the command could have produced, so a caller can tell "slower than the
 limit" from "broken". The log keeps whatever was written before the kill, and
 its trailer records the timeout rather than an exit status that never happened.
-The whole process group is killed, not just the command: a test runner that
-forked workers would otherwise leave them holding a port.
+The whole process group is stopped, not just the command: a test runner that
+forked workers would otherwise leave them holding a port. The group gets
+SIGINT first, as Ctrl-C would send it, and SIGKILL 5 s later if anything in it
+is still alive, so a runner can shut down what it started in groups of its own:
+Playwright stops its `webServer` on SIGINT, and SIGTERM or SIGKILL would orphan
+it on its port. On Windows the command is killed outright.
 
 A killed gate says what to do about it, once per run however many overran —
 including a run whose every timeout was allowed, where the remedy line is
@@ -660,8 +664,8 @@ inherits, the second removes the limit from that one gate.
 
 ## Interrupting a run
 
-Ctrl-C stops the gates, not only `gate`: each running command is killed with
-its whole process group, so nothing survives holding a port, and each log still
+Ctrl-C stops the gates, not only `gate`: each running command is stopped with
+its whole process group, SIGINT then SIGKILL as a timeout does, so nothing survives holding a port, and each log still
 gets its trailer. A second signal ends `gate` outright, in case a command is
 ignoring the first. An interrupted gate reads as stopped, not failed, and the
 exit status is 128+the signal that reached `gate` — 130 for Ctrl-C.

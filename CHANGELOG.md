@@ -27,6 +27,10 @@ Notable changes to `gate`. The format follows
 
 ### Fixed
 
+- A timed-out or interrupted gate is stopped gracefully: SIGINT to its process
+  group, as Ctrl-C would send, then SIGKILL 5 s later to anything still alive.
+  A first SIGKILL left Playwright's `webServer`, which sits in a group of its
+  own, holding its port; Playwright stops it on SIGINT but not on SIGTERM.
 - The shell gate runs `shellcheck -x`, so a script that sources a sibling
   library no longer fails the gate with an SC1091 info finding.
 - The Go convention lint gate passes `--allow-parallel-runners`. golangci-lint

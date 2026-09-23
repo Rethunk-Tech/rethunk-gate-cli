@@ -32,7 +32,7 @@ Prerequisites and full install notes: [HUMANS.md](HUMANS.md).
 - **Cache-aware** — flags a gate turbo, `go test`, or make served from its own cache instead of running; `--force-cache` re-runs it for real.
 - **Auto-detects gates** — Makefile, `package.json`, `turbo.json`, then conventions for Go, Rust, Python, Node, workflows and shell scripts; `.gate.toml` adjusts without replacing.
 - **Concurrent by default** — `--serial` or `.gate.toml` when one gate needs another's result.
-- **Ctrl-C kills the tree** — trailer still written; stopped gates reported as skipped.
+- **Ctrl-C stops the tree** — SIGINT, then SIGKILL after 5 s; trailer still written; stopped gates reported as skipped.
 - **Machine-readable** — `--json` for what would run, `--ndjson` for one line per gate as it finishes.
 - **`gate doctor`** — read-only findings with evidence (CI gaps, missing vuln gates), `--json` included.
 

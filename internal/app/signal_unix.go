@@ -3,24 +3,46 @@
 package app
 
 import (
+	"errors"
 	"os/exec"
 	"syscall"
+	"time"
 )
 
 // setProcessGroup puts the child in its own process group so a timeout can
-// kill everything it started. A test runner that forked workers would
+// stop everything it started. A test runner that forked workers would
 // otherwise survive the kill and keep holding a port or a terminal.
 func setProcessGroup(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 }
 
-// killProcessGroup signals the whole group. The negative pid is what makes it
-// the group rather than just the child.
-func killProcessGroup(cmd *exec.Cmd) error {
+// interruptProcessGroup asks the whole group to stop the way Ctrl-C would.
+// A runner cleans up what it started in groups of its own only on SIGINT:
+// Playwright tears down its webServer then, while SIGTERM and SIGKILL both
+// end it with the server orphaned on its port. The negative pid is what
+// makes it the group.
+func interruptProcessGroup(cmd *exec.Cmd) error {
 	if cmd.Process == nil {
 		return nil
 	}
-	return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	return syscall.Kill(-cmd.Process.Pid, syscall.SIGINT)
+}
+
+// killProcessGroupBy waits for the group to empty until deadline, then
+// SIGKILLs whatever is left. The command itself exiting says nothing about
+// the rest of its group, so the group is what gets polled.
+func killProcessGroupBy(cmd *exec.Cmd, deadline time.Time) {
+	if cmd.Process == nil {
+		return
+	}
+	pgid := -cmd.Process.Pid
+	for time.Now().Before(deadline) {
+		if errors.Is(syscall.Kill(pgid, 0), syscall.ESRCH) {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	_ = syscall.Kill(pgid, syscall.SIGKILL)
 }
 
 // terminatingSignal reports the signal that killed the process, when one did.

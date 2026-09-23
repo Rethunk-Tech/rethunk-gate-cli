@@ -50,12 +50,16 @@ Breaking one of these is silent.
 | A signalled command reports 128+signal | exec reports -1, which tells the caller nothing |
 | A log close error is reported, not deferred away | Losing the log silently is the one failure nobody would notice |
 | An interrupted gate still reaches `writeTrailer` and `Close` | An unfinished file gate opened is left empty |
-| An interrupt reports the signal that reached *gate* | The child dies of the SIGKILL gate sent it |
+| An interrupt reports the signal that reached *gate* | The child dies of the signal gate sent it |
 | `--ndjson` lines are written under a mutex, from the finishing gate's own goroutine | Concurrent gates would otherwise interleave into a line nothing can parse |
 
 ## Interrupts
 
-Children sit in their **own** process group so a timeout can kill the whole tree.
+Children sit in their **own** process group so a timeout can stop the whole tree.
+Stopping is SIGINT to the group, then SIGKILL after `stopGrace` to whatever is
+left (`runOne`, `signal_unix.go`). SIGINT, not SIGTERM: Playwright stops the
+`webServer` it put in a group of its own only on SIGINT; SIGTERM kills its
+Node process with no cleanup, orphaning the server on its port.
 `main` catches SIGINT/SIGTERM, cancels the context, then hands the signal back
 to the OS so a second Ctrl-C still ends gate.
 

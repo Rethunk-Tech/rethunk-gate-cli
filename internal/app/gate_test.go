@@ -839,7 +839,7 @@ func TestAnInterruptedGateIsStoppedNotFailedAndKeepsItsLog(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	script := "echo before-the-interrupt; (touch " + started +
-		"; sleep 0.4; touch " + orphan + ") & sleep 10"
+		"; sleep 0.4; touch " + orphan + "); sleep 10"
 
 	var out, errBuf bytes.Buffer
 	done := make(chan Code, 1)
@@ -1226,11 +1226,12 @@ func TestTimeoutKillsTheWholeProcessGroup(t *testing.T) {
 	started := filepath.Join(dir, "child-started")
 	orphan := filepath.Join(dir, "orphan-survived")
 
-	// The background child outlives its parent's kill unless the whole group
-	// is signalled. It marks its own start immediately, so a subshell that
-	// never ran cannot be mistaken for one that was killed -- without that,
-	// this test passes whether or not the kill works.
-	script := "(touch " + started + "; sleep 0.4; touch " + orphan + ") & sleep 10"
+	// The subshell outlives its parent's kill unless the whole group is
+	// signalled. It marks its own start immediately, so a subshell that never
+	// ran cannot be mistaken for one that was killed -- without that, this
+	// test passes whether or not the kill works. It runs in the foreground
+	// because sh starts a background job with SIGINT ignored.
+	script := "(touch " + started + "; sleep 0.4; touch " + orphan + "); sleep 10"
 	_, _, code := runGateTest(t, "--timeout", "150ms", "--log", tempLog(t), "sh", "-c", script)
 	qt.Assert(t, qt.Equals(code, TimedOut))
 	qt.Assert(t, qt.IsTrue(exists(started)), qt.Commentf("the background child never ran, so nothing here is proven"))

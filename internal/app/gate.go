@@ -409,7 +409,7 @@ func report(results []gateResult, opts options, stdout, stderr io.Writer) Code {
 		case outcomeInterrupted:
 			// Stopped, not judged -- the same distinction a timeout gets. The
 			// status reported is the signal that reached gate, never the
-			// SIGKILL gate sent the child, which would name gate's own
+			// signal gate sent the child, which would name gate's own
 			// mechanism as the cause.
 			fmt.Fprintf(stderr, "gate: INTERRUPTED  %s  (stopped, not failed)\n", res.spec.short())
 			writeFailureRegion(stderr, res.tracker)
@@ -499,6 +499,10 @@ func writeTimeoutRemedy(w io.Writer, role string) {
 	fmt.Fprintf(w, "gate: raise it for that gate alone with timeout = \"5m\" under [gates.%s] in .gate.toml, or --timeout 5m for the whole run\n", role)
 }
 
+// stopGrace is how long a timed-out or interrupted gate has between SIGINT
+// and SIGKILL to its process group.
+const stopGrace = 5 * time.Second
+
 // runOne runs a single gate, sending every byte it writes to a log file and
 // keeping only a bounded summary in memory.
 func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
@@ -521,13 +525,17 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 	}
 
 	cmd := exec.CommandContext(runCtx, spec.argv[0], spec.argv[1:]...)
-	// Kill the whole process group, not just the child: a test runner that
+	// Stop the whole process group, not just the child: a test runner that
 	// spawned workers would otherwise leave them behind holding a port.
 	setProcessGroup(cmd)
-	cmd.Cancel = func() error { return killProcessGroup(cmd) }
-	// A child that ignores the kill still gets reaped rather than hanging the
+	var killBy time.Time
+	cmd.Cancel = func() error {
+		killBy = time.Now().Add(stopGrace)
+		return interruptProcessGroup(cmd)
+	}
+	// A child that ignores SIGINT still gets reaped rather than hanging the
 	// run it was supposed to bound.
-	cmd.WaitDelay = 5 * time.Second
+	cmd.WaitDelay = stopGrace
 	cmd.Dir = spec.dir
 	cmd.Env = markRoot(spec.dir)
 	// Appended after the process environment, so the gate wins over an
@@ -549,6 +557,11 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 
 	started := time.Now()
 	runErr := cmd.Run()
+	// Wait returning means the command is gone, not its group: a worker that
+	// ignored SIGINT, or is still handling it, gets the rest of the grace.
+	if !killBy.IsZero() {
+		killProcessGroupBy(cmd, killBy)
+	}
 	res.elapsed = time.Since(started)
 	res.started = true
 
