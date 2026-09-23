@@ -6,6 +6,14 @@ Notable changes to `gate`. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- A JavaScript package with its own lockfile that CI runs in a subdirectory
+  (a `working-directory` in `.github/workflows`) is a gate, named for the
+  directory, running what gate detects inside it, after its own frozen
+  install. A Python repository's `frontend/` was checked by CI and never by
+  gate. A configured gate of the same name overrides it.
+
 ### Fixed
 
 - The shell gate runs `shellcheck -x`, so a script that sources a sibling

@@ -82,7 +82,8 @@ and [`gate fix`](#gate-fix).
 ### Frozen install
 
 Where the workspace holds a lockfile, a bare `gate` or `gate run` first runs
-the frozen install for it once, from the workspace root, before any gate:
+the frozen install for it once, from the workspace root, before any gate (and
+one for each [package CI runs in a subdirectory](#packages-ci-runs-in-a-subdirectory)):
 `bun install --frozen-lockfile`, `yarn install --frozen-lockfile`, `npm ci`, or
 `pnpm install --frozen-lockfile`, in the same lockfile precedence the package
 runner uses. It prints `gate: install: <command> (in <workspace>)` on stderr.
@@ -252,6 +253,23 @@ silently skipping the rest of what `check` does.
 
 `workflows` and `shell` are not among the aggregated gates: linting workflow files or shell scripts is a
 different thing from what a project's `ci` target runs.
+
+### Packages CI runs in a subdirectory
+
+Detection stops at the nearest manifest, so a JavaScript package in a
+subdirectory with a lockfile of its own — a `frontend/` beside a Python or Go
+root — is reached by no root gate. Where a workflow under `.github/workflows`
+names that directory as a `working-directory`, gate adds one gate for it, named
+for the directory and run there: what bare `gate` would detect from inside the
+package, roles only. A package whose roles are all turbo tasks runs as one
+`turbo run <roles...>`; anything else runs its role commands in order under
+`sh -c`, stopping at the first failure. The package's own frozen install runs
+beside the workspace's, before any gate.
+
+A package without its own lockfile is a workspace member, which its workspace's
+gates already cover, and is not added. `shell` and `workflows` stay with the
+repository's own gates. A configured gate with the package's name overrides it
+like any other and, like any configured `run`, runs from the root.
 
 ### The shell gate
 

@@ -2526,3 +2526,35 @@ func TestAFailedFrozenInstallFailsTheRunBeforeAnyGate(t *testing.T) {
 	qt.Check(t, qt.StringContains(stderr, "gate: FAIL install: bun install --frozen-lockfile (exit 7)"))
 	qt.Check(t, qt.IsFalse(exists(marker)), qt.Commentf("a gate ran after the install failed"))
 }
+
+// A CI-run package gate runs in its own directory after its own frozen
+// install; a configured gate of the same name overrides it and, like every
+// configured command, runs from the root.
+func TestCIRunPackageGateRunsInItsDirectoryUnlessConfigured(t *testing.T) {
+	calls := fakeBun(t, 0)
+	// Only the fake bun and the system: a biome or tsc on this machine's PATH
+	// would add a convention gate to the package.
+	fake, _, _ := strings.Cut(os.Getenv("PATH"), string(os.PathListSeparator))
+	t.Setenv("PATH", fake+string(os.PathListSeparator)+"/usr/bin:/bin")
+	t.Setenv("TMPDIR", t.TempDir())
+	root := t.TempDir()
+	testutil.Write(t, root, "pyproject.toml", "[project]\nname = \"demo\"\n")
+	testutil.Write(t, root, ".github/workflows/ci.yml", "      - working-directory: frontend\n")
+	front := filepath.Join(root, "frontend")
+	testutil.Write(t, front, "package.json", `{"scripts":{"test":"bun test"}}`)
+	testutil.Write(t, front, "bun.lock", "")
+
+	_, stderr, code := runGateTest(t, "-C", root, "run", "frontend")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	got, err := os.ReadFile(calls)
+	if err != nil {
+		t.Fatal(err)
+	}
+	qt.Check(t, qt.Equals(string(got), front+": install --frozen-lockfile\n"+front+": run test\n"))
+
+	marker := filepath.Join(root, "ran-at-root")
+	testutil.Write(t, root, ".gate.toml", "[gates.frontend]\nrun = \"touch ran-at-root\"\n")
+	_, stderr, code = runGateTest(t, "-C", root, "run", "frontend")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.IsTrue(exists(marker)), qt.Commentf("a configured run moved into the package directory"))
+}

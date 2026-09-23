@@ -625,3 +625,115 @@ func declaresPytest(root string) bool {
 	}
 	return false
 }
+
+// workingDirectory matches a workflow's working-directory key, on a step or in
+// a defaults block. Textual, like every other manifest read here.
+var workingDirectory = regexp.MustCompile(`(?m)^[\s-]*working-directory:\s*["']?([^"'#\s]+)`)
+
+// ciPackageDirs lists the subdirectories the repository's CI workflows run
+// commands in, relative to root and sorted.
+func ciPackageDirs(root string) []string {
+	files, _ := filepath.Glob(filepath.Join(root, ".github", "workflows", "*.y*ml"))
+	var dirs []string
+	for _, file := range files {
+		data, err := os.ReadFile(file)
+		if err != nil {
+			continue
+		}
+		for _, m := range workingDirectory.FindAllStringSubmatch(string(data), -1) {
+			rel := filepath.Clean(m[1])
+			if strings.Contains(m[1], "${{") || rel == "." || !filepath.IsLocal(rel) || slices.Contains(dirs, rel) {
+				continue
+			}
+			dirs = append(dirs, rel)
+		}
+	}
+	slices.Sort(dirs)
+	return dirs
+}
+
+// ciPackageGates adds one gate for each JavaScript package with its own
+// lockfile that CI runs in a subdirectory. Nothing else reaches one: it is not
+// a workspace member, so no root turbo graph or package script runs it, and
+// detection from the root never looks below the root. A Python repository
+// with a frontend/ that CI lints and builds was checked by CI and not by gate.
+//
+// A package without its own lockfile is skipped: it belongs to a workspace,
+// and the workspace's own gates are what cover it.
+//
+// The gate is named for the directory, so a configured gate of that name
+// overrides it the way it overrides a role, and runs what gate would detect
+// from inside the package, roles only: shell and workflows stay with the
+// repository's own gates, which already see every file.
+func ciPackageGates(proj *Project) {
+	for _, rel := range ciPackageDirs(proj.Root) {
+		dir := filepath.Join(proj.Root, rel)
+		if !exists(filepath.Join(dir, "package.json")) || frozenInstall(dir) == nil {
+			continue
+		}
+		name := filepath.ToSlash(rel)
+		if IsRole(name) || slices.Contains(aggregateNames, name) {
+			proj.Notes = append(proj.Notes, "CI runs "+name+"/, but its name is a gate role; not run")
+			continue
+		}
+		sub, err := detectOne(dir)
+		if err != nil {
+			continue
+		}
+		var parts []Gate
+		for _, g := range sub.Gates {
+			if slices.Contains(declaredNames, g.Name) {
+				parts = append(parts, g)
+			}
+		}
+		if len(parts) == 0 {
+			proj.Notes = append(proj.Notes, "CI runs "+name+"/, but gate found no gates there; not run")
+			continue
+		}
+		proj.Installs = append(proj.Installs, sub.Installs...)
+		proj.Gates = append(proj.Gates, packageGate(name, dir, parts))
+	}
+}
+
+// packageGate folds a package's gates into one command. Turbo tasks become a
+// single `turbo run`, which keeps turbo's own concurrency and cache; anything
+// else runs in order under sh, stopping at the first failure.
+func packageGate(name, dir string, parts []Gate) Gate {
+	roles := make([]string, len(parts))
+	commands := make([]string, len(parts))
+	turbo := true
+	for i, g := range parts {
+		roles[i] = g.Name
+		commands[i] = shellJoin(g.Argv)
+		turbo = turbo && strings.HasPrefix(g.Source, turboSource) && g.Argv[0] == parts[0].Argv[0]
+	}
+	g := Gate{
+		Name:   name,
+		Dir:    dir,
+		Source: "CI working-directory " + name + ": " + strings.Join(roles, ", ") + " as detected there",
+	}
+	if turbo {
+		g.Argv = append([]string{parts[0].Argv[0], "run"}, roles...)
+		return g
+	}
+	g.Summary = strings.Join(commands, " && ")
+	g.Argv = []string{"sh", "-c", g.Summary}
+	return g
+}
+
+// shellSafe is what a word may hold and still reach sh unquoted.
+var shellSafe = regexp.MustCompile(`^[A-Za-z0-9_@%+=:,./-]+$`)
+
+// shellJoin renders argv as one sh command line: a resolved binary path can
+// hold a space, and sh would split it.
+func shellJoin(argv []string) string {
+	words := make([]string, len(argv))
+	for i, a := range argv {
+		if shellSafe.MatchString(a) {
+			words[i] = a
+		} else {
+			words[i] = "'" + strings.ReplaceAll(a, "'", `'\''`) + "'"
+		}
+	}
+	return strings.Join(words, " ")
+}

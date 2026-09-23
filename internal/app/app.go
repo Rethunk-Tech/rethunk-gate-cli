@@ -349,12 +349,18 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 				// is not necessarily where the caller stood.
 				dir: proj.Root,
 			}
+			if g.Dir != "" {
+				spec.dir, spec.hasDir = g.Dir, true
+			}
 			// Config overrides a detected gate; it never removes one, and the
 			// detected source stays on the line so --list still says where
 			// the gate came from as well as what changed it.
 			if c, ok := cfg.Gates[g.Name]; ok {
 				if c.Run != "" {
 					spec.argv, spec.display = shellArgv(c.Run), c.Run
+					// A configured command is written from the root, like
+					// every other one in the file; only `dir` moves it.
+					spec.dir, spec.hasDir = proj.Root, false
 					// A config `run` is a third declaration, and the most
 					// local one, so it settles a disagreement between the
 					// other two rather than muting the report of it. The
@@ -534,28 +540,28 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	return runGates(ctx, opts, stdout, stderr)
 }
 
-// frozenInstall runs the project's frozen install once, before any gate, and
-// fails the run when it fails: a lockfile out of step with package.json is a
-// failure CI reports too, and gates run over a stale node_modules pass code CI
-// rejects. Its output is quoted only on failure, on stderr, so stdout stays
-// the gates' own (NDJSON included).
+// frozenInstall runs the project's frozen installs once each, before any
+// gate, and fails the run when one fails: a lockfile out of step with
+// package.json is a failure CI reports too, and gates run over a stale
+// node_modules pass code CI rejects. Output is quoted only on failure, on
+// stderr, so stdout stays the gates' own (NDJSON included).
 func frozenInstall(ctx context.Context, project detect.Project, stderr io.Writer) Code {
-	if len(project.Install) == 0 {
-		return Success
+	for _, install := range project.Installs {
+		display := strings.Join(install.Argv, " ")
+		fmt.Fprintf(stderr, "gate: install: %s (in %s)\n", display, install.Dir)
+		cmd := exec.CommandContext(ctx, install.Argv[0], install.Argv[1:]...)
+		cmd.Dir = install.Dir
+		cmd.Env = markRoot(project.Root)
+		out, err := cmd.CombinedOutput()
+		if err == nil {
+			continue
+		}
+		_, _ = stderr.Write(out)
+		code := resolveCode(err)
+		fmt.Fprintf(stderr, "gate: FAIL install: %s (exit %d); no gate was run\n", display, code)
+		return code
 	}
-	display := strings.Join(project.Install, " ")
-	fmt.Fprintf(stderr, "gate: install: %s (in %s)\n", display, project.Workspace)
-	cmd := exec.CommandContext(ctx, project.Install[0], project.Install[1:]...)
-	cmd.Dir = project.Workspace
-	cmd.Env = markRoot(project.Root)
-	out, err := cmd.CombinedOutput()
-	if err == nil {
-		return Success
-	}
-	_, _ = stderr.Write(out)
-	code := resolveCode(err)
-	fmt.Fprintf(stderr, "gate: FAIL install: %s (exit %d); no gate was run\n", display, code)
-	return code
+	return Success
 }
 
 // resolveGateDir turns a gate's configured directory into the absolute path

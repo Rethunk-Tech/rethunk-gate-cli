@@ -813,3 +813,64 @@ func TestTscConventionUsesBuildModeWhenTsconfigHasReferences(t *testing.T) {
 	qt.Check(t, qt.DeepEquals(plainGate.Argv, []string{plainTsc, "--noEmit"}),
 		qt.Commentf("-b on a tsconfig with no references: %v", plainGate.Argv))
 }
+
+// A Python repository whose CI lints and builds a JavaScript package in a
+// subdirectory. Detection stops at the root manifest, so before this the
+// package was checked by CI and never by gate.
+func TestCIRunPackageInASubdirectoryIsOneGate(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, "pyproject.toml", "[project]\nname = \"demo\"\n")
+	testutil.Write(t, root, ".github/workflows/ci.yml", `jobs:
+  frontend:
+    defaults:
+      run:
+        working-directory: frontend
+  other:
+    steps:
+      - working-directory: "./frontend" # repeated, one gate
+      - working-directory: ${{ matrix.dir }}
+      - working-directory: ../elsewhere
+      - working-directory: member
+`)
+	front := filepath.Join(root, "frontend")
+	testutil.Write(t, front, "package.json", `{"scripts":{"build":"vite build","typecheck":"tsc","lint":"biome ci .","test":"bun test","e2e":"playwright test"}}`)
+	testutil.Write(t, front, "bun.lock", "")
+	// No lockfile of its own: a workspace member, covered by its workspace.
+	testutil.Write(t, root, "member/package.json", `{"scripts":{"test":"bun test"}}`)
+
+	proj := detect(t, root)
+	g := gateNamed(t, proj, "frontend")
+	qt.Check(t, qt.Equals(g.Dir, front))
+	qt.Check(t, qt.DeepEquals(g.Argv, []string{"sh", "-c", "bun run build && bun run typecheck && bun run lint && bun run test"}),
+		qt.Commentf("roles only, in gate order; e2e is not a role"))
+	qt.Check(t, qt.StringContains(g.Source, "CI working-directory frontend"))
+	qt.Check(t, qt.IsTrue(slices.ContainsFunc(proj.Installs, func(i Install) bool { return i.Dir == front })),
+		qt.Commentf("the package's own lockfile needs its own frozen install"))
+	for _, other := range proj.Gates {
+		qt.Check(t, qt.Not(qt.Equals(other.Name, "member")), qt.Commentf("a lockfile-less member became a gate"))
+	}
+	qt.Check(t, qt.Equals(gateNamed(t, proj, "lint").Argv[0], "uv"), qt.Commentf("the root's own gates are unchanged"))
+}
+
+// A package that delegates to turbo keeps one turbo run, so turbo's own
+// concurrency and cache still apply.
+func TestCIRunPackageWithTurboIsOneTurboRun(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, "go.mod", "module demo\n")
+	testutil.Write(t, root, ".github/workflows/ci.yml", "      - working-directory: web\n")
+	web := filepath.Join(root, "web")
+	testutil.Write(t, web, "package.json", `{"scripts":{"lint":"biome check .","test":"bun test"}}`)
+	testutil.Write(t, web, "bun.lock", "")
+	testutil.Write(t, web, "turbo.json", `{"tasks":{"lint":{},"test":{}}}`)
+	turbo := testutil.WriteExecutable(t, web, "node_modules/.bin/turbo")
+
+	g := gateNamed(t, detect(t, root), "web")
+	qt.Check(t, qt.DeepEquals(g.Argv, []string{turbo, "run", "lint", "test"}))
+}
+
+func TestShellJoinQuotesWhatShWouldSplit(t *testing.T) {
+	t.Parallel()
+	qt.Check(t, qt.Equals(shellJoin([]string{"/a b/tsc", "-b", "it's"}), `'/a b/tsc' -b 'it'\''s'`))
+}

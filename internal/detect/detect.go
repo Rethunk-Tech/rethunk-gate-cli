@@ -54,6 +54,10 @@ type Gate struct {
 	// Argv is untouched, so what runs is unchanged and --json still carries
 	// the whole command for a consumer that has to reproduce it.
 	Summary string
+
+	// Dir is where this gate runs, when that is not Project.Root. Only a
+	// CI-run package in a subdirectory sets it.
+	Dir string
 }
 
 // Display is the command as a reader would type it, or the gate's own summary
@@ -76,11 +80,12 @@ type Project struct {
 	// manifest" and "workspace root" are usually different.
 	Workspace string
 
-	// Install is the frozen install gate runs once, in Workspace, before any
-	// gate: gates run against whatever node_modules holds, and one left over
-	// from an older lockfile typechecks code CI rejects. Nil without a
-	// lockfile.
-	Install []string
+	// Installs are the frozen installs gate runs once each, before any gate:
+	// gates run against whatever node_modules holds, and one left over from
+	// an older lockfile typechecks code CI rejects. The workspace's comes
+	// first; each CI-run package with its own lockfile adds its own. Empty
+	// without a lockfile.
+	Installs []Install
 
 	Gates []Gate
 
@@ -91,6 +96,12 @@ type Project struct {
 	// of a tool. Configuration can still fill that role, and detection never
 	// reads configuration, so the merge needs the role to withdraw the note.
 	Skipped []Skip
+}
+
+// Install is one frozen install and the directory it runs in.
+type Install struct {
+	Dir  string
+	Argv []string
 }
 
 // gateOrder is the order gates run in. Build first because a test that needs
@@ -109,6 +120,16 @@ func IsRole(name string) bool { return slices.Contains(gateOrder, name) }
 // Detect inspects dir and everything above it, and reports the gates it can
 // run. It never executes anything.
 func Detect(dir string) (Project, error) {
+	proj, err := detectOne(dir)
+	if err != nil {
+		return proj, err
+	}
+	ciPackageGates(&proj)
+	return proj, nil
+}
+
+// detectOne is Detect for one project, without the CI-run packages beneath it.
+func detectOne(dir string) (Project, error) {
 	abs, err := filepath.Abs(dir)
 	if err != nil {
 		return Project{}, err
@@ -120,7 +141,9 @@ func Detect(dir string) (Project, error) {
 	}
 	if ws, ok := findUp(proj.Root, workspaceNames); ok {
 		proj.Workspace = ws
-		proj.Install = frozenInstall(ws)
+		if argv := frozenInstall(ws); argv != nil {
+			proj.Installs = []Install{{Dir: ws, Argv: argv}}
+		}
 	}
 
 	byName := map[string]Gate{}
