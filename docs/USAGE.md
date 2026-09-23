@@ -267,7 +267,12 @@ package, roles only. A package whose roles are all turbo tasks runs as one
 beside the workspace's, before any gate.
 
 A package without its own lockfile is a workspace member, which its workspace's
-gates already cover, and is not added. `shell` and `workflows` stay with the
+gates already cover, and is not added. Nor is a package a root gate already
+enters: a scheduled make target whose recipe, or a prerequisite's, runs
+`cd <dir>` or `-C <dir>`; a package script with `cd <dir>` or `--cwd <dir>`; or
+a configured gate under another name whose `run` enters it or whose `dir` is
+it. Gating it again would run the same build in the same directory at once, and
+`next build` refuses that. A note names the gate that covers it. `shell` and `workflows` stay with the
 repository's own gates. A configured gate with the package's name overrides it
 like any other and, like any configured `run`, runs from the root.
 

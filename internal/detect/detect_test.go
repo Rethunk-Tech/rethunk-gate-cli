@@ -874,3 +874,65 @@ func TestShellJoinQuotesWhatShWouldSplit(t *testing.T) {
 	t.Parallel()
 	qt.Check(t, qt.Equals(shellJoin([]string{"/a b/tsc", "-b", "it's"}), `'/a b/tsc' -b 'it'\''s'`))
 }
+
+func TestEntersMatchesOnlyThatDirectory(t *testing.T) {
+	t.Parallel()
+	for cmd, want := range map[string]bool{
+		"@cd frontend && bun run build":   true,
+		"(cd ./frontend/ && bun run dev)": true,
+		"$(MAKE) -C frontend lint":        true,
+		"bun --cwd=frontend run build":    true,
+		`cd "frontend"; make`:             true,
+		"cd frontend-admin && bun test":   false,
+		"cd other/frontend && bun test":   false,
+		"bun run build":                   false,
+	} {
+		qt.Check(t, qt.Equals(Enters(cmd, "frontend"), want), qt.Commentf("%q", cmd))
+	}
+}
+
+// ciPackageRepo is a Python root whose CI builds frontend/, which has its own
+// lockfile; makefile is the root Makefile.
+func ciPackageRepo(t *testing.T, makefile string) string {
+	t.Helper()
+	root := t.TempDir()
+	testutil.Write(t, root, "pyproject.toml", "[project]\nname = \"demo\"\n")
+	testutil.Write(t, root, "Makefile", makefile)
+	testutil.Write(t, root, ".github/workflows/ci.yml", "      - working-directory: frontend\n")
+	testutil.Write(t, root, "frontend/package.json", `{"scripts":{"build":"next build"}}`)
+	testutil.Write(t, root, "frontend/bun.lock", "")
+	return root
+}
+
+// The global-ai-alliance shape: a scheduled make target reaches, through its
+// prerequisites, a recipe that builds frontend/. A second gate there ran
+// `next build` beside it, and next refuses to share its directory.
+func TestCIRunPackageReachedByAScheduledMakeTargetIsNotGated(t *testing.T) {
+	t.Parallel()
+	root := ciPackageRepo(t, "OUT := a:b\n.PHONY: build \\\n  frontend-build\nbuild: backend frontend-build\nbackend:\n\t@echo ok\n\n# a: b\nfrontend-build:\n\t@cd frontend && bun run build\n")
+	proj := detect(t, root)
+	qt.Check(t, qt.IsFalse(slices.ContainsFunc(proj.Gates, func(g Gate) bool { return g.Name == "frontend" })))
+	qt.Check(t, qt.IsTrue(hasNote(proj, "CI runs frontend/, and Makefile target build already enters it")))
+	qt.Check(t, qt.IsFalse(slices.ContainsFunc(proj.Installs, func(i Install) bool { return strings.HasSuffix(i.Dir, "frontend") })))
+}
+
+// The paper-trail shape: the Makefile enters frontend/ only from a target gate
+// does not run, so nothing scheduled covers the package.
+func TestCIRunPackageEnteredOnlyByAnUnscheduledTargetKeepsItsGate(t *testing.T) {
+	t.Parallel()
+	root := ciPackageRepo(t, "verify: verify-frontend\nverify-frontend:\n\tcd frontend && bun run build\n")
+	proj := detect(t, root)
+	qt.Check(t, qt.Equals(gateNamed(t, proj, "frontend").Dir, filepath.Join(root, "frontend")))
+}
+
+func TestCIRunPackageReachedByARootPackageScriptIsNotGated(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, "package.json", `{"scripts":{"build":"bun --cwd web run build"}}`)
+	testutil.Write(t, root, "bun.lock", "")
+	testutil.Write(t, root, ".github/workflows/ci.yml", "      - working-directory: web\n")
+	testutil.Write(t, root, "web/package.json", `{"scripts":{"build":"vite build"}}`)
+	testutil.Write(t, root, "web/bun.lock", "")
+	proj := detect(t, root)
+	qt.Check(t, qt.IsFalse(slices.ContainsFunc(proj.Gates, func(g Gate) bool { return g.Name == "web" })))
+}

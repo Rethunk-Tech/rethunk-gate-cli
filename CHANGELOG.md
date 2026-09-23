@@ -12,7 +12,9 @@ Notable changes to `gate`. The format follows
   (a `working-directory` in `.github/workflows`) is a gate, named for the
   directory, running what gate detects inside it, after its own frozen
   install. A Python repository's `frontend/` was checked by CI and never by
-  gate. A configured gate of the same name overrides it.
+  gate. A configured gate of the same name overrides it, and a package a root
+  gate already enters (a make recipe's `cd frontend`, a configured `run`) is
+  not gated a second time.
 
 ### Fixed
 

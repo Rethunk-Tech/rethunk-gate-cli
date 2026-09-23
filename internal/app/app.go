@@ -335,6 +335,11 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 			})
 		})
 		for _, g := range proj.Gates {
+			if by := configEnters(cfg, proj.Root, g); by != "" {
+				project.Notes = append(project.Notes, "CI runs "+g.Name+"/, and "+by+" already enters it; not gated twice")
+				project.Installs = slices.DeleteFunc(slices.Clone(project.Installs), func(in detect.Install) bool { return in.Dir == g.Dir })
+				continue
+			}
 			if len(roles) > 0 && !slices.Contains(roles, g.Name) {
 				continue
 			}
@@ -572,6 +577,31 @@ func frozenInstall(ctx context.Context, project detect.Project, stderr io.Writer
 // A missing or non-directory value refuses the run: falling back to the
 // project root would run the gate somewhere its author did not choose, and
 // say nothing about it.
+// configEnters names the configured gate that already works in a detected
+// CI package's directory, by a `run` that changes into it or a `dir` set to
+// it, or returns "". The package gate beside it would run the same build in
+// the same directory at the same time. A configured gate of the package's own
+// name overrides it instead, so it is not counted here.
+func configEnters(cfg config.Config, root string, g detect.Gate) string {
+	if g.Dir == "" || cfg.Gates[g.Name].Run != "" {
+		return ""
+	}
+	for _, name := range slices.Sorted(maps.Keys(cfg.Gates)) {
+		c := cfg.Gates[name]
+		if name == g.Name || c.Run == "" {
+			continue
+		}
+		dir := c.Dir
+		if c.HasDir && !filepath.IsAbs(dir) {
+			dir = filepath.Join(root, dir)
+		}
+		if detect.Enters(c.Run, g.Name) || (c.HasDir && filepath.Clean(dir) == g.Dir) {
+			return c.Source + " gates." + name
+		}
+	}
+	return ""
+}
+
 func resolveGateDir(value, root string) (string, error) {
 	if !filepath.IsAbs(value) {
 		value = filepath.Join(root, value)

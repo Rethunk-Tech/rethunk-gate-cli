@@ -2558,3 +2558,33 @@ func TestCIRunPackageGateRunsInItsDirectoryUnlessConfigured(t *testing.T) {
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
 	qt.Check(t, qt.IsTrue(exists(marker)), qt.Commentf("a configured run moved into the package directory"))
 }
+
+// A configured gate under another name that already builds the package's
+// directory covers it: the detected gate beside it would run the same build
+// there at the same time, and so would its install.
+func TestCIRunPackageCoveredByAConfiguredGateIsNotGated(t *testing.T) {
+	calls := fakeBun(t, 0)
+	fake, _, _ := strings.Cut(os.Getenv("PATH"), string(os.PathListSeparator))
+	t.Setenv("PATH", fake+string(os.PathListSeparator)+"/usr/bin:/bin")
+	t.Setenv("TMPDIR", t.TempDir())
+	root := t.TempDir()
+	testutil.Write(t, root, "pyproject.toml", "[project]\nname = \"demo\"\n")
+	testutil.Write(t, root, ".github/workflows/ci.yml", "      - working-directory: frontend\n")
+	front := filepath.Join(root, "frontend")
+	testutil.Write(t, front, "package.json", `{"scripts":{"test":"bun test"}}`)
+	testutil.Write(t, front, "bun.lock", "")
+	testutil.Write(t, root, ".gate.toml", "[gates.web]\nrun = \"cd frontend && bun run build\"\n")
+
+	stdout, stderr, code := runGateTest(t, "-C", root, "--list")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.Not(qt.StringContains(stdout, "CI working-directory frontend")))
+	qt.Check(t, qt.StringContains(stdout, "CI runs frontend/, and "))
+
+	_, stderr, code = runGateTest(t, "-C", root, "run", "web")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	got, err := os.ReadFile(calls)
+	if err != nil {
+		t.Fatal(err)
+	}
+	qt.Check(t, qt.Equals(string(got), front+": run build\n"), qt.Commentf("the covered package's install still ran"))
+}

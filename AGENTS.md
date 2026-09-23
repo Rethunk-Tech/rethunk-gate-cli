@@ -99,7 +99,9 @@ A JavaScript package with its own lockfile that a workflow names as a
 `working-directory` becomes one gate named for its directory (`ciPackageGates`
 in `internal/detect/sources.go`): nothing else reaches it, since detection
 stops at the root manifest. That name is what lets a configured gate override
-it, and a configured `run` runs from the root, never the package.
+it, and a configured `run` runs from the root, never the package. A package a
+root gate already enters (`cd`, `-C`, `--cwd` in its make recipe closure or
+script body, or a configured gate's `run`/`dir`) is not gated twice.
 
 Binaries resolve from `node_modules/.bin` and `.venv/bin` before `PATH`; the
 **resolved path** goes into argv.

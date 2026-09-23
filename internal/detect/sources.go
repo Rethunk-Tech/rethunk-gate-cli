@@ -653,13 +653,16 @@ func ciPackageDirs(root string) []string {
 }
 
 // ciPackageGates adds one gate for each JavaScript package with its own
-// lockfile that CI runs in a subdirectory. Nothing else reaches one: it is not
-// a workspace member, so no root turbo graph or package script runs it, and
-// detection from the root never looks below the root. A Python repository
-// with a frontend/ that CI lints and builds was checked by CI and not by gate.
+// lockfile that CI runs in a subdirectory and no root gate reaches. Detection
+// from the root never looks below the root, and a lockfile makes the package
+// no workspace member, so a Python repository's frontend/ was checked by CI
+// and not by gate.
 //
-// A package without its own lockfile is skipped: it belongs to a workspace,
-// and the workspace's own gates are what cover it.
+// A JavaScript package without its own lockfile is skipped: it belongs to a
+// workspace, and the workspace's own gates are what cover it. So is a package
+// a root gate already enters (a make recipe's `cd frontend`, a package
+// script's `--cwd frontend`): gating it again runs the same build twice at
+// once, and `next build` refuses to share its directory.
 //
 // The gate is named for the directory, so a configured gate of that name
 // overrides it the way it overrides a role, and runs what gate would detect
@@ -674,6 +677,10 @@ func ciPackageGates(proj *Project) {
 		name := filepath.ToSlash(rel)
 		if IsRole(name) || slices.Contains(aggregateNames, name) {
 			proj.Notes = append(proj.Notes, "CI runs "+name+"/, but its name is a gate role; not run")
+			continue
+		}
+		if i := slices.IndexFunc(proj.Gates, func(g Gate) bool { return Enters(gateText(proj.Root, g), name) }); i >= 0 {
+			proj.Notes = append(proj.Notes, "CI runs "+name+"/, and "+proj.Gates[i].Source+" already enters it; not gated twice")
 			continue
 		}
 		sub, err := detectOne(dir)
@@ -693,6 +700,75 @@ func ciPackageGates(proj *Project) {
 		proj.Installs = append(proj.Installs, sub.Installs...)
 		proj.Gates = append(proj.Gates, packageGate(name, dir, parts))
 	}
+}
+
+// Enters reports whether a shell command changes into rel, a directory
+// relative to where the command runs: `cd rel`, `make -C rel`, `bun --cwd rel`.
+// Textual, so a command that reaches the directory some other way is missed.
+func Enters(command, rel string) bool {
+	re := regexp.MustCompile(`(?:^|[\s;&|(@+-])(?:cd|-C|--cwd)[\s=]+["']?(?:\./)?` +
+		regexp.QuoteMeta(filepath.ToSlash(rel)) + `/?(?:["'\s;&|)]|$)`)
+	return re.MatchString(command)
+}
+
+// gateText is everything a root gate runs that can be read without running
+// it: its command, a package script's body (which its source carries), and
+// for a make target the recipes of every target it depends on.
+func gateText(root string, g Gate) string {
+	text := g.Source + "\n" + shellJoin(g.Argv)
+	if len(g.Argv) == 2 && g.Argv[0] == "make" {
+		text += "\n" + makeRecipes(root, g.Argv[1])
+	}
+	return text
+}
+
+// makeRecipes returns the recipe lines of target and of every prerequisite it
+// reaches in root's Makefile. Read textually, like makefileGates: evaluating
+// the file would mean running make.
+func makeRecipes(root, target string) string {
+	data, err := os.ReadFile(filepath.Join(root, "Makefile"))
+	if err != nil {
+		return ""
+	}
+	prereqs := map[string][]string{}
+	recipes := map[string][]string{}
+	var current []string
+	for _, line := range strings.Split(strings.ReplaceAll(string(data), "\\\n", " "), "\n") {
+		if strings.HasPrefix(line, "\t") {
+			for _, t := range current {
+				recipes[t] = append(recipes[t], line)
+			}
+			continue
+		}
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		head, rest, ok := strings.Cut(line, ":")
+		if !ok || strings.HasPrefix(rest, "=") || strings.ContainsAny(head, "=#$") || strings.TrimSpace(head) == "" {
+			current = nil
+			continue
+		}
+		deps, _, _ := strings.Cut(strings.TrimPrefix(rest, ":"), ";")
+		current = strings.Fields(head)
+		for _, t := range current {
+			prereqs[t] = append(prereqs[t], strings.Fields(strings.ReplaceAll(deps, "|", " "))...)
+		}
+	}
+	var lines []string
+	seen := map[string]bool{}
+	queue := []string{target}
+	for len(queue) > 0 {
+		t := queue[0]
+		queue = queue[1:]
+		if seen[t] {
+			continue
+		}
+		seen[t] = true
+		lines = append(lines, recipes[t]...)
+		queue = append(queue, prereqs[t]...)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // packageGate folds a package's gates into one command. Turbo tasks become a
