@@ -1059,3 +1059,20 @@ func TestCIScriptStepsCoveredByRolesChangeNothing(t *testing.T) {
 	qt.Check(t, qt.IsFalse(slices.ContainsFunc(proj.Gates, func(g Gate) bool { return strings.HasPrefix(g.Source, "CI step") })),
 		qt.Commentf("gates = %v", proj.Gates))
 }
+
+// A Go-only submodule inside a JS superproject ran the superproject's frozen
+// install on every gate, and parallel submodule gates raced on that one
+// node_modules. The repository root bounds the search.
+func TestSubmoduleDoesNotInstallItsSuperproject(t *testing.T) {
+	t.Parallel()
+	super := t.TempDir()
+	testutil.Write(t, super, "package.json", `{}`)
+	testutil.Write(t, super, "bun.lock", "")
+	testutil.Write(t, super, "sub/.git", "gitdir: ../.git/modules/sub\n")
+	testutil.Write(t, super, "sub/go.mod", "module example.com/sub\n\ngo 1.27\n")
+
+	proj := detect(t, filepath.Join(super, "sub"))
+	qt.Check(t, qt.Equals(proj.Root, filepath.Join(super, "sub")))
+	qt.Check(t, qt.Equals(proj.Workspace, ""))
+	qt.Check(t, qt.HasLen(proj.Installs, 0))
+}

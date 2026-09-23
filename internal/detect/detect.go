@@ -293,13 +293,17 @@ var workspaceNames = slices.Concat(
 )
 
 // findUp walks from dir upward for the first directory containing any of
-// names, stopping at the filesystem root.
+// names, stopping at the enclosing repository's root: a submodule without its
+// own lockfile must not install, or gate, its superproject.
 func findUp(dir string, names []string) (string, bool) {
 	for {
 		for _, name := range names {
 			if _, err := os.Stat(filepath.Join(dir, name)); err == nil {
 				return dir, true
 			}
+		}
+		if exists(filepath.Join(dir, ".git")) {
+			return "", false
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
