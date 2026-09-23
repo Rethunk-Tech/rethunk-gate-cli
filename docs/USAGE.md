@@ -258,10 +258,10 @@ different thing from what a project's `ci` target runs.
 
 Detection stops at the nearest manifest, so a JavaScript package in a
 subdirectory with a lockfile of its own — a `frontend/` beside a Python or Go
-root — is reached by no root gate. Where a workflow under `.github/workflows`
+root — or a Go module with its own `go.mod` is reached by no root gate. Where a workflow under `.github/workflows`
 names that directory as a `working-directory`, gate adds one gate for it, named
 for the directory and run there: what bare `gate` would detect from inside the
-package, roles only. A package whose roles are all turbo tasks runs as one
+package, roles only (for a Go module: build, lint or vet, test, vuln). A package whose roles are all turbo tasks runs as one
 `turbo run <roles...>`; anything else runs its role commands in order under
 `sh -c`, stopping at the first failure. The package's own frozen install runs
 beside the workspace's, before any gate.

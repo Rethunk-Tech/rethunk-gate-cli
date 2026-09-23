@@ -95,8 +95,8 @@ claimed none (declining there leaves the project unchecked). `workflows` and
 `shell` are not among the aggregated gates. Both branches state which case applied — a note
 present in only one reads as a bug in the other.
 
-A JavaScript package with its own lockfile that a workflow names as a
-`working-directory` becomes one gate named for its directory (`ciPackageGates`
+A JavaScript package with its own lockfile, or a Go module with its own
+`go.mod`, that a workflow names as a `working-directory` becomes one gate named for its directory (`ciPackageGates`
 in `internal/detect/sources.go`): nothing else reaches it, since detection
 stops at the root manifest. That name is what lets a configured gate override
 it, and a configured `run` runs from the root, never the package. A package a

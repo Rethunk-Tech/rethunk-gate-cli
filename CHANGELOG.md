@@ -8,6 +8,8 @@ Notable changes to `gate`. The format follows
 
 ### Added
 
+- A Go module with its own `go.mod` that CI runs in a subdirectory is a gate
+  the same way: build, lint, test and vuln as gate detects them inside it.
 - A JavaScript package with its own lockfile that CI runs in a subdirectory
   (a `working-directory` in `.github/workflows`) is a gate, named for the
   directory, running what gate detects inside it, after its own frozen

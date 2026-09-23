@@ -936,3 +936,36 @@ func TestCIRunPackageReachedByARootPackageScriptIsNotGated(t *testing.T) {
 	proj := detect(t, root)
 	qt.Check(t, qt.IsFalse(slices.ContainsFunc(proj.Gates, func(g Gate) bool { return g.Name == "web" })))
 }
+
+// The paper-trail shape: a Python root whose CI builds and tests a Go module
+// with its own go.mod, which the root's gates never reach.
+func TestCIRunGoModuleInASubdirectoryIsOneGate(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, "pyproject.toml", "[project]\nname = \"demo\"\n")
+	testutil.Write(t, root, ".github/workflows/ci.yml", "        working-directory: src/setup\n")
+	setup := filepath.Join(root, "src", "setup")
+	testutil.Write(t, setup, "go.mod", "module setup\n")
+	testutil.Write(t, setup, "Makefile", "test:\n\tgo test -race ./...\n")
+
+	proj := detect(t, root)
+	g := gateNamed(t, proj, "src/setup")
+	qt.Check(t, qt.Equals(g.Dir, setup))
+	qt.Check(t, qt.Equals(g.Argv[0], "sh"))
+	qt.Check(t, qt.StringContains(g.Summary, "go build ./..."))
+	qt.Check(t, qt.StringContains(g.Summary, "make test"), qt.Commentf("the module's own Makefile target outranks the convention"))
+	qt.Check(t, qt.HasLen(proj.Installs, 0))
+}
+
+func TestCIRunGoModuleAMakeTargetEntersIsNotGated(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, "pyproject.toml", "[project]\nname = \"demo\"\n")
+	testutil.Write(t, root, "Makefile", "test:\n\t$(MAKE) -C src/setup test\n")
+	testutil.Write(t, root, ".github/workflows/ci.yml", "        working-directory: src/setup\n")
+	testutil.Write(t, root, "src/setup/go.mod", "module setup\n")
+
+	proj := detect(t, root)
+	qt.Check(t, qt.IsFalse(slices.ContainsFunc(proj.Gates, func(g Gate) bool { return g.Name == "src/setup" })))
+	qt.Check(t, qt.IsTrue(hasNote(proj, "CI runs src/setup/, and Makefile target test already enters it")))
+}

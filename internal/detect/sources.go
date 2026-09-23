@@ -652,11 +652,12 @@ func ciPackageDirs(root string) []string {
 	return dirs
 }
 
-// ciPackageGates adds one gate for each JavaScript package with its own
-// lockfile that CI runs in a subdirectory and no root gate reaches. Detection
-// from the root never looks below the root, and a lockfile makes the package
-// no workspace member, so a Python repository's frontend/ was checked by CI
-// and not by gate.
+// ciPackageGates adds one gate for each package CI runs in a subdirectory
+// that no root gate reaches: a JavaScript package with its own lockfile, or a
+// Go module of its own. Detection from the root never looks below the root,
+// a lockfile makes the package no workspace member, and a nested go.mod is
+// outside the root module's ./..., so a Python repository's frontend/ or
+// setup tool was checked by CI and not by gate.
 //
 // A JavaScript package without its own lockfile is skipped: it belongs to a
 // workspace, and the workspace's own gates are what cover it. So is a package
@@ -671,7 +672,8 @@ func ciPackageDirs(root string) []string {
 func ciPackageGates(proj *Project) {
 	for _, rel := range ciPackageDirs(proj.Root) {
 		dir := filepath.Join(proj.Root, rel)
-		if !exists(filepath.Join(dir, "package.json")) || frozenInstall(dir) == nil {
+		js := exists(filepath.Join(dir, "package.json")) && frozenInstall(dir) != nil
+		if !js && !exists(filepath.Join(dir, "go.mod")) {
 			continue
 		}
 		name := filepath.ToSlash(rel)
@@ -697,7 +699,13 @@ func ciPackageGates(proj *Project) {
 			proj.Notes = append(proj.Notes, "CI runs "+name+"/, but gate found no gates there; not run")
 			continue
 		}
-		proj.Installs = append(proj.Installs, sub.Installs...)
+		// A Go module under a JavaScript workspace finds that workspace
+		// upward, and the root's install already runs it.
+		for _, in := range sub.Installs {
+			if in.Dir == dir {
+				proj.Installs = append(proj.Installs, in)
+			}
+		}
 		proj.Gates = append(proj.Gates, packageGate(name, dir, parts))
 	}
 }
