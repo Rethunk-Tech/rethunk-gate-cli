@@ -8,6 +8,11 @@ Notable changes to `gate`. The format follows
 
 ### Added
 
+- Each run over a detected project writes its outcome, with the HEAD and
+  dirty state it ran against, to `$XDG_STATE_HOME/gate/results/`, one file per
+  project root, so a tool that did not start the run can tell whether the tree
+  in front of it passed. Format: docs/USAGE.md, Result record.
+
 - A package script a push or pull-request workflow runs that no role covers
   (`bun run knip`, `bun run test:e2e`), and each task a declined `ci`
   aggregate runs beyond the roles, is a gate named for it, serial behind the

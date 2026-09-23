@@ -67,6 +67,12 @@ type options struct {
 	// otherwise answer from cache. See cache.go, applyForceCache.
 	forceCache bool
 	gates      []gateSpec
+
+	// root is the detected project root, empty for a command the caller
+	// named, which has no project to keep a result record for. partial says
+	// the caller named a subset of its gates.
+	root    string
+	partial bool
 }
 
 // gateSpec is one command to run. argv is executed directly, without a shell,
@@ -256,6 +262,13 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 	stream := newResultStream(stdout, opts.ndjson)
 
 	started := time.Now()
+	// Read beside the gates rather than before them: it costs a git spawn or
+	// two, and the median run is short enough for that to show. A gate that
+	// rewrites the tree within those milliseconds is the ceiling.
+	tree := make(chan treeState, 1)
+	if opts.root != "" {
+		go func() { tree <- readTree(ctx, opts.root) }()
+	}
 	var wg sync.WaitGroup
 	for _, group := range schedule(opts.gates, opts.serial) {
 		wg.Go(func() {
@@ -309,6 +322,23 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 	code := report(results, opts, stdout, stderr)
 	if opts.profile {
 		writeProfile(stderr, results, wall)
+	}
+	if opts.root != "" {
+		if state := <-tree; state.ok {
+			rec := record{
+				Schema: recordSchema, Root: canonicalRoot(opts.root), Head: state.head, Dirty: state.dirty,
+				Partial: opts.partial, Started: started, Finished: started.Add(wall), Exit: int(code),
+				Gates: make([]result, 0, len(results)),
+			}
+			for _, res := range results {
+				rec.Gates = append(rec.Gates, toResult(res))
+			}
+			// Reported, never fatal: the record is a convenience for other
+			// tools, and the run's own status is the verdict.
+			if err := writeRecord(rec); err != nil {
+				fmt.Fprintf(stderr, "gate: cannot write the result record: %v\n", err)
+			}
+		}
 	}
 	return code
 }

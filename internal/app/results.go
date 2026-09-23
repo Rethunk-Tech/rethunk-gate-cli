@@ -84,13 +84,23 @@ func newResultStream(w io.Writer, wanted bool) *resultStream {
 	return &resultStream{enc: json.NewEncoder(w)}
 }
 
-// emit writes one gate's line. The status and code come from the same
-// gateResult.outcome the text report and the log trailer read, so the three
-// can never tell different stories about one run.
+// emit writes one gate's line.
 func (s *resultStream) emit(res gateResult) {
 	if s == nil {
 		return
 	}
+	rec := toResult(res)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	// Encode ends every value with a newline, which is the whole of NDJSON.
+	_ = s.enc.Encode(rec)
+}
+
+// toResult is one gate's outcome as a stream line or a record entry. The
+// status and code come from the same gateResult.outcome the text report and
+// the log trailer read, so none of them can tell a different story about one
+// run.
+func toResult(res gateResult) result {
 	rec := result{
 		Name:    res.spec.role,
 		Argv:    array(res.spec.argv),
@@ -137,9 +147,5 @@ func (s *resultStream) emit(res gateResult) {
 		rec.Allowed = true
 	}
 	rec.Cache = res.cache.label()
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	// Encode ends every value with a newline, which is the whole of NDJSON.
-	_ = s.enc.Encode(rec)
+	return rec
 }

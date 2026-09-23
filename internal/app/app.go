@@ -546,6 +546,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	if code := frozenInstall(ctx, project, stderr); code != Success {
 		return code
 	}
+	opts.root, opts.partial = project.Root, len(roles) > 0
 	return runGates(ctx, opts, stdout, stderr)
 }
 

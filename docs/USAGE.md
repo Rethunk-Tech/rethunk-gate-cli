@@ -693,6 +693,55 @@ a stamp file makes the cost one stat per run rather than one per log — and
 never touches a directory `--log` named, which is the caller's and holds files
 gate did not place.
 
+## Result record
+
+After a run over a detected project (bare `gate`, or `gate run <names>`), gate
+writes the run's outcome to one file per project root, so a tool that did not
+start the run can still read it:
+
+```
+$XDG_STATE_HOME/gate/results/<sha256 of the root>.json
+```
+
+`~/.local/state` stands in for `XDG_STATE_HOME` when that is unset or not
+absolute. The root is the project root as detection found it, with symlinks
+resolved; the name is the lowercase hex SHA-256 of that path's bytes. Each run
+replaces the file by writing a temporary file beside it and renaming it over,
+so a reader sees one whole record or the previous one. Nothing is written for
+a command named directly (`gate go test ./...`), outside a git work tree, or
+for a repository with no commit.
+
+```json
+{
+  "schema": 1,
+  "root": "/usr/local/src/example",
+  "head": "35f23ab5255d6ac9e2804b7bc8ecea389a70aea6",
+  "dirty": false,
+  "partial": false,
+  "started": "2026-09-23T10:00:00.123456789-07:00",
+  "finished": "2026-09-23T10:00:04.5-07:00",
+  "exit": 0,
+  "gates": [
+    { "name": "test", "argv": ["make", "test"], "display": "make test",
+      "status": "ok", "code": 0, "ms": 4200, "log": "/var/tmp/gate/make-test-123.log" }
+  ]
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `schema` | Bumped on any change a reader has to know about |
+| `head` | `git rev-parse HEAD` at the start of the run |
+| `dirty` | `git status --porcelain` printed anything (untracked files count) |
+| `partial` | `gate run <names>`: only those gates ran, so a pass is not the project's whole gate |
+| `exit` | gate's own exit status for the run |
+| `gates` | One entry per gate, in declaration order, each the same object `--ndjson` emits |
+
+The record is true only of the commit and dirty state it names. A reader shows
+it only when the tree's current HEAD equals `head` and its dirty state equals
+`dirty`, and shows nothing otherwise. A dirty record matches any dirty tree at
+that HEAD; the file does not say which edits were present.
+
 ## Exit codes
 
 `gate` is a wrapper, so it mostly returns nothing of its own: the wrapped

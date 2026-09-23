@@ -225,7 +225,11 @@ verdict goes.
 
 ## State
 
-No state beyond log files. Logs go to `$TMPDIR`, or `/var/tmp` when unset —
+Logs, and one result record per project root (`record.go`; format in
+[docs/USAGE.md](docs/USAGE.md#result-record)). The record's git read runs
+beside the gates rather than before them, so a run pays no extra wall time for
+it; its write failing is a stderr line, never a change to the exit status or
+to stdout. Logs go to `$TMPDIR`, or `/var/tmp` when unset —
 never `/tmp` on unix (`logDir` is build-tagged). `run` strings split `sh -c` vs
 `cmd /c`. Logs are 0600 in a 0700 directory.
 
