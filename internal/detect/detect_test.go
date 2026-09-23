@@ -856,8 +856,10 @@ func TestCIRunPackageInASubdirectoryIsOneGate(t *testing.T) {
 // A package that delegates to turbo keeps one turbo run, so turbo's own
 // concurrency and cache still apply.
 func TestCIRunPackageWithTurboIsOneTurboRun(t *testing.T) {
-	t.Parallel()
+	// Not parallel, and PATH is emptied rather than trusted: a runner with a
+	// global tsc adds a typecheck role turbo does not declare.
 	root := t.TempDir()
+	t.Setenv("PATH", filepath.Join(root, "no-such-bin"))
 	testutil.Write(t, root, "go.mod", "module demo\n")
 	testutil.Write(t, root, ".github/workflows/ci.yml", "      - working-directory: web\n")
 	web := filepath.Join(root, "web")
@@ -974,8 +976,10 @@ func TestCIRunGoModuleAMakeTargetEntersIsNotGated(t *testing.T) {
 // aggregate runs beyond the roles. Each becomes a gate, serial behind build,
 // carrying its step's env; a step that needs CI's services or values is a note.
 func TestCIScriptStepsGateWhatNoRoleCovers(t *testing.T) {
-	t.Parallel()
+	// Not parallel, and PATH is emptied rather than trusted: a runner with a
+	// global tsc adds a typecheck role this project does not declare.
 	root := t.TempDir()
+	t.Setenv("PATH", filepath.Join(root, "no-such-bin"))
 	testutil.Write(t, root, "package.json", `{"scripts":{
 		"build":"vite build","lint":"biome check .","test":"vitest run",
 		"ci":"turbo run lint test build validate --filter=x && bun run pagefind",
