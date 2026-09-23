@@ -103,6 +103,12 @@ it, and a configured `run` runs from the root, never the package. A package a
 root gate already enters (`cd`, `-C`, `--cwd` in its make recipe closure or
 script body, or a configured gate's `run`/`dir`) is not gated twice.
 
+A package script a push or pull-request workflow step runs whole
+(`<runner> run <script>`), or a task a declined aggregate runs beyond the
+roles, becomes a gate named for it (`ciScriptGates` in `internal/detect/ci.go`),
+serial behind a serial build, carrying the step's and job's `env`. A step
+handed `${{ }}` values or in a job that starts services is a note instead.
+
 Binaries resolve from `node_modules/.bin` and `.venv/bin` before `PATH`; the
 **resolved path** goes into argv.
 

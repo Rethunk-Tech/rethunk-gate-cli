@@ -350,6 +350,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 				source:   g.Source,
 				shadowed: g.Shadowed,
 				serial:   g.Serial,
+				env:      maps.Clone(g.Env),
 				// The project's own commands only work at its root, which
 				// is not necessarily where the caller stood.
 				dir: proj.Root,
@@ -386,7 +387,10 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 				// set only where the file said so, so one gate's settings
 				// never leak onto another.
 				if c.HasEnv {
-					spec.env = maps.Clone(c.Env)
+					if spec.env == nil {
+						spec.env = map[string]string{}
+					}
+					maps.Copy(spec.env, c.Env)
 				}
 				if c.HasDir {
 					resolved, err := resolveGateDir(c.Dir, proj.Root)

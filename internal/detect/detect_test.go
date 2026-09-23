@@ -969,3 +969,89 @@ func TestCIRunGoModuleAMakeTargetEntersIsNotGated(t *testing.T) {
 	qt.Check(t, qt.IsFalse(slices.ContainsFunc(proj.Gates, func(g Gate) bool { return g.Name == "src/setup" })))
 	qt.Check(t, qt.IsTrue(hasNote(proj, "CI runs src/setup/, and Makefile target test already enters it")))
 }
+
+// CI runs package scripts no role covers, and the tasks a declined ci
+// aggregate runs beyond the roles. Each becomes a gate, serial behind build,
+// carrying its step's env; a step that needs CI's services or values is a note.
+func TestCIScriptStepsGateWhatNoRoleCovers(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, "package.json", `{"scripts":{
+		"build":"vite build","lint":"biome check .","test":"vitest run",
+		"ci":"turbo run lint test build validate --filter=x && bun run pagefind",
+		"validate":"tsx v.ts","pagefind":"pagefind","knip":"knip","e2e":"playwright test",
+		"db:test":"supabase test db","a11y":"node a11y.mjs","sub":"x","manual":"x"}}`)
+	testutil.Write(t, root, "bun.lock", "")
+	testutil.Write(t, root, "turbo.json", `{"tasks":{"build":{},"lint":{},"test":{},"validate":{}}}`)
+	turbo := testutil.WriteExecutable(t, root, "node_modules/.bin/turbo")
+	testutil.Write(t, root, ".github/workflows/ci.yml", `name: CI
+on:
+  push:
+    branches: [main]
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      SHARED: job # overridden below
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint
+        run: bun run lint
+      - run: "bun run knip" # quoted
+      - run: bun run ci
+      - name: E2E
+        run: bun run e2e
+        env:
+          SHARED: step
+          CONFIG: "examples/min.yaml"
+      - run: bun run a11y
+        env:
+          CHROME: ${{ steps.chrome.outputs.path }}
+      - run: bun run sub
+        working-directory: web
+  db:
+    services:
+      postgres:
+        image: postgres
+    steps:
+      - run: bun run db:test
+`)
+	testutil.Write(t, root, ".github/workflows/manual.yml", "on: workflow_dispatch\njobs:\n  x:\n    steps:\n      - run: bun run manual\n")
+
+	proj := detect(t, root)
+	var names []string
+	for _, g := range proj.Gates {
+		if g.Name != "workflows" { // present only where actionlint is installed
+			names = append(names, g.Name)
+		}
+	}
+	qt.Check(t, qt.DeepEquals(names, []string{"build", "lint", "test", "knip", "validate", "pagefind", "e2e"}))
+	qt.Check(t, qt.IsTrue(gateNamed(t, proj, "build").Serial), qt.Commentf("CI steps run on a built tree"))
+	qt.Check(t, qt.IsFalse(gateNamed(t, proj, "lint").Serial))
+
+	knip := gateNamed(t, proj, "knip")
+	qt.Check(t, qt.DeepEquals(knip.Argv, []string{"bun", "run", "knip"}))
+	qt.Check(t, qt.IsTrue(knip.Serial))
+	qt.Check(t, qt.DeepEquals(knip.Env, map[string]string{"SHARED": "job"}))
+	qt.Check(t, qt.DeepEquals(gateNamed(t, proj, "validate").Argv, []string{turbo, "run", "validate"}),
+		qt.Commentf("a turbo flag is not a task"))
+	qt.Check(t, qt.StringContains(gateNamed(t, proj, "pagefind").Source, "CI step `bun run ci` (ci.yml job verify), package.json scripts.pagefind"))
+	qt.Check(t, qt.DeepEquals(gateNamed(t, proj, "e2e").Env, map[string]string{"SHARED": "step", "CONFIG": "examples/min.yaml"}))
+
+	qt.Check(t, qt.IsTrue(hasNote(proj, "CI step `bun run a11y` (ci.yml job verify) is not run: CI supplies it ${{ }} values")), qt.Commentf("notes = %v", proj.Notes))
+	qt.Check(t, qt.IsTrue(hasNote(proj, "CI step `bun run db:test` (ci.yml job db) is not run: its job starts service containers")), qt.Commentf("notes = %v", proj.Notes))
+}
+
+// A repository whose CI runs nothing beyond the roles is detected exactly as
+// before: no build ordering appears from nowhere.
+func TestCIScriptStepsCoveredByRolesChangeNothing(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, "package.json", `{"scripts":{"build":"tsc","test":"vitest run","ci":"bun run build && bun run test"}}`)
+	testutil.Write(t, root, ".github/workflows/ci.yml", "on: [push, pull_request]\njobs:\n  a:\n    steps:\n      - run: bun run ci\n      - run: bun run test\n")
+
+	proj := detect(t, root)
+	qt.Check(t, qt.IsFalse(gateNamed(t, proj, "build").Serial))
+	qt.Check(t, qt.IsFalse(slices.ContainsFunc(proj.Gates, func(g Gate) bool { return strings.HasPrefix(g.Source, "CI step") })),
+		qt.Commentf("gates = %v", proj.Gates))
+}

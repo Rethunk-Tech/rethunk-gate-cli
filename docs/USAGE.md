@@ -276,6 +276,32 @@ it. Gating it again would run the same build in the same directory at once, and
 repository's own gates. A configured gate with the package's name overrides it
 like any other and, like any configured `run`, runs from the root.
 
+### Scripts CI runs
+
+A push or pull-request workflow that runs a package script no role covers --
+`bun run knip`, `bun run test:e2e` -- adds a gate named for the script, and so
+does each task or script a declined aggregate runs beyond the roles: `bun run
+ci` with `ci` set to `turbo run validate-examples lint test && bun run
+pagefind` adds `validate-examples` (through turbo) and `pagefind`. Only a step
+whose whole command is `<runner> run <script>`, at the root: a multi-line
+`run`, a raw command, a `working-directory`, and a workflow run only by hand or
+on a schedule are not read.
+
+These gates run serial, in the order CI names them, and the build gate joins
+them first: CI runs its steps in order on a built tree, and a search index or
+an e2e suite reads that build. A step's `env`, and its job's, reach the gate,
+under anything `.gate.toml` sets for it. A step CI hands `${{ }}` values, or
+whose job starts services (`services:`, `supabase start`, `docker compose up`,
+`docker run`), is not run, and a note names it.
+
+A configured gate of the same name overrides one like any other; a drift check
+that follows a generator is the usual reason:
+
+```toml
+[gates.generate-schema]
+run = "bun run generate-schema && git diff --exit-code -- config.schema.json"
+```
+
 ### The shell gate
 
 `shellcheck` takes files, not a directory, so gate has to name them. The
@@ -359,8 +385,8 @@ A convention losing to a declaration is not a disagreement and is not reported.
 
 ### Running some of them
 
-`gate run lint test` runs those two. The names are the seven roles plus any gate
-`.gate.toml` declares, which is the only way to reach one of those. Every name
+`gate run lint test` runs those two. The names are any `gate --list` shows: the
+seven roles, CI-run packages and scripts, and any gate `.gate.toml` declares. Every name
 has to resolve — one that does not fails the whole run without running
 anything, because running the subset that matched would report a pass covering
 a gate that never ran:

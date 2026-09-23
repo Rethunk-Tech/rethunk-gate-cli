@@ -58,6 +58,10 @@ type Gate struct {
 	// Dir is where this gate runs, when that is not Project.Root. Only a
 	// CI-run package in a subdirectory sets it.
 	Dir string
+
+	// Env is what a CI step sets for the script it runs, carried so the
+	// gate runs it the way CI does.
+	Env map[string]string
 }
 
 // Display is the command as a reader would type it, or the gate's own summary
@@ -125,6 +129,7 @@ func Detect(dir string) (Project, error) {
 		return proj, err
 	}
 	ciPackageGates(&proj)
+	ciScriptGates(&proj)
 	return proj, nil
 }
 

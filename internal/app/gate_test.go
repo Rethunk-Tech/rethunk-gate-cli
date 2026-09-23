@@ -2588,3 +2588,17 @@ func TestCIRunPackageCoveredByAConfiguredGateIsNotGated(t *testing.T) {
 	}
 	qt.Check(t, qt.Equals(string(got), front+": run build\n"), qt.Commentf("the covered package's install still ran"))
 }
+
+// A CI step's env reaches its gate, and configuration layers over it per
+// variable rather than replacing it.
+func TestCIStepEnvLayersUnderConfiguredEnv(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	root := t.TempDir()
+	testutil.Write(t, root, "package.json", `{"scripts":{"e2e":"playwright test"}}`)
+	testutil.Write(t, root, ".github/workflows/ci.yml", "on: push\njobs:\n  a:\n    steps:\n      - run: bun run e2e\n        env:\n          CONFIG: min.yaml\n          PORT: \"1\"\n")
+	testutil.Write(t, root, ".gate.toml", "[gates.e2e.env]\nPORT = \"2\"\n")
+
+	stdout, stderr, code := runGateTest(t, "-C", root, "--list")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.StringContains(stdout, "env CONFIG=min.yaml PORT=2"))
+}
