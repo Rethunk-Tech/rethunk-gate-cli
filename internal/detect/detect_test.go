@@ -1076,3 +1076,24 @@ func TestSubmoduleDoesNotInstallItsSuperproject(t *testing.T) {
 	qt.Check(t, qt.Equals(proj.Workspace, ""))
 	qt.Check(t, qt.HasLen(proj.Installs, 0))
 }
+
+// A workspace package's script that CI runs with `bun run --filter` is a gate too:
+// majordomo's Expo native-config check failed in CI while the local gate, blind to
+// it, stayed green.
+func TestCIFilteredWorkspaceScriptIsGated(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("PATH", filepath.Join(root, "no-such-bin"))
+	testutil.Write(t, root, "package.json", `{"workspaces":["apps/*"],"scripts":{"lint":"biome check ."}}`)
+	testutil.Write(t, root, "bun.lock", "")
+	testutil.Write(t, root, "apps/mobile/package.json", `{"name":"@app/mobile","scripts":{"check:native-config":"expo-doctor"}}`)
+	testutil.Write(t, root, ".github/workflows/ci.yml", `on: push
+jobs:
+  verify:
+    steps:
+      - name: Mobile native config gate
+        run: bun run --filter '@app/mobile' check:native-config
+`)
+
+	g := gateNamed(t, detect(t, root), "check:native-config")
+	qt.Check(t, qt.DeepEquals(g.Argv, []string{"bun", "run", "--filter", "@app/mobile", "check:native-config"}))
+}

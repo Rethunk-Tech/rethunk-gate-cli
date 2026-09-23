@@ -11,6 +11,8 @@ import (
 // ciStep is one workflow step whose whole command is `<runner> run <script>`.
 type ciStep struct {
 	script string
+	// filter is the workspace package a `bun run --filter <pkg> <script>` step runs in.
+	filter string
 	run    string
 	where  string
 	env    map[string]string
@@ -20,8 +22,10 @@ type ciStep struct {
 
 var (
 	scriptStep = regexp.MustCompile(`^(?:bun|npm|pnpm|yarn) run ([A-Za-z0-9_:.@/-]+)$`)
-	yamlKey    = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_-]*$`)
-	prTrigger  = regexp.MustCompile(`\b(push|pull_request|pull_request_target)\b`)
+	// A workspace package's script: `bun run --filter '@app/mobile' check`.
+	filteredScriptStep = regexp.MustCompile(`^bun run --filter[= ]'?([^' ]+)'? ([A-Za-z0-9_:.@/-]+)$`)
+	yamlKey            = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_-]*$`)
+	prTrigger          = regexp.MustCompile(`\b(push|pull_request|pull_request_target)\b`)
 	// A job that brings up a database or a stack first runs its later steps
 	// against it, and nothing on this machine is guaranteed to be listening.
 	startsServices = regexp.MustCompile(`supabase start|docker(?:-| )compose up|docker run`)
@@ -119,6 +123,12 @@ func ciScriptGates(proj *Project) {
 		}
 	}
 	for _, st := range steps {
+		if st.filter != "" {
+			if runner[0] == "bun" {
+				add(st.script, append(slices.Clone(runner), "--filter", st.filter, st.script), st, "")
+			}
+			continue
+		}
 		expand(st.script, st, nil)
 	}
 	if len(added) > 0 {
@@ -234,11 +244,16 @@ func jobSteps(lines []string, job int, where string) []ciStep {
 				}
 			}
 		}
-		m := scriptStep.FindStringSubmatch(st.run)
-		if skip || m == nil {
+		if skip {
 			continue
 		}
-		st.script = m[1]
+		if m := scriptStep.FindStringSubmatch(st.run); m != nil {
+			st.script = m[1]
+		} else if m := filteredScriptStep.FindStringSubmatch(st.run); m != nil {
+			st.filter, st.script = m[1], m[2]
+		} else {
+			continue
+		}
 		for k, v := range env {
 			if _, set := st.env[k]; !set {
 				st.env[k] = v
