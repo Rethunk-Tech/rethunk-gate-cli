@@ -290,7 +290,9 @@ on a schedule are not read.
 These gates run serial, in the order CI names them, and the build gate joins
 them first: CI runs its steps in order on a built tree, and a search index or
 an e2e suite reads that build. A step's `env`, and its job's, reach the gate,
-under anything `.gate.toml` sets for it. A step CI hands `${{ }}` values, or
+under anything `.gate.toml` sets for it, with `CI=true` as the runner sets it:
+Playwright's usual `reuseExistingServer: !process.env.CI` would otherwise test
+whatever app already holds the port. A step CI hands `${{ }}` values, or
 whose job starts services (`services:`, `supabase start`, `docker compose up`,
 `docker run`), is not run, and a note names it.
 

@@ -1036,11 +1036,11 @@ jobs:
 	knip := gateNamed(t, proj, "knip")
 	qt.Check(t, qt.DeepEquals(knip.Argv, []string{"bun", "run", "knip"}))
 	qt.Check(t, qt.IsTrue(knip.Serial))
-	qt.Check(t, qt.DeepEquals(knip.Env, map[string]string{"SHARED": "job"}))
+	qt.Check(t, qt.DeepEquals(knip.Env, map[string]string{"SHARED": "job", "CI": "true"}))
 	qt.Check(t, qt.DeepEquals(gateNamed(t, proj, "validate").Argv, []string{turbo, "run", "validate"}),
 		qt.Commentf("a turbo flag is not a task"))
 	qt.Check(t, qt.StringContains(gateNamed(t, proj, "pagefind").Source, "CI step `bun run ci` (ci.yml job verify), package.json scripts.pagefind"))
-	qt.Check(t, qt.DeepEquals(gateNamed(t, proj, "e2e").Env, map[string]string{"SHARED": "step", "CONFIG": "examples/min.yaml"}))
+	qt.Check(t, qt.DeepEquals(gateNamed(t, proj, "e2e").Env, map[string]string{"SHARED": "step", "CONFIG": "examples/min.yaml", "CI": "true"}))
 
 	qt.Check(t, qt.IsTrue(hasNote(proj, "CI step `bun run a11y` (ci.yml job verify) is not run: CI supplies it ${{ }} values")), qt.Commentf("notes = %v", proj.Notes))
 	qt.Check(t, qt.IsTrue(hasNote(proj, "CI step `bun run db:test` (ci.yml job db) is not run: its job starts service containers")), qt.Commentf("notes = %v", proj.Notes))

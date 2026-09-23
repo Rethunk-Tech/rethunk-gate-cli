@@ -11,7 +11,7 @@ Notable changes to `gate`. The format follows
 - A package script a push or pull-request workflow runs that no role covers
   (`bun run knip`, `bun run test:e2e`), and each task a declined `ci`
   aggregate runs beyond the roles, is a gate named for it, serial behind the
-  build as CI runs it, with the step's `env`. A step needing CI's `${{ }}`
+  build as CI runs it, with the step's `env` and `CI=true`. A step needing CI's `${{ }}`
   values or services is named in a note. Configured `env` now layers over a
   detected gate's per variable.
 

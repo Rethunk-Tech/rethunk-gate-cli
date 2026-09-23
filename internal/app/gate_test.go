@@ -2600,5 +2600,5 @@ func TestCIStepEnvLayersUnderConfiguredEnv(t *testing.T) {
 
 	stdout, stderr, code := runGateTest(t, "-C", root, "--list")
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
-	qt.Check(t, qt.StringContains(stdout, "env CONFIG=min.yaml PORT=2"))
+	qt.Check(t, qt.StringContains(stdout, "env CI=true CONFIG=min.yaml PORT=2"))
 }

@@ -249,8 +249,12 @@ func jobSteps(lines []string, job int, where string) []ciStep {
 				st.blocked = "CI supplies it ${{ }} values"
 			}
 		}
-		if len(st.env) == 0 {
-			st.env = nil
+		// The runner sets CI on every step. Playwright's usual
+		// reuseExistingServer: !process.env.CI otherwise tests whatever app
+		// already holds the port -- another project's dev server passing
+		// this project's e2e suite.
+		if _, set := st.env["CI"]; !set {
+			st.env["CI"] = "true"
 		}
 		out = append(out, st)
 	}
