@@ -35,6 +35,14 @@ const defaultTail = 40
 // genuinely slower says so itself with `timeout` in .gate.toml.
 const defaultTimeout = time.Minute
 
+// defaultBudget and e2eBudget are the fleet's local gate budgets: a run
+// without browser e2e finishes in 10s warm, and one with it in under two
+// minutes. Past them gate warns and still passes; CI runs everything anyway.
+const (
+	defaultBudget = 10 * time.Second
+	e2eBudget     = 2 * time.Minute
+)
+
 const gateHelp = `usage: gate [-C <path>] [flags] [<command> [args...]]
        gate [-C <path>] [flags] run <name>...
        gate [-C <path>] doctor
@@ -44,7 +52,9 @@ gate runs a project's gates, keeps their complete output in a log, and prints
 one line. The command's exit status is the verdict, passed through unchanged --
 unlike a pipe through tail, which replaces it with its own.
 
-With no command, gate detects the project's gates and runs them.
+With no command, gate detects the project's gates and runs them, except
+browser e2e suites, which are opt-in: --e2e adds them, and 'gate run <name>'
+runs one by name.
 
 Commands:
   <command>     run that command as a gate
@@ -59,11 +69,15 @@ Global flags (before everything else):
 Flags:
   --serial      run every gate in order and stop at the first failure
                 (gates run concurrently unless this, or .gate.toml, says not to)
+  --e2e         also run the e2e gates a default run skips
   --list        print the gates that would run, and run nothing
+                (e2e gates are shown, marked skipped unless --e2e)
   --json        the same listing as JSON, for a program to read
                 (with doctor or fix, the findings as JSON)
   --ndjson      stream one JSON line per gate as it finishes, and run them
   --profile     after the run, print wall time, summed gate time, and slowest gates
+  --budget D    warn when a passing run takes longer than D (default 10s, 0
+                disables; 2m when e2e gates run; .gate.toml: budget = "15s")
   --force-cache re-run turbo, go test, and make targets rather than serve them
                 from their own cache (also sets TURBO_FORCE=1)
   --timeout D   kill a gate that runs longer than D (default 1m, 0 disables;
@@ -127,6 +141,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	opts := options{tail: defaultTail}
 	timeout := defaultTimeout
 	timeoutSet := false
+	budget, budgetSet := defaultBudget, false
 	showVersion := false
 	refuseFix := false
 
@@ -152,6 +167,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	flags.BoolVar(&opts.ndjson, "ndjson", false, "")
 	flags.BoolVar(&opts.profile, "profile", false, "")
 	flags.BoolVar(&opts.forceCache, "force-cache", false, "")
+	flags.BoolVar(&opts.e2e, "e2e", false, "")
 	flags.BoolVar(&showVersion, "version", false, "")
 	// Recognised so `gate --fix` is not "unrecognized". Refused below: a
 	// global flag would look like a silent rewrite of doctor, which this
@@ -175,6 +191,14 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 			return err
 		}
 		timeout, timeoutSet = d, true
+		return nil
+	})
+	flags.Func("budget", "", func(value string) error {
+		d, err := config.ParseTimeout(value)
+		if err != nil {
+			return err
+		}
+		budget, budgetSet = d, true
 		return nil
 	})
 
@@ -467,6 +491,22 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 			opts.gates = slices.DeleteFunc(opts.gates, isConventionShellGate)
 		}
 
+		// Only gates the project has are classified: a command the caller
+		// named is run because it was asked for, whatever it is.
+		for i := range opts.gates {
+			g := &opts.gates[i]
+			if c, ok := cfg.Gates[g.role]; ok && c.HasE2E {
+				g.e2e = c.E2E
+			} else {
+				g.e2e = detect.IsE2E(g.dir, g.role, g.argv)
+			}
+		}
+		// A name asked for outright is run whatever it is.
+		opts.skipE2E = !opts.e2e && len(roles) == 0
+		if cfg.HasBudget && !budgetSet {
+			budget = cfg.Budget
+		}
+
 		// Never fall through to a program of that name. The caller is least
 		// sure what this project has in exactly the case where the fallback
 		// would fire, which is where running /usr/bin/test would be worst.
@@ -519,6 +559,19 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		return Success
 	}
 
+	// Removed only now, so the listings above still name every e2e gate.
+	var skipped []gateSpec
+	if opts.skipE2E {
+		skipped = slices.DeleteFunc(slices.Clone(opts.gates), func(g gateSpec) bool { return !g.e2e })
+		opts.gates = slices.DeleteFunc(opts.gates, func(g gateSpec) bool { return g.e2e })
+		opts.skippedE2E = len(skipped)
+	}
+	if len(opts.gates) == 0 && len(skipped) > 0 {
+		fmt.Fprintf(stderr, "gate: every gate in %s is e2e, which runs only on request\n", project.Root)
+		fmt.Fprintln(stderr, "gate: run `gate --e2e`, or `gate run <name>` for one")
+		return InvalidUsage
+	}
+
 	if len(opts.gates) == 0 {
 		// Detection always resolves a root -- the working directory itself
 		// when no manifest is found above it -- so there is no second
@@ -547,6 +600,14 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		return code
 	}
 	opts.root, opts.partial = project.Root, len(roles) > 0
+	// A budget is the project's local gate, so a command the caller named
+	// has none.
+	if opts.root != "" {
+		opts.budget = budget
+		if slices.ContainsFunc(opts.gates, func(g gateSpec) bool { return g.e2e }) {
+			opts.budget = e2eBudget
+		}
+	}
 	return runGates(ctx, opts, stdout, stderr)
 }
 

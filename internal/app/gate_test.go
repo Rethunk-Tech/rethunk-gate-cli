@@ -2018,10 +2018,10 @@ func TestListingDoesNotRestateAShellGatesArgv(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	testutil.Write(t, root, "Makefile", "test:\n\ttrue\n")
-	testutil.Write(t, root, ".gate.toml", "[gates.e2e]\nrun = \"echo e2e\"\n")
+	testutil.Write(t, root, ".gate.toml", "[gates.docs]\nrun = \"echo docs\"\n")
 
 	stdout, _, _ := runGateTest(t, "-C", root, "--list")
-	qt.Check(t, qt.StringContains(stdout, "echo e2e"), qt.Commentf("listing = %q", stdout))
+	qt.Check(t, qt.StringContains(stdout, "echo docs"), qt.Commentf("listing = %q", stdout))
 	qt.Check(t, qt.Not(qt.StringContains(stdout, "runs ")),
 		qt.Commentf("the listing restated a shell gate's argv: %q", stdout))
 }
@@ -2156,12 +2156,12 @@ func TestConfigEnvReachesTheGate(t *testing.T) {
 	setLogDir(t)
 	home := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", home)
-	testutil.Write(t, home, "gate/config.toml", "[gates.e2e.env]\nBAZ = \"qux\"\n")
+	testutil.Write(t, home, "gate/config.toml", "[gates.docs.env]\nBAZ = \"qux\"\n")
 
 	root := t.TempDir()
 	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
 	testutil.Write(t, root, ".gate.toml",
-		"[gates.e2e]\nrun = \"test \\\"$FOO\\\" = bar && test \\\"$BAZ\\\" = qux\"\n\n[gates.e2e.env]\nFOO = \"bar\"\n")
+		"[gates.docs]\nrun = \"test \\\"$FOO\\\" = bar && test \\\"$BAZ\\\" = qux\"\n\n[gates.docs.env]\nFOO = \"bar\"\n")
 
 	_, stderr, code := runGateTest(t, "-C", root)
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("the gate did not see its configured env: %q", stderr))
@@ -2176,7 +2176,7 @@ func TestConfigDirRunsTheGateThere(t *testing.T) {
 	root := t.TempDir()
 	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
 	qt.Assert(t, qt.IsNil(os.MkdirAll(filepath.Join(root, "sub"), 0o755)))
-	testutil.Write(t, root, ".gate.toml", "[gates.e2e]\nrun = \"touch marker\"\ndir = \"sub\"\n")
+	testutil.Write(t, root, ".gate.toml", "[gates.docs]\nrun = \"touch marker\"\ndir = \"sub\"\n")
 
 	_, stderr, code := runGateTest(t, "-C", root)
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
@@ -2254,7 +2254,7 @@ func TestAllowedFailureNDJSONKeepsTheWordAndMarksIt(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
-	testutil.Write(t, root, ".gate.toml", "[gates.e2e]\nrun = \"exit 3\"\nallow-failure = true\n")
+	testutil.Write(t, root, ".gate.toml", "[gates.docs]\nrun = \"exit 3\"\nallow-failure = true\n")
 
 	stdout, stderr, code := runGateTest(t, "-C", root, "--ndjson")
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("an allowed failure failed the run: %q", stderr))
@@ -2602,4 +2602,108 @@ func TestCIStepEnvLayersUnderConfiguredEnv(t *testing.T) {
 	stdout, stderr, code := runGateTest(t, "-C", root, "--list")
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
 	qt.Check(t, qt.StringContains(stdout, "env CI=true CONFIG=min.yaml PORT=2"))
+}
+
+// e2e is opt-in: a default run skips it and says so in one line, --e2e and a
+// name asked for outright run it, and .gate.toml settles detection's reading
+// either way.
+func TestE2EGatesAreOptIn(t *testing.T) {
+	setLogDir(t)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	root := t.TempDir()
+	marker := func(name string) string { return filepath.Join(root, name+"-ran") }
+	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
+	testutil.Write(t, root, ".gate.toml", "[gates.unit]\nrun = \"touch unit-ran\"\n\n"+
+		"[gates.\"test:e2e\"]\nrun = \"touch e2e-ran\"\n")
+	reset := func() {
+		t.Helper()
+		for _, n := range []string{"unit", "e2e"} {
+			_ = os.Remove(marker(n))
+		}
+	}
+
+	stdout, stderr, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.IsTrue(exists(marker("unit"))))
+	qt.Check(t, qt.IsFalse(exists(marker("e2e"))), qt.Commentf("a default run ran the e2e gate"))
+	qt.Check(t, qt.StringContains(stdout, "gate: 1 e2e gate(s) skipped; `gate --e2e` runs them"), qt.Commentf("stdout = %q", stdout))
+
+	reset()
+	stdout, stderr, code = runGateTest(t, "-C", root, "--e2e")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.IsTrue(exists(marker("unit")) && exists(marker("e2e"))))
+	qt.Check(t, qt.Not(qt.StringContains(stdout, "skipped")), qt.Commentf("stdout = %q", stdout))
+
+	reset()
+	_, stderr, code = runGateTest(t, "-C", root, "run", "test:e2e")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.IsTrue(exists(marker("e2e"))), qt.Commentf("a gate named outright was skipped"))
+
+	// The override, both ways.
+	reset()
+	testutil.Write(t, root, ".gate.toml", "[gates.unit]\nrun = \"touch unit-ran\"\ne2e = true\n\n"+
+		"[gates.\"test:e2e\"]\nrun = \"touch e2e-ran\"\ne2e = false\n")
+	_, stderr, code = runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.IsFalse(exists(marker("unit"))), qt.Commentf("e2e = true did not skip the gate"))
+	qt.Check(t, qt.IsTrue(exists(marker("e2e"))), qt.Commentf("e2e = false did not run the gate"))
+}
+
+// Nothing is hidden: both listings name the e2e gate and mark it skipped
+// unless --e2e asks for it.
+func TestListingsMarkE2EGatesSkippedByDefault(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "test:\n\ttrue\n")
+	testutil.Write(t, root, ".gate.toml", "[gates.e2e]\nrun = \"playwright test\"\n")
+
+	stdout, _, code := runGateTest(t, "-C", root, "--list")
+	qt.Assert(t, qt.Equals(code, Success))
+	qt.Check(t, qt.StringContains(stdout, "1 e2e skipped by default (gate --e2e runs them)"), qt.Commentf("listing = %q", stdout))
+	qt.Check(t, qt.StringContains(stdout, "e2e, skipped by default"), qt.Commentf("listing = %q", stdout))
+
+	stdout, _, _ = runGateTest(t, "-C", root, "--e2e", "--list")
+	qt.Check(t, qt.Not(qt.StringContains(stdout, "skipped")), qt.Commentf("listing = %q", stdout))
+
+	jsonOut, _, _ := runGateTest(t, "-C", root, "--json")
+	var got listing
+	qt.Assert(t, qt.IsNil(json.Unmarshal([]byte(jsonOut), &got)))
+	qt.Assert(t, qt.HasLen(got.Gates, 2))
+	qt.Check(t, qt.IsFalse(got.Gates[0].E2E || got.Gates[0].Skipped), qt.Commentf("json = %s", jsonOut))
+	qt.Check(t, qt.IsTrue(got.Gates[1].E2E && got.Gates[1].Skipped), qt.Commentf("json = %s", jsonOut))
+	qt.Check(t, qt.Not(qt.StringContains(jsonOut, `"skipped": false`)))
+
+	jsonOut, _, _ = runGateTest(t, "-C", root, "--e2e", "--json")
+	qt.Check(t, qt.StringContains(jsonOut, `"e2e": true`))
+	qt.Check(t, qt.Not(qt.StringContains(jsonOut, `"skipped"`)), qt.Commentf("json = %s", jsonOut))
+}
+
+// A passing run over budget says so in one line naming the slowest gates, and
+// still passes. A failing run, a disabled budget, or a run within it is silent.
+func TestBudgetWarnsOnASlowPassOnly(t *testing.T) {
+	setLogDir(t)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	root := gateProject(t, "sleep 0.05", "true")
+
+	stdout, stderr, code := runGateTest(t, "-C", root, "--budget", "1ms")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.StringContains(stderr, "is over the 1ms budget; slowest sleep 0.05 "), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.Equals(strings.Count(stderr, "budget"), 1))
+	qt.Check(t, qt.Not(qt.StringContains(stdout, "budget")))
+
+	_, stderr, _ = runGateTest(t, "-C", root, "--budget", "0")
+	qt.Check(t, qt.Not(qt.StringContains(stderr, "budget")), qt.Commentf("stderr = %q", stderr))
+	_, stderr, _ = runGateTest(t, "-C", root)
+	qt.Check(t, qt.Not(qt.StringContains(stderr, "budget")), qt.Commentf("stderr = %q", stderr))
+
+	failing := gateProject(t, "sleep 0.05; exit 1")
+	_, stderr, _ = runGateTest(t, "-C", failing, "--budget", "1ms")
+	qt.Check(t, qt.Not(qt.StringContains(stderr, "budget")), qt.Commentf("a failing run warned: %q", stderr))
+
+	// The .gate.toml key, which the flag beats.
+	testutil.Write(t, root, ".gate.toml", "budget = \"1ms\"\n\n[gates.g0]\nrun = \"sleep 0.05\"\n")
+	_, stderr, _ = runGateTest(t, "-C", root)
+	qt.Check(t, qt.StringContains(stderr, "over the 1ms budget"), qt.Commentf("stderr = %q", stderr))
+	_, stderr, _ = runGateTest(t, "-C", root, "--budget", "1m")
+	qt.Check(t, qt.Not(qt.StringContains(stderr, "budget")), qt.Commentf("stderr = %q", stderr))
 }

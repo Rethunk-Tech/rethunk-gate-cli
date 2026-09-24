@@ -72,6 +72,13 @@ type Gate struct {
 	AllowFailure    bool
 	HasAllowFailure bool
 
+	// E2E settles whether this gate is a browser e2e suite, which a default
+	// run leaves out, where detection's reading of its name and command is
+	// wrong. HasE2E distinguishes "not set", which leaves detection's answer
+	// standing, from a deliberate false.
+	E2E    bool
+	HasE2E bool
+
 	// Source is the file this gate's settings came from, so --list can name
 	// it. A gate that loses its source silently undoes the point of --list.
 	Source string
@@ -83,6 +90,12 @@ type Config struct {
 
 	// Files lists what was read, nearest last, for --list to report.
 	Files []string
+
+	// Budget is the wall time a passing run without e2e gates may take
+	// before gate warns; zero disables the warning. HasBudget distinguishes
+	// "not set", which takes the default, from a deliberate 0.
+	Budget    time.Duration
+	HasBudget bool
 }
 
 // file is the on-disk shape. Both optional settings are pointers so an absent
@@ -95,13 +108,15 @@ type Config struct {
 // `workdir` or `continue-on-error` is refused as an unknown key by
 // DisallowUnknownFields, the same as any typo, rather than silently accepted.
 type file struct {
-	Gates map[string]struct {
+	Budget *string `toml:"budget"`
+	Gates  map[string]struct {
 		Run          string            `toml:"run"`
 		Serial       *bool             `toml:"serial"`
 		Timeout      *string           `toml:"timeout"`
 		Env          map[string]string `toml:"env"`
 		Dir          *string           `toml:"dir"`
 		AllowFailure *bool             `toml:"allow-failure"`
+		E2E          *bool             `toml:"e2e"`
 	} `toml:"gates"`
 }
 
@@ -187,6 +202,17 @@ func (c *Config) merge(path string, data []byte) error {
 	// reported all at once.
 	var unusable []string
 
+	// Same parse as a gate's timeout, and the same refusal for a value that
+	// is not a duration.
+	if f.Budget != nil {
+		d, err := ParseTimeout(*f.Budget)
+		if err != nil {
+			unusable = append(unusable, fmt.Sprintf("budget %v", err))
+		} else {
+			c.Budget, c.HasBudget = d, true
+		}
+	}
+
 	for name, g := range f.Gates {
 		merged := c.Gates[name]
 		merged.Source = path
@@ -234,6 +260,9 @@ func (c *Config) merge(path string, data []byte) error {
 		}
 		if g.AllowFailure != nil {
 			merged.AllowFailure, merged.HasAllowFailure = *g.AllowFailure, true
+		}
+		if g.E2E != nil {
+			merged.E2E, merged.HasE2E = *g.E2E, true
 		}
 		c.Gates[name] = merged
 	}

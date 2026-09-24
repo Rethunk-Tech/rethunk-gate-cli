@@ -69,6 +69,12 @@ type listedGate struct {
 	// unchanged.
 	AllowFailure bool `json:"allow_failure,omitempty"`
 
+	// E2E marks a browser e2e suite. Skipped says this invocation would
+	// not run it: a default run leaves e2e out unless --e2e or `run` asks.
+	// Both are absent for every other gate.
+	E2E     bool `json:"e2e,omitempty"`
+	Skipped bool `json:"skipped,omitempty"`
+
 	// Group is the scheduling group. Gates sharing a group run one after
 	// another; groups run concurrently.
 	Group int `json:"group"`
@@ -102,6 +108,8 @@ func writeListingJSON(w io.Writer, project detect.Project, files []string, opts 
 				Dir:          spec.listDir(),
 				Env:          spec.env,
 				AllowFailure: spec.allowFailure,
+				E2E:          spec.e2e,
+				Skipped:      spec.e2e && opts.skipE2E,
 				Group:        group,
 			})
 		}
@@ -150,6 +158,9 @@ func writeListing(w io.Writer, project detect.Project, files []string, opts opti
 	default:
 		fmt.Fprint(w, " -- groups run concurrently, gates marked serial in order")
 	}
+	if n := skippedE2E(opts); n > 0 {
+		fmt.Fprintf(w, "; %d e2e skipped by default (gate --e2e runs them)", n)
+	}
 	fmt.Fprintln(w)
 
 	for _, group := range groups {
@@ -190,6 +201,12 @@ func writeListing(w io.Writer, project detect.Project, files []string, opts opti
 				if spec.allowFailure {
 					fmt.Fprintf(w, "        allow-failure\n")
 				}
+				switch {
+				case spec.e2e && opts.skipE2E:
+					fmt.Fprintf(w, "        e2e, skipped by default\n")
+				case spec.e2e:
+					fmt.Fprintf(w, "        e2e\n")
+				}
 				continue
 			}
 			fmt.Fprintf(w, "%s%s\n", lead, spec.display)
@@ -200,6 +217,20 @@ func writeListing(w io.Writer, project detect.Project, files []string, opts opti
 		fmt.Fprintf(w, "config %s\n", f)
 	}
 	writeNotes(w, project)
+}
+
+// skippedE2E counts the e2e gates this invocation leaves out.
+func skippedE2E(opts options) int {
+	if !opts.skipE2E {
+		return 0
+	}
+	n := 0
+	for _, g := range opts.gates {
+		if g.e2e {
+			n++
+		}
+	}
+	return n
 }
 
 // listDir reports a configured gate directory for the listing, and nothing

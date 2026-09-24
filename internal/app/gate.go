@@ -68,6 +68,17 @@ type options struct {
 	forceCache bool
 	gates      []gateSpec
 
+	// e2e asks for the e2e gates a default run skips. skipE2E is the
+	// resolved answer -- a gate named with `run` is never skipped -- and
+	// skippedE2E counts what it left out, for the summary line.
+	e2e        bool
+	skipE2E    bool
+	skippedE2E int
+
+	// budget is the wall time a passing run may take before gate warns;
+	// zero means no warning.
+	budget time.Duration
+
 	// root is the detected project root, empty for a command the caller
 	// named, which has no project to keep a result record for. partial says
 	// the caller named a subset of its gates.
@@ -132,6 +143,9 @@ type gateSpec struct {
 	// shadowed lists competing declarations this gate outranks, carried from
 	// detection so listing needs no second lookup.
 	shadowed []string
+
+	// e2e marks a browser end-to-end suite, which a default run skips.
+	e2e bool
 }
 
 // short is display with the command's directory removed, for the one-line
@@ -320,8 +334,18 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 	wall := time.Since(started)
 
 	code := report(results, opts, stdout, stderr)
+	if opts.skippedE2E > 0 && !opts.quiet {
+		fmt.Fprintf(stdout, "gate: %d e2e gate(s) skipped; `gate --e2e` runs them\n", opts.skippedE2E)
+	}
 	if opts.profile {
 		writeProfile(stderr, results, wall)
+	}
+	// A warning, never a verdict: the command's status is the verdict, and
+	// a slow pass is still a pass.
+	if code == Success && opts.budget > 0 && wall > opts.budget {
+		_, _, slowest := profile(results)
+		fmt.Fprintf(stderr, "gate: wall %s is over the %s budget; slowest %s\n",
+			wall.Round(time.Millisecond), opts.budget, slowest)
 	}
 	if opts.root != "" {
 		if state := <-tree; state.ok {
@@ -381,12 +405,26 @@ func schedule(gates []gateSpec, serial bool) [][]int {
 // gate that never ran has no time to report and is left out of both the sum
 // and the ranking, for the same reason it carries no ms in the stream.
 func writeProfile(w io.Writer, results []gateResult, wall time.Duration) {
+	sum, ran, slowest := profile(results)
+	overlap := 1.0
+	if wall > 0 {
+		overlap = float64(sum) / float64(wall)
+	}
+	fmt.Fprintf(w, "gate: profile wall %s sum %s (%.1fx overlap) across %d gate(s)\n",
+		wall.Round(time.Millisecond), sum.Round(time.Millisecond), overlap, ran)
+	if ran > 0 {
+		fmt.Fprintf(w, "gate: slowest %s\n", slowest)
+	}
+}
+
+// profile sums the time of every gate that ran and names the three slowest,
+// slowest first, as "name 1.2s, name 300ms".
+func profile(results []gateResult) (sum time.Duration, count int, slowest string) {
 	type slow struct {
 		name    string
 		elapsed time.Duration
 	}
 	var ran []slow
-	var sum time.Duration
 	for _, res := range results {
 		if res.skipped || !res.started {
 			continue
@@ -398,22 +436,12 @@ func writeProfile(w io.Writer, results []gateResult, wall time.Duration) {
 		return cmp.Compare(b.elapsed, a.elapsed)
 	})
 
-	overlap := 1.0
-	if wall > 0 {
-		overlap = float64(sum) / float64(wall)
-	}
-	fmt.Fprintf(w, "gate: profile wall %s sum %s (%.1fx overlap) across %d gate(s)\n",
-		wall.Round(time.Millisecond), sum.Round(time.Millisecond), overlap, len(ran))
-
-	const slowest = 3
-	if len(ran) == 0 {
-		return
-	}
-	parts := make([]string, 0, min(slowest, len(ran)))
-	for _, s := range ran[:min(slowest, len(ran))] {
+	const top = 3
+	parts := make([]string, 0, min(top, len(ran)))
+	for _, s := range ran[:min(top, len(ran))] {
 		parts = append(parts, fmt.Sprintf("%s %s", s.name, s.elapsed.Round(time.Millisecond)))
 	}
-	fmt.Fprintf(w, "gate: slowest %s\n", strings.Join(parts, ", "))
+	return sum, len(ran), strings.Join(parts, ", ")
 }
 
 // report prints every gate's outcome in declaration order and returns the

@@ -280,3 +280,27 @@ func TestMalformedTOMLRefusesAndNamesTheFile(t *testing.T) {
 	qt.Check(t, qt.IsTrue(strings.Contains(err.Error(), ProjectFile)),
 		qt.Commentf("error = %v", err))
 }
+
+// `e2e` settles detection's reading either way, and a deliberate false is
+// distinguishable from unset. `budget` is top-level, parsed like a timeout,
+// and a value that is not a duration refuses the file.
+func TestE2EAndBudgetKeys(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	testutil.Write(t, root, ProjectFile, "budget = \"15s\"\n\n[gates.test]\ne2e = true\n\n[gates.smoke]\ne2e = false\n")
+
+	cfg, err := Load(root)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsTrue(cfg.HasBudget))
+	qt.Check(t, qt.Equals(cfg.Budget, 15*time.Second))
+	qt.Check(t, qt.IsTrue(cfg.Gates["test"].HasE2E && cfg.Gates["test"].E2E))
+	qt.Check(t, qt.IsTrue(cfg.Gates["smoke"].HasE2E))
+	qt.Check(t, qt.IsFalse(cfg.Gates["smoke"].E2E))
+	qt.Check(t, qt.IsFalse(cfg.Gates["lint"].HasE2E))
+
+	bad := t.TempDir()
+	testutil.Write(t, bad, ProjectFile, "budget = \"soon\"\n")
+	_, err = Load(bad)
+	qt.Assert(t, qt.IsNotNil(err))
+	qt.Check(t, qt.IsTrue(strings.Contains(err.Error(), "budget")), qt.Commentf("error = %v", err))
+}
