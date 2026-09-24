@@ -269,6 +269,8 @@ func (r gateResult) excused() bool {
 		return r.code != Success
 	case outcomeNotFound, outcomeTimedOut:
 		return true
+	case outcomeNoRun, outcomeInterrupted, outcomeSkipped:
+		return false
 	}
 	return false
 }
@@ -797,6 +799,7 @@ func writeTrailer(w io.Writer, res gateResult, danglingLine bool) error {
 		word = "killed on timeout"
 	case outcomeNotFound:
 		word = "could not run"
+	case outcomeRan, outcomeNoRun, outcomeSkipped:
 	}
 	_, err := fmt.Fprintf(w, "%s%s %s in %s -- %s\n",
 		lead, trailerPrefix, word, res.elapsed.Round(time.Millisecond), res.spec.display)
