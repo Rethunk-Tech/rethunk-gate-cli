@@ -31,7 +31,7 @@ jobs:
             run: go build ./...
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: Rethunk-Tech/gh-actions/setup-go@68f159b435d9b129b8baf36436079c3e76fb3222 # v1.11
+      - uses: Rethunk-Tech/gh-actions/setup-go@950fe676e8beb3854c98ac74bcf9951ad7cb7b7c # v1.12
         with:
           go-version-file: go.mod
       - name: ${{ matrix.name }}
@@ -45,7 +45,7 @@ jobs:
       # govulncheck is on here, not merely available: this repo's own doctor
       # flags Go projects that leave it off, and shipping a tool that gives
       # advice it does not take would be the wrong kind of example.
-      - uses: Rethunk-Tech/gh-actions/setup-go@68f159b435d9b129b8baf36436079c3e76fb3222 # v1.11
+      - uses: Rethunk-Tech/gh-actions/setup-go@950fe676e8beb3854c98ac74bcf9951ad7cb7b7c # v1.12
         with:
           go-version-file: go.mod
           run-lint: "true"
@@ -67,7 +67,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: Rethunk-Tech/gh-actions/setup-go@68f159b435d9b129b8baf36436079c3e76fb3222 # v1.11
+      - uses: Rethunk-Tech/gh-actions/setup-go@950fe676e8beb3854c98ac74bcf9951ad7cb7b7c # v1.12
         with:
           go-version-file: go.mod
 
