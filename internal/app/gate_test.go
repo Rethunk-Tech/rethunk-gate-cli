@@ -244,7 +244,16 @@ func TestRunReportsNotFoundAndSignalDistinctly(t *testing.T) {
 	})
 }
 
+func TestRunUsageWithNoCommandAndNothingDetectable(t *testing.T) {
+	t.Chdir(t.TempDir())
+	_, stderr, code := runGateTest(t)
+	qt.Assert(t, qt.Equals(code, InvalidUsage))
+	qt.Check(t, qt.StringContains(stderr, "no gates detected"))
+}
+
 func TestRunUsage(t *testing.T) {
+	t.Parallel()
+
 	t.Run("help", func(t *testing.T) {
 		t.Parallel()
 		for _, arg := range []string{"-h", "--help"} {
@@ -253,16 +262,6 @@ func TestRunUsage(t *testing.T) {
 				t.Errorf("gate %s = %d, stdout %q, stderr %q", arg, code, stdout, stderr)
 			}
 		}
-	})
-
-	// Bare gate reads the project rather than erroring, so "nothing given"
-	// is only a failure where there is also nothing to detect. t.Chdir rules
-	// out t.Parallel for this one.
-	t.Run("no command and nothing detectable", func(t *testing.T) {
-		t.Chdir(t.TempDir())
-		_, stderr, code := runGateTest(t)
-		qt.Assert(t, qt.Equals(code, InvalidUsage))
-		qt.Check(t, qt.StringContains(stderr, "no gates detected"))
 	})
 
 	t.Run("unrecognized gate flag", func(t *testing.T) {
