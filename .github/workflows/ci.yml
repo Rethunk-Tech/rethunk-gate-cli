@@ -23,14 +23,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # One run of the suite: -race runs every test a plain run does.
+          # ubuntu-latest ships gcc, which the race detector's cgo needs.
           - name: test
-            run: go test ./...
-          - name: test-race
             run: go test -race ./...
           - name: build
             run: go build ./...
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: Rethunk-Tech/gh-actions/setup-go@68f159b435d9b129b8baf36436079c3e76fb3222 # v1.11
         with:
           go-version-file: go.mod
@@ -41,7 +41,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # govulncheck is on here, not merely available: this repo's own doctor
       # flags Go projects that leave it off, and shipping a tool that gives
       # advice it does not take would be the wrong kind of example.
@@ -66,7 +66,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: Rethunk-Tech/gh-actions/setup-go@68f159b435d9b129b8baf36436079c3e76fb3222 # v1.11
         with:
           go-version-file: go.mod
