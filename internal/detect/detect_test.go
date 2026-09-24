@@ -1,6 +1,7 @@
 package detect
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -727,7 +728,7 @@ func TestAllIsNotAnAggregate(t *testing.T) {
 // developer's global file.
 func gitRepo(t *testing.T, dir string) {
 	t.Helper()
-	cmd := exec.Command("git", "init", "--quiet")
+	cmd := exec.CommandContext(context.Background(), "git", "init", "--quiet")
 	cmd.Dir = dir
 	if err := cmd.Run(); err != nil {
 		t.Skipf("git init: %v", err)

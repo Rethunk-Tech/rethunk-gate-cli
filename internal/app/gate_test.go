@@ -245,7 +245,6 @@ func TestRunReportsNotFoundAndSignalDistinctly(t *testing.T) {
 }
 
 func TestRunUsage(t *testing.T) {
-
 	t.Run("help", func(t *testing.T) {
 		t.Parallel()
 		for _, arg := range []string{"-h", "--help"} {
@@ -845,8 +844,10 @@ func TestAnInterruptedGateIsStoppedNotFailedAndKeepsItsLog(t *testing.T) {
 	var out, errBuf bytes.Buffer
 	done := make(chan Code, 1)
 	go func() {
-		done <- Run(ctx, "v0.0.0-test", []string{"--timeout", "0", "--log", log,
-			"sh", "-c", script}, &out, &errBuf)
+		done <- Run(ctx, "v0.0.0-test", []string{
+			"--timeout", "0", "--log", log,
+			"sh", "-c", script,
+		}, &out, &errBuf)
 	}()
 
 	// Let the child get going, then interrupt.

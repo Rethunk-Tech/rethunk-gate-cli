@@ -151,12 +151,18 @@ func checkSupersededTooling(root string, add func(Finding)) {
 		old, new, where, haystack, why string
 	}
 	for _, r := range []replacement{
-		{"eslint", "biome", "package.json", pkg,
-			"the fleet ran biome 1,912 times against eslint's 111 over 7 days"},
-		{"mypy", "pyrefly", "pyproject.toml", pyproject,
-			"the fleet ran pyrefly 99 times against mypy's 4 over 7 days"},
-		{"black", "ruff format", "pyproject.toml", pyproject,
-			"the fleet ran ruff 340 times against black's 21 over 7 days"},
+		{
+			"eslint", "biome", "package.json", pkg,
+			"the fleet ran biome 1,912 times against eslint's 111 over 7 days",
+		},
+		{
+			"mypy", "pyrefly", "pyproject.toml", pyproject,
+			"the fleet ran pyrefly 99 times against mypy's 4 over 7 days",
+		},
+		{
+			"black", "ruff format", "pyproject.toml", pyproject,
+			"the fleet ran ruff 340 times against black's 21 over 7 days",
+		},
 	} {
 		if r.haystack == "" || !strings.Contains(r.haystack, r.old) {
 			continue

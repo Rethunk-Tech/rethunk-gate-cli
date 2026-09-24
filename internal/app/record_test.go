@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -33,7 +34,7 @@ func TestMain(m *testing.M) {
 func committedRepo(t *testing.T, root string) string {
 	t.Helper()
 	git := func(args ...string) string {
-		cmd := exec.Command("git", append([]string{"-c", "user.name=t", "-c", "user.email=t@t"}, args...)...)
+		cmd := exec.CommandContext(context.Background(), "git", append([]string{"-c", "user.name=t", "-c", "user.email=t@t"}, args...)...)
 		cmd.Dir = root
 		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
 		out, err := cmd.Output()
