@@ -75,6 +75,33 @@ no project, so `root`, `name` and `source` do not appear at all, and `workspace`
 appears only where it differs from `root`. Collections are always present, empty
 as `[]` and never `null`, so a consumer can iterate without a nil check.
 
+### Browser e2e is opt-in
+
+A local gate is budgeted at 10s warm, and one browser suite alone takes
+minutes, so a bare `gate` leaves e2e gates out and ends with one line saying
+so:
+
+```console
+$ gate
+gate: ok  bun run knip  1.2s  /var/tmp/gate/bun-run-knip-114970238.log
+gate: 1 e2e gate(s) skipped; `gate --e2e` runs them
+```
+
+`gate --e2e` runs them with everything else, and `gate run test:e2e` runs one
+by name. CI still runs them all. A gate is e2e when its name has an `e2e`
+segment (`e2e`, `test:e2e`, `test:e2e:a11y`), or its command runs
+`playwright test`, or runs a package script or turbo task that is e2e by
+either test (`bun run test` whose script is `playwright test`, `bun run
+test:all` whose script runs `bun run test:e2e`). That covers the CI steps gate
+picks up too, since each is named for the script it runs. Where the reading is
+wrong, `e2e = true` or `e2e = false` under the gate in `.gate.toml` settles it.
+
+Nothing is hidden: `--list` names every e2e gate, adds `e2e, skipped by
+default` under each one a bare run would skip, and counts them on its header
+line; `--json` marks them `"e2e": true, "skipped": true`, and drops `skipped`
+under `--e2e`. A project whose every gate is e2e refuses a bare run rather
+than pass having run nothing.
+
 `--json` names the gate listing, so it applies to `--list` and to a bare run.
 With `doctor` or `fix` it names that report instead — see [`gate doctor`](#gate-doctor)
 and [`gate fix`](#gate-fix).
@@ -157,6 +184,18 @@ the two freely. A gate that never ran has no time to report and is left out
 of both the sum and the ranking, for the same reason it carries no `ms` in
 the stream. `--profile` beside `--list`, `--json`, `doctor` or `fix` is
 refused: there is no run to measure.
+
+A passing run over its budget prints one line on stderr with the wall time
+and the three slowest gates, the same numbers `--profile` reads, and still
+exits 0:
+
+```console
+gate: wall 14.212s is over the 10s budget; slowest make test 13.9s, make lint 1.2s, make build 180ms
+```
+
+The budget is 10s, or 2m for a run that includes an e2e gate. `--budget D`
+or a top-level `budget = "15s"` in `.gate.toml` sets the first (the flag wins),
+and `0` turns the warning off. A command the caller named has no budget.
 
 ### Cache awareness
 
@@ -426,8 +465,10 @@ allow-failure = true
 MDBOOK_VERSION = "0.4"
 ```
 
-`run`, `serial`, `timeout`, `dir`, `env` and `allow-failure` are the only
-keys. `run` takes a shell string, so it can carry pipes and globs; the shell
+`run`, `serial`, `timeout`, `dir`, `env`, `allow-failure` and `e2e` are the
+only keys under a gate, and `budget` the only one outside them (see [What a run
+cost](#what-a-run-cost)); `e2e` is under [Browser e2e is
+opt-in](#browser-e2e-is-opt-in). `run` takes a shell string, so it can carry pipes and globs; the shell
 is `sh` on unix and `cmd` on Windows, which split their command lines by
 different rules. `timeout` takes the same value `--timeout` does — `5m`,
 `90s`, `1m30s`, or `0` to run that gate with no limit — and bounds only the
@@ -476,7 +517,8 @@ Configuration **adds and overrides, never replaces**. Detection always runs, so
 a file mentioning one gate cannot remove the others, and `--list` still names
 where every gate came from — `from Makefile target test, overridden by
 /path/.gate.toml`. A gate that only config declares runs with bare `gate`, and
-is named the same way as any other: `gate run e2e`. A config `run` for a role
+is named the same way as any other: `gate run e2e` (an e2e gate like this one
+runs with bare `gate` only under `--e2e`). A config `run` for a role
 detection left empty for want of a tool (`vuln` without `cargo-audit`, say)
 fills that role, so the note naming the missing tool is not printed.
 

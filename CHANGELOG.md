@@ -8,6 +8,13 @@ Notable changes to `gate`. The format follows
 
 ### Added
 
+- Browser e2e gates (an `e2e` name segment, `playwright test`, or a script or
+  turbo task that runs either) are left out of a bare run, which says how many
+  it skipped; `--e2e` adds them and `gate run <name>` runs one. `--list` and
+  `--json` mark them skipped. `e2e = true|false` in `.gate.toml` overrides the
+  reading. A passing run over 10s, or 2m with e2e, prints one line naming the
+  slowest gates; `--budget D` or a top-level `budget` key sets it.
+
 - Each run over a detected project writes its outcome, with the HEAD and
   dirty state it ran against, to `$XDG_STATE_HOME/gate/results/`, one file per
   project root, so a tool that did not start the run can tell whether the tree

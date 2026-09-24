@@ -44,6 +44,9 @@ $ gate
 gate: ok  turbo run lint typecheck test build  20ms  /var/tmp/gate/turbo-run-ci-114970238.log  (cached)
 ```
 
+Browser e2e suites are skipped unless you pass `--e2e`, and a passing run over
+10s prints one line naming the slowest gates. CI still runs everything.
+
 `--force-cache` re-runs it for real. `gate --list` shows what it picked.
 `gate run test` runs one gate by name. `gate doctor` reports what is cheap to
 fix here. `gate --help` lists every flag.

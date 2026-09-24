@@ -113,6 +113,11 @@ roles, becomes a gate named for it (`ciScriptGates` in `internal/detect/ci.go`),
 serial behind a serial build, carrying the step's and job's `env`. A step
 handed `${{ }}` values or in a job that starts services is a note instead.
 
+Whether a gate is browser e2e (`detect.IsE2E`) is read from its name, its
+argv and the package scripts it runs, and decided in `internal/app` after the
+config merge, where `gates.<name>.e2e` can overrule it. A bare run drops those
+gates after the listings are written, so `--list` still shows them.
+
 Binaries resolve from `node_modules/.bin` and `.venv/bin` before `PATH`; the
 **resolved path** goes into argv.
 
