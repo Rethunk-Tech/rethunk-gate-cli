@@ -388,16 +388,16 @@ func spliceFlowWith(line string) (string, bool, bool) {
 		return "", false, false
 	}
 	open := strings.Index(after, "{")
-	close := strings.LastIndex(after, "}")
-	if open < 0 || close < open {
+	closeBrace := strings.LastIndex(after, "}")
+	if open < 0 || closeBrace < open {
 		return "", false, false
 	}
 	// Only whitespace between `with:` and the mapping, and nothing past it:
 	// the whole value has to be the one mapping on this one line.
-	if strings.TrimSpace(after[:open]) != "" || strings.TrimSpace(after[close+1:]) != "" {
+	if strings.TrimSpace(after[:open]) != "" || strings.TrimSpace(after[closeBrace+1:]) != "" {
 		return "", false, false
 	}
-	inner := after[open+1 : close]
+	inner := after[open+1 : closeBrace]
 	if strings.ContainsAny(inner, "\"'{}") {
 		return "", false, false
 	}
