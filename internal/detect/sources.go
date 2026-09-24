@@ -95,6 +95,11 @@ type packageJSON struct {
 	Scripts      map[string]string `json:"scripts"`
 	Dependencies map[string]string `json:"dependencies"`
 	DevDeps      map[string]string `json:"devDependencies"`
+	Workspaces   json.RawMessage   `json:"workspaces"`
+}
+
+func (p packageJSON) hasWorkspaces() bool {
+	return len(p.Workspaces) > 0 && string(p.Workspaces) != "null"
 }
 
 func readPackageJSON(path string) (packageJSON, bool) {
@@ -509,27 +514,36 @@ func resolve(root string, proj *Project, name string) string {
 	return ""
 }
 
-// turboGates delegates to turbo where a project already declares a task graph.
-// Turbo does orchestration, caching and concurrency itself, so running a
-// second scheduler beside it would duplicate work it already avoids.
-func turboGates(workspace string, proj *Project) []Gate {
-	data, err := os.ReadFile(filepath.Join(workspace, "turbo.json"))
+type turboTask struct {
+	DependsOn []string `json:"dependsOn"`
+}
+
+// readTurboTasks reads turbo.json's tasks, under either spelling turbo has used.
+func readTurboTasks(dir string) (map[string]turboTask, bool) {
+	data, err := os.ReadFile(filepath.Join(dir, "turbo.json"))
 	if err != nil {
-		return nil
-	}
-	type turboTask struct {
-		DependsOn []string `json:"dependsOn"`
+		return nil, false
 	}
 	var cfg struct {
 		Tasks    map[string]turboTask `json:"tasks"`
 		Pipeline map[string]turboTask `json:"pipeline"`
 	}
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		return nil
+		return nil, false
 	}
-	tasks := cfg.Tasks
-	if tasks == nil {
-		tasks = cfg.Pipeline
+	if cfg.Tasks == nil {
+		return cfg.Pipeline, true
+	}
+	return cfg.Tasks, true
+}
+
+// turboGates delegates to turbo where a project already declares a task graph.
+// Turbo does orchestration, caching and concurrency itself, so running a
+// second scheduler beside it would duplicate work it already avoids.
+func turboGates(workspace string, proj *Project) []Gate {
+	tasks, ok := readTurboTasks(workspace)
+	if !ok {
+		return nil
 	}
 	// A root-only task is declared "//#name" but still answers to
 	// `turbo run name`, so it covers the gate exactly as a package task does.

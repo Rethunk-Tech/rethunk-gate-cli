@@ -42,14 +42,8 @@ func runsE2E(command string, scripts map[string]string, seen []string) bool {
 		if f != "run" {
 			continue
 		}
-		for _, name := range fields[i+1:] {
-			if name == "&&" || name == "||" || name == ";" || name == "|" {
-				break
-			}
-			name = strings.TrimPrefix(strings.Trim(name, `'"`), "//#")
-			if strings.HasPrefix(name, "-") {
-				continue
-			}
+		for _, name := range runTargets(fields[i:]) {
+			name = strings.TrimPrefix(name, "//#")
 			if e2eName(name) {
 				return true
 			}
@@ -60,4 +54,20 @@ func runsE2E(command string, scripts map[string]string, seen []string) bool {
 		}
 	}
 	return false
+}
+
+// runTargets is what a `run` names: the words after fields[0], up to the next
+// shell operator, unquoted. Flags are skipped rather than named, so a caller
+// can tell a bare list from one carrying flags by its length.
+func runTargets(fields []string) []string {
+	var names []string
+	for _, name := range fields[1:] {
+		if name == "&&" || name == "||" || name == ";" || name == "|" {
+			break
+		}
+		if name = strings.Trim(name, `'"`); !strings.HasPrefix(name, "-") {
+			names = append(names, name)
+		}
+	}
+	return names
 }
