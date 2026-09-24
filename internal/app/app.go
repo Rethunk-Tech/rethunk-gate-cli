@@ -71,7 +71,8 @@ Flags:
                 (gates run concurrently unless this, or .gate.toml, says not to)
   --e2e         also run the e2e gates a default run skips
   --list        print the gates that would run, and run nothing
-                (e2e gates are shown, marked skipped unless --e2e)
+                (e2e gates are shown, marked skipped unless --e2e; a gate
+                repeating another's work is merged, dropped or split, noted)
   --json        the same listing as JSON, for a program to read
                 (with doctor or fix, the findings as JSON)
   --ndjson      stream one JSON line per gate as it finishes, and run them
@@ -526,6 +527,12 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 			fmt.Fprintf(stderr, "gate: run `gate --list` for what is here, or `gate -- %s` for a program by that name\n", missing[0])
 			return InvalidUsage
 		}
+
+		// After the names asked for are checked, so `gate run test test:unit`
+		// finds both before they become one.
+		var merged []string
+		opts.gates, merged = dedupe(opts.gates)
+		project.Notes = append(project.Notes, merged...)
 	}
 
 	// The flag is the most local statement of intent, so it beats a gate's own

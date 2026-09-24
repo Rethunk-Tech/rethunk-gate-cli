@@ -343,6 +343,33 @@ that follows a generator is the usual reason:
 run = "bun run generate-schema && git diff --exit-code -- config.schema.json"
 ```
 
+### Nothing runs twice
+
+Gates reach a run from turbo, package scripts, CI steps and `.gate.toml`, and
+two of them can name the same work. Before anything runs, gate breaks each gate
+into the steps it runs, following `<runner> run <script>` and root turbo tasks
+(every task of a package without workspaces, or one declared only as
+`//#name`) through `&&` chains, and runs each step in one gate only:
+
+- **Merged**: gates whose steps are the same, in the same directory, are one
+  gate under the more specific name (`test:unit` over `test`), listing both
+  sources.
+- **Coverage wins**: a step another gate runs with coverage flags
+  (`--coverage`, `--cov`, `-cover`, `-coverprofile`, `-coverpkg`) is dropped
+  from the plain gate. `test` beside `test:coverage` runs only the coverage run.
+- **Split**: a step two gates share stays in the one with fewer steps, and
+  leaves the aggregate. An aggregate left with nothing is dropped; one that
+  still runs something no other gate covers keeps only that, as `sh -c`, with
+  each script's tool resolved into `node_modules/.bin`. Splitting rather than
+  dropping keeps what only the aggregate checks: `ci:offline` running a root
+  `tsc` and a version check beside the lint, typecheck and test gates keeps
+  those two.
+
+A script holding any shell control but `&&` (a pipe, `;`, `||`, a redirect,
+`cd`, `$`) is one step, compared whole. Each merge, drop and split is a `note:`
+line in `--list` and `--json`. Names asked for with `gate run` are checked
+before this, so `gate run test` still runs `test` alone.
+
 ### The shell gate
 
 `shellcheck` takes files, not a directory, so gate has to name them. The

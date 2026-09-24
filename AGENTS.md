@@ -113,6 +113,11 @@ roles, becomes a gate named for it (`ciScriptGates` in `internal/detect/ci.go`),
 serial behind a serial build, carrying the step's and job's `env`. A step
 handed `${{ }}` values or in a job that starts services is a note instead.
 
+After configuration and `gate run` name checks, `dedupe` (`internal/app/dedupe.go`)
+breaks every gate into steps (`detect.Work`) and runs each step once: identical
+gates merge, a coverage variant drops the plain run, and an aggregate is split
+to its uncovered steps or dropped. Each is a note.
+
 Whether a gate is browser e2e (`detect.IsE2E`) is read from its name, its
 argv and the package scripts it runs, and decided in `internal/app` after the
 config merge, where `gates.<name>.e2e` can overrule it. A bare run drops those

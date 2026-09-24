@@ -343,7 +343,7 @@ func gateProject(t *testing.T, commands ...string) string {
 func TestIndependentGatesOverlap(t *testing.T) {
 	setLogDir(t)
 
-	root := gateProject(t, "sleep 0.4", "sleep 0.4")
+	root := gateProject(t, "sleep 0.4", "sleep 0.40")
 	started := time.Now()
 	_, stderr, code := runGateTest(t, "-C", root)
 	elapsed := time.Since(started)
@@ -1031,7 +1031,7 @@ func TestAConfiguredGateWithdrawsTheSkipNoteForItsRole(t *testing.T) {
 // One path cannot hold several gates' logs, and silently sharing it would
 // destroy every gate's output but the last.
 func TestRunLogWithSeveralGatesIsRefused(t *testing.T) {
-	root := gateProject(t, "true", "true")
+	root := gateProject(t, "true", ":")
 	_, stderr, code := runGateTest(t, "-C", root, "--log", tempLog(t))
 	qt.Assert(t, qt.Equals(code, InvalidUsage))
 	qt.Check(t, qt.StringContains(stderr, "--log names a single file"))

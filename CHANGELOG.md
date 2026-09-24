@@ -8,6 +8,12 @@ Notable changes to `gate`. The format follows
 
 ### Added
 
+- Nothing a run schedules runs twice. Gates running the same steps in one
+  directory merge under the more specific name; a coverage run drops the plain
+  run of the same suite; an aggregate script whose steps other gates run is
+  split to what nothing else covers, or dropped. `--list` notes each one.
+  Docs: docs/USAGE.md, Nothing runs twice.
+
 - Browser e2e gates (an `e2e` name segment, `playwright test`, or a script or
   turbo task that runs either) are left out of a bare run, which says how many
   it skipped; `--e2e` adds them and `gate run <name>` runs one. `--list` and
