@@ -100,6 +100,7 @@ func TestApplyForceCacheSetsTurboForceUnconditionally(t *testing.T) {
 	spec := gateSpec{argv: []string{"echo", "hi"}, display: "echo hi"}
 	applyForceCache(&spec)
 	qt.Assert(t, qt.Equals(spec.env["TURBO_FORCE"], "1"))
+	qt.Assert(t, qt.StringContains(spec.env["GOFLAGS"], "-count=1"))
 	// Unrecognised commands are left otherwise untouched.
 	qt.Assert(t, qt.DeepEquals(spec.argv, []string{"echo", "hi"}))
 	qt.Assert(t, qt.Equals(spec.display, "echo hi"))

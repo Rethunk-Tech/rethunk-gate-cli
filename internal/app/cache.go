@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -209,7 +210,7 @@ func (s *cacheScanner) verdict() cacheVerdict {
 // exactly as it would without the flag, the same safe direction
 // cacheScanner takes on the way back.
 //
-// TURBO_FORCE is set unconditionally -- an environment variable a command
+// TURBO_FORCE and GOFLAGS=-count=1 are set unconditionally -- an environment variable a command
 // never reads changes nothing about it, so there is no cost to setting it on
 // a gate that turns out not to be turbo. The two argv rewrites are narrower:
 // they fire only where argv[0] resolves to exactly "go" or "make", because
@@ -224,6 +225,10 @@ func applyForceCache(spec *gateSpec) {
 		spec.env = map[string]string{}
 	}
 	spec.env["TURBO_FORCE"] = "1"
+	// A go test behind make or a script never reaches the argv rewrite below,
+	// and make -B does not clear Go's test cache. GOFLAGS reaches it through
+	// any wrapper; the go command ignores a GOFLAGS flag a subcommand lacks.
+	spec.env["GOFLAGS"] = strings.TrimSpace(firstNonEmpty(spec.env["GOFLAGS"], os.Getenv("GOFLAGS")) + " -count=1")
 
 	if len(spec.argv) == 0 {
 		return
@@ -240,4 +245,13 @@ func applyForceCache(spec *gateSpec) {
 			spec.display = strings.Join(spec.argv, " ")
 		}
 	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }

@@ -80,7 +80,7 @@ Flags:
   --budget D    warn when a passing run takes longer than D (default 10s, 0
                 disables; 2m when e2e gates run; .gate.toml: budget = "15s")
   --force-cache re-run turbo, go test, and make targets rather than serve them
-                from their own cache (also sets TURBO_FORCE=1)
+                from their own cache (also sets TURBO_FORCE=1, GOFLAGS=-count=1)
   --timeout D   kill a gate that runs longer than D (default 1m, 0 disables;
                 .gate.toml can set it per gate, and this beats that)
   --tail N      trailing lines to quote on failure (default 40)
