@@ -51,7 +51,7 @@ type fixedFinding struct {
 	Reason  string `json:"reason,omitempty"`
 }
 
-func parseFixArgs(args []string, stderr io.Writer) (dryRun bool, ok, help bool) {
+func parseFixArgs(args []string, stderr io.Writer) (dryRun, ok, help bool) {
 	fs := flag.NewFlagSet("fix", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.Usage = func() {}
