@@ -179,7 +179,7 @@ func detectOne(ctx context.Context, dir string) (Project, error) {
 	// Highest precedence first. A Makefile target is a deliberate wrapper --
 	// it usually adds flags the bare convention would miss -- so it outranks
 	// a package script, and both outrank anything merely inferred.
-	for _, g := range makefileGates(proj.Root, &proj) {
+	for _, g := range makefileGates(proj.Root) {
 		claim(g)
 	}
 	// Turbo outranks the package scripts it orchestrates: where a task graph is
@@ -191,7 +191,7 @@ func detectOne(ctx context.Context, dir string) (Project, error) {
 			claim(g)
 		}
 	}
-	for _, g := range packageJSONGates(proj.Root, proj.workspaceOrRoot(), &proj) {
+	for _, g := range packageJSONGates(proj.Root, proj.workspaceOrRoot()) {
 		claim(g)
 	}
 	convention, skipped := conventionGates(ctx, proj.Root, &proj)

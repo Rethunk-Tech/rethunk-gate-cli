@@ -50,9 +50,9 @@ const (
 	packageSource = "package.json scripts."
 )
 
-// Every reader below takes the project to append notes to and to resolve
-// binaries against. Detect is the only caller of any of them and always passes
-// its own project, so nil is unreachable and none of them guards for it.
+// Detect is the only caller of these readers. Readers that need project state
+// receive Detect's project; readers that only inspect files take the minimal
+// paths they need.
 
 // makefileTarget matches a target definition at the start of a line. Targets
 // are read textually rather than by asking make: this must never run anything,
@@ -65,7 +65,7 @@ var makefileTarget = regexp.MustCompile(`(?m)^([a-zA-Z][a-zA-Z0-9_-]*):`)
 // wrapper -- rgit's own `make test` adds coverage flags the bare `go test`
 // convention would miss -- so honouring it is the difference between running
 // the project's pipeline and running one that merely resembles it.
-func makefileGates(root string, proj *Project) []Gate {
+func makefileGates(root string) []Gate {
 	path := filepath.Join(root, "Makefile")
 	data, err := os.ReadFile(path) //nolint:gosec // path is the fixed Makefile location under the project root
 	if err != nil {
@@ -115,7 +115,7 @@ func readPackageJSON(path string) (packageJSON, bool) {
 }
 
 // packageJSONGates reads the scripts a project declares.
-func packageJSONGates(root, workspace string, proj *Project) []Gate {
+func packageJSONGates(root, workspace string) []Gate {
 	pkg, ok := readPackageJSON(filepath.Join(root, "package.json"))
 	if !ok {
 		return nil
