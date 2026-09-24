@@ -775,7 +775,7 @@ func makeRecipes(root, target string) string {
 	prereqs := map[string][]string{}
 	recipes := map[string][]string{}
 	var current []string
-	for _, line := range strings.Split(strings.ReplaceAll(string(data), "\\\n", " "), "\n") {
+	for line := range strings.SplitSeq(strings.ReplaceAll(string(data), "\\\n", " "), "\n") {
 		if strings.HasPrefix(line, "\t") {
 			for _, t := range current {
 				recipes[t] = append(recipes[t], line)

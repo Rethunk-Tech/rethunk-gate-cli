@@ -1,6 +1,7 @@
 package detect
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -239,9 +240,7 @@ func jobSteps(lines []string, job int, where string) []ciStep {
 			case "working-directory":
 				skip = true
 			case "env":
-				for k, v := range mapping(step, i-1) {
-					st.env[k] = v
-				}
+				maps.Copy(st.env, mapping(step, i-1))
 			}
 		}
 		if skip {

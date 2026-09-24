@@ -190,8 +190,7 @@ func (c *Config) merge(path string, data []byte) error {
 	// whack-a-mole.
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&f); err != nil {
-		var strict *toml.StrictMissingError
-		if errors.As(err, &strict) {
+		if strict, ok := errors.AsType[*toml.StrictMissingError](err); ok {
 			return fmt.Errorf("%s: unknown setting(s):\n%s", path, strict.String())
 		}
 		return fmt.Errorf("%s: %w", path, err)

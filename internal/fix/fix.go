@@ -311,8 +311,8 @@ func enableGovulncheck(body string) (string, string) {
 		return body, "setup-go step not found"
 	}
 	changed := false
-	for u := len(uses) - 1; u >= 0; u-- {
-		next, inserted, ok := addGovulncheck(lines, uses[u])
+	for _, use := range slices.Backward(uses) {
+		next, inserted, ok := addGovulncheck(lines, use)
 		if !ok {
 			return body, "setup-go step is not a mechanical edit"
 		}
@@ -572,7 +572,7 @@ func namedActionRef(what string) string {
 }
 
 func tagFromFix(fix string) string {
-	for _, w := range strings.Fields(fix) {
+	for w := range strings.FieldsSeq(fix) {
 		w = strings.Trim(w, ",.")
 		if isTag(w) {
 			return w

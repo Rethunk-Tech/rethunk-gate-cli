@@ -21,7 +21,7 @@ func version(ldflags string, timeout time.Duration) string {
 // print the "dev" placeholder.
 func TestVersionNamesTheToolAndTheBuild(t *testing.T) {
 	t.Parallel()
-	first := strings.SplitN(version("v1.2.3", defaultTimeout), "\n", 2)[0]
+	first, _, _ := strings.Cut(version("v1.2.3", defaultTimeout), "\n")
 
 	qt.Check(t, qt.IsTrue(strings.HasPrefix(first, "gate v1.2.3 ")),
 		qt.Commentf("version line = %q, want it to name the tool and version", first))

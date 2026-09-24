@@ -436,7 +436,7 @@ func versionHint(comment string) string {
 	if !ok {
 		return ""
 	}
-	for _, word := range strings.Fields(after) {
+	for word := range strings.FieldsSeq(after) {
 		if _, _, ok := parseTag(word); ok {
 			return word
 		}

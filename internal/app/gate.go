@@ -835,8 +835,7 @@ func resolveCode(err error) Code {
 	if err == nil {
 		return Success
 	}
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
+	if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
 		if signal, ok := terminatingSignal(exitErr); ok {
 			return Signaled(signal)
 		}
