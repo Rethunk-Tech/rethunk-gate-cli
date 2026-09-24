@@ -401,7 +401,7 @@ func TestSupabaseIsSkippedWithAStatedReason(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	testutil.Write(t, dir, "go.mod", "module demo\n\ngo 1.26\n")
-	qt.Assert(t, qt.IsNil(os.MkdirAll(filepath.Join(dir, "supabase"), 0o755)))
+	qt.Assert(t, qt.IsNil(os.MkdirAll(filepath.Join(dir, "supabase"), 0o750)))
 
 	qt.Check(t, qt.IsTrue(hasNote(detect(t, dir), "supabase")),
 		qt.Commentf("supabase's omission was not explained"))

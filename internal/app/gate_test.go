@@ -710,7 +710,7 @@ func TestDoctorRendersFindingsAndNeverFailsTheBuild(t *testing.T) {
 	// not fail a test about the renderer.
 	dir := t.TempDir()
 	wf := filepath.Join(dir, ".github", "workflows")
-	qt.Assert(t, qt.IsNil(os.MkdirAll(wf, 0o755)))
+	qt.Assert(t, qt.IsNil(os.MkdirAll(wf, 0o750)))
 	testutil.Write(t, dir, "go.mod", "module demo\n\ngo 1.26\n")
 	testutil.Write(t, wf, "ci.yml", "jobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-go@v1.7\n")
 
@@ -1052,7 +1052,7 @@ func TestListShowsChosenAndShadowedAndRunsNothing(t *testing.T) {
 	// supabase/ is found and deliberately not turned into a gate, which
 	// --list has to say: silence there reads as "nothing to report" rather
 	// than "a decision was made".
-	qt.Assert(t, qt.IsNil(os.MkdirAll(filepath.Join(dir, "supabase"), 0o755)))
+	qt.Assert(t, qt.IsNil(os.MkdirAll(filepath.Join(dir, "supabase"), 0o750)))
 	t.Chdir(dir)
 
 	stdout, stderr, code := runGateTest(t, "--list")
@@ -1099,7 +1099,7 @@ func TestExistingLooseLogDirectoryIsTightened(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("TMPDIR", dir)
 	gateDir := filepath.Join(dir, "gate")
-	qt.Assert(t, qt.IsNil(os.MkdirAll(gateDir, 0o755)))
+	qt.Assert(t, qt.IsNil(os.MkdirAll(gateDir, 0o750)))
 
 	_, stderr, code := runGateTest(t, "true")
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("gate = %d, stderr = %q", code, stderr))
@@ -1348,7 +1348,7 @@ func TestDetectedGatesRunAtTheProjectRootNotTheCallerDirectory(t *testing.T) {
 	root := t.TempDir()
 	testutil.Write(t, root, "Makefile", "test:\n\ttouch ran-at-root\n")
 	sub := filepath.Join(root, "deep", "inside")
-	qt.Assert(t, qt.IsNil(os.MkdirAll(sub, 0o755)))
+	qt.Assert(t, qt.IsNil(os.MkdirAll(sub, 0o750)))
 	t.Setenv("TMPDIR", t.TempDir())
 
 	// -C points inside the project; detection walks up to the root.
@@ -1363,7 +1363,7 @@ func TestChdirRepeatsAccumulateAndAbsoluteResets(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	nested := filepath.Join(root, "a", "b")
-	qt.Assert(t, qt.IsNil(os.MkdirAll(nested, 0o755)))
+	qt.Assert(t, qt.IsNil(os.MkdirAll(nested, 0o750)))
 	other := t.TempDir()
 
 	t.Run("relative repeats join", func(t *testing.T) {
@@ -1417,7 +1417,7 @@ func TestChdirRefusalsUseDistinctCodes(t *testing.T) {
 	t.Run("a file is not a directory", func(t *testing.T) {
 		t.Parallel()
 		file := filepath.Join(t.TempDir(), "regular")
-		qt.Assert(t, qt.IsNil(os.WriteFile(file, nil, 0o644)))
+		qt.Assert(t, qt.IsNil(os.WriteFile(file, nil, 0o600)))
 		_, _, code := runGateTest(t, "-C", file, "true")
 		qt.Assert(t, qt.Equals(code, Fatal))
 	})
@@ -2177,7 +2177,7 @@ func TestConfigDirRunsTheGateThere(t *testing.T) {
 
 	root := t.TempDir()
 	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
-	qt.Assert(t, qt.IsNil(os.MkdirAll(filepath.Join(root, "sub"), 0o755)))
+	qt.Assert(t, qt.IsNil(os.MkdirAll(filepath.Join(root, "sub"), 0o750)))
 	testutil.Write(t, root, ".gate.toml", "[gates.docs]\nrun = \"touch marker\"\ndir = \"sub\"\n")
 
 	_, stderr, code := runGateTest(t, "-C", root)
@@ -2277,7 +2277,7 @@ func TestListingShowsConfiguredEnvDirAndAllowFailure(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
-	qt.Assert(t, qt.IsNil(os.MkdirAll(filepath.Join(root, "sub"), 0o755)))
+	qt.Assert(t, qt.IsNil(os.MkdirAll(filepath.Join(root, "sub"), 0o750)))
 	testutil.Write(t, root, ".gate.toml",
 		"[gates.e2e]\nrun = \"true\"\ndir = \"sub\"\nallow-failure = true\n\n[gates.e2e.env]\nB = \"2\"\nA = \"1\"\n")
 
