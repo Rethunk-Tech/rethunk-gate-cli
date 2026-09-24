@@ -151,7 +151,7 @@ func Load(projectRoot string) (Config, error) {
 		if path == "" {
 			continue
 		}
-		data, err := os.ReadFile(path)
+		data, err := os.ReadFile(path) //nolint:gosec // paths are the fixed user or project config locations
 		if errors.Is(err, os.ErrNotExist) {
 			continue
 		}

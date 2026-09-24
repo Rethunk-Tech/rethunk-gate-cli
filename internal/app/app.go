@@ -271,7 +271,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 			fmt.Fprintln(stderr, "gate: --profile reports a run; doctor runs nothing")
 			return InvalidUsage
 		}
-		return runDoctor(dir, opts.jsonList, stdout, stderr)
+		return runDoctor(ctx, dir, opts.jsonList, stdout, stderr)
 	}
 	// Only these two spellings are gate's; `gate doctor <anything else>` still
 	// means the program named doctor, reachable as `gate -- doctor` too.
@@ -294,7 +294,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 			fmt.Fprintln(stderr, "gate: --profile reports a run; fix is not a run")
 			return InvalidUsage
 		}
-		return runFix(dir, args[1:], opts.jsonList, stdout, stderr)
+		return runFix(ctx, dir, args[1:], opts.jsonList, stdout, stderr)
 	}
 
 	command := args
@@ -325,7 +325,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	var project detect.Project
 	var configured config.Config
 	if len(opts.gates) == 0 || len(roles) > 0 {
-		proj, err := detect.Detect(dir)
+		proj, err := detect.Detect(ctx, dir)
 		if err != nil {
 			fmt.Fprintf(stderr, "gate: cannot inspect this directory: %v\n", err)
 			return Fatal
@@ -627,7 +627,7 @@ func frozenInstall(ctx context.Context, project detect.Project, stderr io.Writer
 	for _, install := range project.Installs {
 		display := strings.Join(install.Argv, " ")
 		fmt.Fprintf(stderr, "gate: install: %s (in %s)\n", display, install.Dir)
-		cmd := exec.CommandContext(ctx, install.Argv[0], install.Argv[1:]...)
+		cmd := exec.CommandContext(ctx, install.Argv[0], install.Argv[1:]...) //nolint:gosec // package manager argv comes from recognized lockfiles
 		cmd.Dir = install.Dir
 		cmd.Env = markRoot(project.Root)
 		out, err := cmd.CombinedOutput()

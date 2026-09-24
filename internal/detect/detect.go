@@ -10,6 +10,7 @@
 package detect
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"slices"
@@ -123,18 +124,18 @@ func IsRole(name string) bool { return slices.Contains(gateOrder, name) }
 
 // Detect inspects dir and everything above it, and reports the gates it can
 // run. It never executes anything.
-func Detect(dir string) (Project, error) {
-	proj, err := detectOne(dir)
+func Detect(ctx context.Context, dir string) (Project, error) {
+	proj, err := detectOne(ctx, dir)
 	if err != nil {
 		return proj, err
 	}
-	ciPackageGates(&proj)
+	ciPackageGates(ctx, &proj)
 	ciScriptGates(&proj)
 	return proj, nil
 }
 
 // detectOne is Detect for one project, without the CI-run packages beneath it.
-func detectOne(dir string) (Project, error) {
+func detectOne(ctx context.Context, dir string) (Project, error) {
 	abs, err := filepath.Abs(dir)
 	if err != nil {
 		return Project{}, err
@@ -193,7 +194,7 @@ func detectOne(dir string) (Project, error) {
 	for _, g := range packageJSONGates(proj.Root, proj.workspaceOrRoot(), &proj) {
 		claim(g)
 	}
-	convention, skipped := conventionGates(proj.Root, &proj)
+	convention, skipped := conventionGates(ctx, proj.Root, &proj)
 	for _, g := range convention {
 		claim(g)
 	}

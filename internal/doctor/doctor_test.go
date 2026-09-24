@@ -43,7 +43,7 @@ func TestGoModuleWithoutGovulncheckIsReported(t *testing.T) {
 	dir := t.TempDir()
 	testutil.Write(t, dir, "go.mod", "module demo\n\ngo 1.26\n")
 
-	findings, err := Run(dir)
+	findings, err := Run(t.Context(), dir)
 	qt.Assert(t, qt.IsNil(err))
 	f, ok := findingNamed(findings, "go-no-govulncheck")
 	qt.Assert(t, qt.IsTrue(ok), qt.Commentf("findings = %v, want go-no-govulncheck", findings))
@@ -65,7 +65,7 @@ func TestDoctorLeavesTheRepositoryByteIdentical(t *testing.T) {
 	testutil.Write(t, dir, "Makefile", "test:\n\ttouch SHOULD-NOT-EXIST\n")
 
 	before := treeDigest(t, dir)
-	_, err := Run(dir)
+	_, err := Run(t.Context(), dir)
 	qt.Assert(t, qt.IsNil(err))
 	qt.Assert(t, qt.Equals(treeDigest(t, dir), before),
 		qt.Commentf("doctor modified the repository"))
@@ -110,7 +110,7 @@ func TestGovulncheckIsJudgedAcrossAllWorkflows(t *testing.T) {
 	testutil.Write(t, dir, ".github/workflows/release.yml",
 		"jobs:\n  b:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-go@v1.7\n")
 
-	findings, err := Run(dir)
+	findings, err := Run(t.Context(), dir)
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.IsFalse(reported(findings, "ci-govulncheck-off")), qt.Commentf("flagged %s though another workflow enables govulncheck", checkNames(findings)))
 }
@@ -132,7 +132,7 @@ func TestWorkflowGapsAreReported(t *testing.T) {
 		"      - run: npx tsc",
 	}, "\n"))
 
-	findings, err := Run(dir)
+	findings, err := Run(t.Context(), dir)
 	qt.Assert(t, qt.IsNil(err))
 	for _, want := range []string{
 		"corepack-with-setup-bun",
@@ -169,9 +169,9 @@ func TestWorkflowGapsAreJudgedFromTheRepositoryRoot(t *testing.T) {
 	member := filepath.Join(repo, "packages", "web")
 	testutil.Write(t, member, "package.json", `{"name":"web"}`)
 
-	fromRoot, err := Run(repo)
+	fromRoot, err := Run(t.Context(), repo)
 	qt.Assert(t, qt.IsNil(err))
-	fromMember, err := Run(member)
+	fromMember, err := Run(t.Context(), member)
 	qt.Assert(t, qt.IsNil(err))
 
 	for _, want := range []string{
@@ -194,7 +194,7 @@ func TestStaleActionRefIsReportedButNewerIsNot(t *testing.T) {
 	testutil.Write(t, older, "package.json", `{"name":"demo"}`)
 	testutil.Write(t, older, ".github/workflows/ci.yml",
 		"jobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-bun@v1.2\n")
-	findings, err := Run(older)
+	findings, err := Run(t.Context(), older)
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.IsTrue(reported(findings, "actions-stale-ref")), qt.Commentf("v1.2 not reported as behind %s: %v", knownGoodActionsTag, checkNames(findings)))
 
@@ -211,7 +211,7 @@ func TestStaleActionRefIsReportedButNewerIsNot(t *testing.T) {
 			"      - uses: Rethunk-Tech/gh-actions/setup-bun@v9.9\n"+
 			"      - uses: Rethunk-Tech/gh-actions/setup-go@3d3c42e5aac5ba805825da76410c181273ba90b1\n"+
 			"      - uses: Rethunk-Tech/gh-actions/setup-node@v1\n")
-	findings, err = Run(newer)
+	findings, err = Run(t.Context(), newer)
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.IsFalse(reported(findings, "actions-stale-ref")), qt.Commentf("v9.9 wrongly reported as stale: %v", checkNames(findings)))
 }
@@ -226,7 +226,7 @@ func TestActionRefStopsAtATrailingComment(t *testing.T) {
 	testutil.Write(t, dir, ".github/workflows/ci.yml",
 		"jobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-go@v1.2  # pinned deliberately\n")
 
-	findings, err := Run(dir)
+	findings, err := Run(t.Context(), dir)
 	qt.Assert(t, qt.IsNil(err))
 	f, ok := findingNamed(findings, "actions-stale-ref")
 	qt.Assert(t, qt.IsTrue(ok), qt.Commentf("commented v1.2 pin not judged: %v", checkNames(findings)))
@@ -248,7 +248,7 @@ func TestShaPinnedRefIsJudgedByItsVersionComment(t *testing.T) {
 		testutil.Write(t, dir, "package.json", `{"name":"demo"}`)
 		testutil.Write(t, dir, ".github/workflows/ci.yml",
 			"jobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-go@"+ref+"\n")
-		findings, err := Run(dir)
+		findings, err := Run(t.Context(), dir)
 		qt.Assert(t, qt.IsNil(err))
 		return findings
 	}
@@ -278,13 +278,13 @@ func TestSupersededToolingFlagsOnlyTheStraggler(t *testing.T) {
 
 	straggler := t.TempDir()
 	testutil.Write(t, straggler, "package.json", `{"scripts":{"lint":"eslint ."}}`)
-	findings, err := Run(straggler)
+	findings, err := Run(t.Context(), straggler)
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.IsTrue(reported(findings, "superseded-tooling")), qt.Commentf("eslint-only project not flagged: %v", checkNames(findings)))
 
 	migrated := t.TempDir()
 	testutil.Write(t, migrated, "package.json", `{"scripts":{"lint":"biome check ."}}`)
-	findings, err = Run(migrated)
+	findings, err = Run(t.Context(), migrated)
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.IsFalse(reported(findings, "superseded-tooling")), qt.Commentf("biome project wrongly flagged: %v", checkNames(findings)))
 }
@@ -299,7 +299,7 @@ func TestARepositoryWithNoCIIsReported(t *testing.T) {
 	testutil.Write(t, repo, "go.mod", "module demo\n\ngo 1.26\n")
 	testutil.Write(t, repo, ".git/HEAD", "ref: refs/heads/main\n")
 
-	findings, err := Run(repo)
+	findings, err := Run(t.Context(), repo)
 	qt.Assert(t, qt.IsNil(err))
 	f, ok := findingNamed(findings, "no-ci")
 	qt.Assert(t, qt.IsTrue(ok), qt.Commentf("findings = %v, want no-ci", checkNames(findings)))
@@ -314,14 +314,14 @@ func TestARepositoryWithNoCIIsReported(t *testing.T) {
 	member := filepath.Join(repo, "packages", "web")
 	testutil.Write(t, member, "package.json", `{"name":"web"}`)
 	testutil.Write(t, repo, ".github/workflows/ci.yml", "jobs: {}\n")
-	findings, err = Run(member)
+	findings, err = Run(t.Context(), member)
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.IsFalse(reported(findings, "no-ci")), qt.Commentf("a workspace member was reported as having no CI: %v", checkNames(findings)))
 
 	// A directory that merely holds a manifest is not a project missing CI.
 	loose := t.TempDir()
 	testutil.Write(t, loose, "go.mod", "module loose\n\ngo 1.26\n")
-	findings, err = Run(loose)
+	findings, err = Run(t.Context(), loose)
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.IsFalse(reported(findings, "no-ci")), qt.Commentf("a non-repository was reported as having no CI: %v", checkNames(findings)))
 
@@ -331,7 +331,7 @@ func TestARepositoryWithNoCIIsReported(t *testing.T) {
 	docs := t.TempDir()
 	testutil.Write(t, docs, ".git/HEAD", "ref: refs/heads/main\n")
 	testutil.Write(t, docs, "Makefile", "pdfs:\n\tpandoc x.md -o x.pdf\n")
-	findings, err = Run(docs)
+	findings, err = Run(t.Context(), docs)
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.IsFalse(reported(findings, "no-ci")),
 		qt.Commentf("a document repository was told to add CI: %v", checkNames(findings)))
@@ -340,7 +340,7 @@ func TestARepositoryWithNoCIIsReported(t *testing.T) {
 	oneGate := t.TempDir()
 	testutil.Write(t, oneGate, ".git/HEAD", "ref: refs/heads/main\n")
 	testutil.Write(t, oneGate, "Makefile", "lint:\n\tmarkdownlint .\n")
-	findings, err = Run(oneGate)
+	findings, err = Run(t.Context(), oneGate)
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.IsTrue(reported(findings, "no-ci")),
 		qt.Commentf("a repository with a lint gate and no CI was not reported: %v", checkNames(findings)))
@@ -358,7 +358,7 @@ func TestAbbreviatedShaPinIsJudgedByItsVersionComment(t *testing.T) {
 		testutil.Write(t, dir, "package.json", `{"name":"demo"}`)
 		testutil.Write(t, dir, ".github/workflows/ci.yml",
 			"jobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-go@"+ref+"\n")
-		findings, err := Run(dir)
+		findings, err := Run(t.Context(), dir)
 		qt.Assert(t, qt.IsNil(err))
 		return findings
 	}
@@ -395,7 +395,7 @@ func TestFindingsShareOneBase(t *testing.T) {
 	member := filepath.Join(repo, "packages", "web")
 	testutil.Write(t, member, "package.json", `{"scripts":{"lint":"eslint ."}}`)
 
-	findings, err := Run(member)
+	findings, err := Run(t.Context(), member)
 	qt.Assert(t, qt.IsNil(err))
 
 	pkg, ok := findingNamed(findings, "superseded-tooling")
@@ -443,7 +443,7 @@ func nextProject(t *testing.T, extra string) string {
 
 func TestNextBuildAndTypecheckRaceIsReported(t *testing.T) {
 	isolatePath(t)
-	findings, err := Run(nextProject(t, ""))
+	findings, err := Run(t.Context(), nextProject(t, ""))
 	qt.Assert(t, qt.IsNil(err))
 	f, ok := findingNamed(findings, "next-build-typecheck-race")
 	qt.Assert(t, qt.IsTrue(ok), qt.Commentf("findings = %v", findings))
@@ -457,7 +457,7 @@ func TestNextBuildAndTypecheckRaceIsReported(t *testing.T) {
 func TestNextRaceIsSilentOnceTheOrderIsDeclared(t *testing.T) {
 	isolatePath(t)
 	dir := nextProject(t, "[gates.build]\nserial = true\n\n[gates.typecheck]\nserial = true\n")
-	findings, err := Run(dir)
+	findings, err := Run(t.Context(), dir)
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.IsFalse(reported(findings, "next-build-typecheck-race")),
 		qt.Commentf("findings = %v", findings))
@@ -471,7 +471,7 @@ func TestNextRaceIgnoresADependencyMerelyNamedLikeNext(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	testutil.Write(t, dir, "package.json",
 		`{"dependencies":{"next-themes":"1.0.0"},"scripts":{"build":"vite build","typecheck":"tsc --noEmit"}}`)
-	findings, err := Run(dir)
+	findings, err := Run(t.Context(), dir)
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.IsFalse(reported(findings, "next-build-typecheck-race")),
 		qt.Commentf("findings = %v", findings))
@@ -489,7 +489,7 @@ func TestNoCIReadsConfiguredGatesToo(t *testing.T) {
 	testutil.Write(t, dir, "README.md", "# docs\n")
 	testutil.Write(t, dir, ".gate.toml", "[gates.doc-audit]\nrun = \"make check\"\n")
 
-	findings, err := Run(dir)
+	findings, err := Run(t.Context(), dir)
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.IsTrue(reported(findings, "no-ci")), qt.Commentf("findings = %v", findings))
 }
@@ -506,7 +506,7 @@ func TestNoCIStaysSilentWithNothingToRun(t *testing.T) {
 	// produces nothing.
 	testutil.Write(t, dir, ".gate.toml", "[gates.test]\nserial = true\n")
 
-	findings, err := Run(dir)
+	findings, err := Run(t.Context(), dir)
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.IsFalse(reported(findings, "no-ci")), qt.Commentf("findings = %v", findings))
 }
@@ -520,7 +520,7 @@ func TestNpxInPackageScriptsIsReported(t *testing.T) {
 	testutil.Write(t, dir, "bun.lock", "")
 	testutil.Write(t, dir, "package.json", `{"scripts":{"typecheck":"npx tsc --noEmit"}}`)
 
-	findings, err := Run(dir)
+	findings, err := Run(t.Context(), dir)
 	qt.Assert(t, qt.IsNil(err))
 	f, ok := findingNamed(findings, "npx-in-bun-workspace")
 	qt.Assert(t, qt.IsTrue(ok), qt.Commentf("findings = %v", checkNames(findings)))
@@ -537,14 +537,14 @@ func TestNpxInPackageScriptsFiresOnlyOnInvocations(t *testing.T) {
 	testutil.Write(t, prose, "bun.lock", "")
 	testutil.Write(t, prose, "package.json",
 		`{"description":"run it with npx foo","scripts":{"test":"vitest run"}}`)
-	findings, err := Run(prose)
+	findings, err := Run(t.Context(), prose)
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.IsFalse(reported(findings, "npx-in-bun-workspace")),
 		qt.Commentf("prose was read as an invocation: %v", checkNames(findings)))
 
 	plain := t.TempDir()
 	testutil.Write(t, plain, "package.json", `{"scripts":{"typecheck":"npx tsc --noEmit"}}`)
-	findings, err = Run(plain)
+	findings, err = Run(t.Context(), plain)
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.IsFalse(reported(findings, "npx-in-bun-workspace")),
 		qt.Commentf("an npx outside a bun workspace was flagged: %v", checkNames(findings)))

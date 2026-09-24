@@ -57,7 +57,7 @@ func treeDigest(t *testing.T, root string) string {
 
 func applyNamed(t *testing.T, dir, check string, dryRun bool) doctor.Finding {
 	t.Helper()
-	findings, err := doctor.Run(dir)
+	findings, err := doctor.Run(t.Context(), dir)
 	qt.Assert(t, qt.IsNil(err))
 	f, ok := findingNamed(findings, check)
 	qt.Assert(t, qt.IsTrue(ok), qt.Commentf("doctor did not report %s: %v", check, findings))
@@ -163,7 +163,7 @@ func TestApplyClearsTheNamedDoctorCheck(t *testing.T) {
 			tc.plant(t, dir)
 			applyNamed(t, dir, tc.check, false)
 			tc.after(t, dir)
-			findings, err := doctor.Run(dir)
+			findings, err := doctor.Run(t.Context(), dir)
 			qt.Assert(t, qt.IsNil(err))
 			_, still := findingNamed(findings, tc.check)
 			qt.Check(t, qt.IsFalse(still), qt.Commentf("doctor still reports %s: %v", tc.check, findings))
@@ -426,7 +426,7 @@ func TestPackageScriptsNpxClearsThroughDoctor(t *testing.T) {
 		Scripts map[string]string `json:"scripts"`
 	}{})), qt.Commentf("the splice broke the JSON: %q", body))
 
-	findings, err := doctor.Run(dir)
+	findings, err := doctor.Run(t.Context(), dir)
 	qt.Assert(t, qt.IsNil(err))
 	_, still := findingNamed(findings, "npx-in-bun-workspace")
 	qt.Check(t, qt.IsFalse(still), qt.Commentf("doctor still reports npx-in-bun-workspace: %v", findings))

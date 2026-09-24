@@ -30,7 +30,7 @@ func WriteExecutable(t *testing.T, dir, relPath string) string {
 
 func writeFile(t *testing.T, path, body string, perm os.FileMode) {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(path, []byte(body), perm); err != nil {

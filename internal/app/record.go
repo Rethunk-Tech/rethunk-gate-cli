@@ -52,7 +52,7 @@ type treeState struct {
 // to name a program for this read to run.
 func readTree(ctx context.Context, root string) treeState {
 	git := func(args ...string) (string, bool) {
-		cmd := exec.CommandContext(ctx, "git", append([]string{"-C", root, "-c", "core.fsmonitor="}, args...)...)
+		cmd := exec.CommandContext(ctx, "git", append([]string{"-C", root, "-c", "core.fsmonitor="}, args...)...) //nolint:gosec // repository inspection uses fixed git arguments
 		cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
 		out, err := cmd.Output()
 		return string(out), err == nil

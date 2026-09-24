@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -84,7 +85,7 @@ func writeFixJSON(w io.Writer, results []fix.Result) error {
 
 // runFix applies named remedies. Doctor is still the read-only half: this
 // verb is what writes, and only when a check has a closed applier.
-func runFix(dir string, args []string, asJSON bool, stdout, stderr io.Writer) Code {
+func runFix(ctx context.Context, dir string, args []string, asJSON bool, stdout, stderr io.Writer) Code {
 	dryRun, ok, help := parseFixArgs(args, stderr)
 	if help {
 		fmt.Fprint(stdout, fixHelp)
@@ -96,7 +97,7 @@ func runFix(dir string, args []string, asJSON bool, stdout, stderr io.Writer) Co
 		return InvalidUsage
 	}
 
-	findings, err := doctor.Run(dir)
+	findings, err := doctor.Run(ctx, dir)
 	if err != nil {
 		fmt.Fprintf(stderr, "gate: cannot inspect this directory: %v\n", err)
 		return Fatal

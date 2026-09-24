@@ -157,7 +157,7 @@ func ciScriptSteps(root string) []ciStep {
 	files, _ := filepath.Glob(filepath.Join(root, ".github", "workflows", "*.y*ml"))
 	var steps []ciStep
 	for _, file := range files {
-		data, err := os.ReadFile(file)
+		data, err := os.ReadFile(file) //nolint:gosec // files come from the fixed workflow glob under the project root
 		if err != nil {
 			continue
 		}

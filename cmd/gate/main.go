@@ -34,7 +34,7 @@ func main() {
 			return
 		}
 		if num, ok := s.(syscall.Signal); ok {
-			received.Store(int32(num))
+			received.Store(int32(num)) //nolint:gosec // OS signal values fit in int32
 		}
 		cancel()
 		// Hand the signal back to the operating system, so a second Ctrl-C

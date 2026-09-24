@@ -7,6 +7,7 @@
 package doctor
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -56,8 +57,8 @@ const knownGoodActionsTag = "v1.11"
 
 // Run inspects dir and returns findings, most costly first. It executes
 // nothing.
-func Run(dir string) ([]Finding, error) {
-	proj, err := detect.Detect(dir)
+func Run(ctx context.Context, dir string) ([]Finding, error) {
+	proj, err := detect.Detect(ctx, dir)
 	if err != nil {
 		return nil, err
 	}
@@ -114,7 +115,7 @@ func Run(dir string) ([]Finding, error) {
 // readFile is a convenience that treats an unreadable file as absent, since
 // every check here is best-effort by design.
 func readFile(path string) string {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // doctor reads paths it resolved from the project root
 	if err != nil {
 		return ""
 	}

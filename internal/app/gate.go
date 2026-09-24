@@ -592,7 +592,7 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 		defer cancel()
 	}
 
-	cmd := exec.CommandContext(runCtx, spec.argv[0], spec.argv[1:]...)
+	cmd := exec.CommandContext(runCtx, spec.argv[0], spec.argv[1:]...) //nolint:gosec // gate intentionally runs the configured command
 	// Stop the whole process group, not just the child: a test runner that
 	// spawned workers would otherwise leave them behind holding a port.
 	setProcessGroup(cmd)
@@ -694,7 +694,7 @@ func openLog(res *gateResult, spec gateSpec) (*os.File, error) {
 	if res.logPath != "" {
 		// A path the caller chose with --log: create it, but do not impose
 		// gate's own privacy on a location it does not own.
-		if err := os.MkdirAll(filepath.Dir(res.logPath), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(res.logPath), 0o755); err != nil { //nolint:gosec // caller-owned --log directories keep their sharing policy
 			return nil, fmt.Errorf("cannot create log directory: %w", err)
 		}
 		f, err := os.OpenFile(res.logPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
@@ -711,7 +711,9 @@ func openLog(res *gateResult, spec gateSpec) (*os.File, error) {
 		return nil, fmt.Errorf("cannot create log directory: %w", err)
 	}
 	if info, err := os.Stat(dir); err == nil && info.Mode().Perm() != 0o700 {
-		_ = os.Chmod(dir, 0o700)
+		if err := os.Chmod(dir, 0o700); err != nil { //nolint:gosec // private log directories need owner execute permission
+			return nil, fmt.Errorf("cannot secure log directory: %w", err)
+		}
 	}
 	pruneOnce.Do(func() { pruneLogs(dir) })
 	// CreateTemp settles the collision two gates with the same slug would
@@ -754,7 +756,7 @@ func pruneLogs(dir string) {
 	// interrupted, or a directory too large for the time a gate has --
 	// still moves the schedule forward instead of being retried in full
 	// on every run from then on.
-	if f, err := os.Create(stamp); err == nil {
+	if f, err := os.Create(stamp); err == nil { //nolint:gosec // stamp is fixed inside gate's private log directory
 		_ = f.Close()
 	}
 	entries, err := os.ReadDir(dir)

@@ -131,7 +131,7 @@ func writeFile(path, body string) error {
 	if info, err := os.Stat(path); err == nil {
 		mode = info.Mode().Perm()
 	}
-	return os.WriteFile(path, []byte(body), mode)
+	return os.WriteFile(path, []byte(body), mode) //nolint:gosec // path comes from a doctor finding resolved under the project root
 }
 
 // --- next-build-typecheck-race ---
@@ -153,7 +153,7 @@ type tomlFile struct {
 func applySerialTOML(f doctor.Finding, dryRun bool) (Result, error) {
 	path := filepath.Join(filepath.Dir(f.Path), config.ProjectFile)
 	var body string
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // path is the doctor finding's project-local config location
 	switch {
 	case err == nil:
 		body = string(data)

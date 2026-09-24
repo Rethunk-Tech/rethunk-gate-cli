@@ -17,7 +17,7 @@ import (
 // detect runs Detect and fails the test if it could not.
 func detect(t *testing.T, dir string) Project {
 	t.Helper()
-	proj, err := Detect(dir)
+	proj, err := Detect(t.Context(), dir)
 	qt.Assert(t, qt.IsNil(err))
 	return proj
 }
@@ -387,7 +387,7 @@ func TestWorkflowsGateIsSkippedWithoutActionlint(t *testing.T) {
 	dir := t.TempDir()
 	testutil.Write(t, dir, ".github/workflows/ci.yml", "jobs: {}\n")
 
-	proj, err := Detect(dir)
+	proj, err := Detect(t.Context(), dir)
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.IsFalse(slices.ContainsFunc(proj.Gates, func(g Gate) bool { return g.Name == "workflows" })),
 		qt.Commentf("a workflows gate was claimed with no actionlint to run it"))
@@ -641,7 +641,7 @@ func TestShellScriptsGetAShellGate(t *testing.T) {
 	// would be reporting on code the project cannot change.
 	testutil.Write(t, dir, "node_modules/pkg/install.sh", "#!/bin/sh\ntrue\n")
 
-	proj, err := Detect(dir)
+	proj, err := Detect(t.Context(), dir)
 	qt.Assert(t, qt.IsNil(err))
 	gate := gateNamed(t, proj, "shell")
 	// Relative and sorted, so two runs produce the same command and the line
@@ -657,7 +657,7 @@ func TestShellGateIsSkippedWithoutShellcheck(t *testing.T) {
 	testutil.Write(t, dir, "package.json", `{"name":"app"}`)
 	testutil.Write(t, dir, "scripts/deploy.sh", "#!/bin/sh\ntrue\n")
 
-	proj, err := Detect(dir)
+	proj, err := Detect(t.Context(), dir)
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.IsFalse(slices.ContainsFunc(proj.Gates, func(g Gate) bool { return g.Name == "shell" })),
 		qt.Commentf("a shell gate was claimed with no shellcheck to run it"))
@@ -671,7 +671,7 @@ func TestNoShellGateWithoutScripts(t *testing.T) {
 	testutil.WriteExecutable(t, dir, filepath.Join("node_modules", ".bin", "shellcheck"))
 	testutil.Write(t, dir, "package.json", `{"name":"app"}`)
 
-	proj, err := Detect(dir)
+	proj, err := Detect(t.Context(), dir)
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.IsFalse(slices.ContainsFunc(proj.Gates, func(g Gate) bool { return g.Name == "shell" })))
 	qt.Check(t, qt.IsFalse(hasNote(proj, "shellcheck")), qt.Commentf("notes = %v", proj.Notes))
@@ -747,7 +747,7 @@ func TestIgnoredScriptsAreNotTheProjectsOwn(t *testing.T) {
 	testutil.Write(t, dir, "scripts/real.sh", "#!/bin/sh\ntrue\n")
 	testutil.Write(t, dir, "generated/built.sh", "#!/bin/sh\ntrue\n")
 
-	proj, err := Detect(dir)
+	proj, err := Detect(t.Context(), dir)
 	qt.Assert(t, qt.IsNil(err))
 	gate := gateNamed(t, proj, "shell")
 	// Untracked but not ignored still counts: a script written a minute ago
@@ -764,7 +764,7 @@ func TestScriptsAreWalkedOutsideARepository(t *testing.T) {
 	testutil.Write(t, dir, "package.json", `{"name":"app"}`)
 	testutil.Write(t, dir, "scripts/real.sh", "#!/bin/sh\ntrue\n")
 
-	proj, err := Detect(dir)
+	proj, err := Detect(t.Context(), dir)
 	qt.Assert(t, qt.IsNil(err))
 	gate := gateNamed(t, proj, "shell")
 	qt.Check(t, qt.DeepEquals(gate.Argv[2:], []string{"scripts/real.sh"}))

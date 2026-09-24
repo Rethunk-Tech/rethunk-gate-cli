@@ -67,7 +67,7 @@ var makefileTarget = regexp.MustCompile(`(?m)^([a-zA-Z][a-zA-Z0-9_-]*):`)
 // the project's pipeline and running one that merely resembles it.
 func makefileGates(root string, proj *Project) []Gate {
 	path := filepath.Join(root, "Makefile")
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // path is the fixed Makefile location under the project root
 	if err != nil {
 		return nil
 	}
@@ -103,7 +103,7 @@ func (p packageJSON) hasWorkspaces() bool {
 }
 
 func readPackageJSON(path string) (packageJSON, bool) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // callers pass the fixed package.json location under the project root
 	if err != nil {
 		return packageJSON{}, false
 	}
@@ -197,7 +197,7 @@ type Skip struct {
 // not. They are reported by Detect rather than here, because whether the role
 // ended up filled by a declaration is not known until every source has been
 // collected.
-func conventionGates(root string, proj *Project) ([]Gate, []Skip) {
+func conventionGates(ctx context.Context, root string, proj *Project) ([]Gate, []Skip) {
 	var gates []Gate
 	var skipped []Skip
 
@@ -362,7 +362,7 @@ func conventionGates(root string, proj *Project) ([]Gate, []Skip) {
 	// them: 23 of 55 repositories in this fleet carry scripts outside their
 	// vendored directories, and two had to declare a shellcheck gate by hand
 	// to get them read at all.
-	if scripts := shellScripts(root); len(scripts) > 0 {
+	if scripts := shellScripts(ctx, root); len(scripts) > 0 {
 		if bin := resolve(root, proj, "shellcheck"); bin != "" {
 			gates = append(gates, Gate{
 				// -x: without it every `source "$dir/lib.sh"` is an SC1091 info
@@ -414,8 +414,8 @@ var scriptDirsSkipped = map[string]bool{
 //
 // Paths are relative because the whole list is the gate's argv. The summary
 // on screen is a count; --list prints the command in full.
-func shellScripts(root string) []string {
-	if tracked, ok := gitScripts(root); ok {
+func shellScripts(ctx context.Context, root string) []string {
+	if tracked, ok := gitScripts(ctx, root); ok {
 		return tracked
 	}
 	return walkScripts(root)
@@ -424,8 +424,8 @@ func shellScripts(root string) []string {
 // gitScripts asks git which .sh files belong to the project. The bool reports
 // whether git answered at all, so an unusable answer is never mistaken for a
 // project with no scripts.
-func gitScripts(root string) ([]string, bool) {
-	ctx, cancel := context.WithTimeout(context.Background(), gitDeadline)
+func gitScripts(ctx context.Context, root string) ([]string, bool) {
+	ctx, cancel := context.WithTimeout(ctx, gitDeadline)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git",
 		// Emptying core.fsmonitor is the whole reason this is safe to run in
@@ -457,9 +457,9 @@ const gitDeadline = 5 * time.Second
 // a repository, or a machine without git.
 func walkScripts(root string) []string {
 	var found []string
-	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+	if err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return nil // an unreadable directory is not this gate's business
+			return err
 		}
 		if d.IsDir() {
 			if path != root && scriptDirsSkipped[d.Name()] {
@@ -474,7 +474,10 @@ func walkScripts(root string) []string {
 			found = append(found, filepath.ToSlash(rel))
 		}
 		return nil
-	})
+	}); err != nil {
+		slices.Sort(found)
+		return found
+	}
 	slices.Sort(found)
 	return found
 }
@@ -523,7 +526,7 @@ type turboTask struct {
 
 // readTurboTasks reads turbo.json's tasks, under either spelling turbo has used.
 func readTurboTasks(dir string) (map[string]turboTask, bool) {
-	data, err := os.ReadFile(filepath.Join(dir, "turbo.json"))
+	data, err := os.ReadFile(filepath.Join(dir, "turbo.json")) //nolint:gosec // filename is fixed and dir is a detected project root
 	if err != nil {
 		return nil, false
 	}
@@ -636,7 +639,7 @@ func turboGates(workspace string, proj *Project) []Gate {
 // Textual, like declaresPytest: tsconfig is often JSONC, and a parser that
 // rejected comments would miss the file the compiler accepts.
 func tsconfigHasProjectReferences(root string) bool {
-	data, err := os.ReadFile(filepath.Join(root, "tsconfig.json"))
+	data, err := os.ReadFile(filepath.Join(root, "tsconfig.json")) //nolint:gosec // filename is fixed and root is a detected project root
 	if err != nil {
 		return false
 	}
@@ -653,7 +656,7 @@ func declaresPytest(root string) bool {
 		}
 	}
 	for _, name := range []string{"pyproject.toml", "setup.cfg", "tox.ini"} {
-		if data, err := os.ReadFile(filepath.Join(root, name)); err == nil && strings.Contains(string(data), "pytest") {
+		if data, err := os.ReadFile(filepath.Join(root, name)); err == nil && strings.Contains(string(data), "pytest") { //nolint:gosec // names are fixed project manifests
 			return true
 		}
 	}
@@ -670,7 +673,7 @@ func ciPackageDirs(root string) []string {
 	files, _ := filepath.Glob(filepath.Join(root, ".github", "workflows", "*.y*ml"))
 	var dirs []string
 	for _, file := range files {
-		data, err := os.ReadFile(file)
+		data, err := os.ReadFile(file) //nolint:gosec // files come from the fixed workflow glob under the project root
 		if err != nil {
 			continue
 		}
@@ -703,7 +706,7 @@ func ciPackageDirs(root string) []string {
 // overrides it the way it overrides a role, and runs what gate would detect
 // from inside the package, roles only: shell and workflows stay with the
 // repository's own gates, which already see every file.
-func ciPackageGates(proj *Project) {
+func ciPackageGates(ctx context.Context, proj *Project) {
 	for _, rel := range ciPackageDirs(proj.Root) {
 		dir := filepath.Join(proj.Root, rel)
 		js := exists(filepath.Join(dir, "package.json")) && frozenInstall(dir) != nil
@@ -719,7 +722,7 @@ func ciPackageGates(proj *Project) {
 			proj.Notes = append(proj.Notes, "CI runs "+name+"/, and "+proj.Gates[i].Source+" already enters it; not gated twice")
 			continue
 		}
-		sub, err := detectOne(dir)
+		sub, err := detectOne(ctx, dir)
 		if err != nil {
 			continue
 		}
@@ -768,7 +771,7 @@ func gateText(root string, g Gate) string {
 // reaches in root's Makefile. Read textually, like makefileGates: evaluating
 // the file would mean running make.
 func makeRecipes(root, target string) string {
-	data, err := os.ReadFile(filepath.Join(root, "Makefile"))
+	data, err := os.ReadFile(filepath.Join(root, "Makefile")) //nolint:gosec // filename is fixed and root is a detected project root
 	if err != nil {
 		return ""
 	}
