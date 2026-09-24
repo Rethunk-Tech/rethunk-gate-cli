@@ -40,7 +40,7 @@ func treeDigest(t *testing.T, root string) string {
 		if d.IsDir() {
 			return nil
 		}
-		data, err := os.ReadFile(path)
+		data, err := os.ReadFile(path) //nolint:gosec // path comes from the temporary fixture walk
 		if err != nil {
 			return err
 		}
@@ -86,12 +86,12 @@ func TestApplyClearsTheNamedDoctorCheck(t *testing.T) {
 					`{"dependencies":{"next":"15.0.0"},"scripts":{"build":"true","typecheck":"true"}}`)
 			},
 			after: func(t *testing.T, dir string) {
-				body, err := os.ReadFile(filepath.Join(dir, ".gate.toml"))
+				body, err := os.ReadFile(filepath.Join(dir, ".gate.toml")) //nolint:gosec // path is a temporary config fixture
 				qt.Assert(t, qt.IsNil(err))
 				qt.Check(t, qt.StringContains(string(body), "[gates.build]"))
 				qt.Check(t, qt.StringContains(string(body), "[gates.typecheck]"))
 				qt.Check(t, qt.Equals(strings.Count(string(body), "serial = true"), 2))
-				pkg, err := os.ReadFile(filepath.Join(dir, "package.json"))
+				pkg, err := os.ReadFile(filepath.Join(dir, "package.json")) //nolint:gosec // path is a temporary package fixture
 				qt.Assert(t, qt.IsNil(err))
 				qt.Check(t, qt.StringContains(string(pkg), `"next":`))
 			},
@@ -104,7 +104,7 @@ func TestApplyClearsTheNamedDoctorCheck(t *testing.T) {
 					"jobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-go@v1.11\n")
 			},
 			after: func(t *testing.T, dir string) {
-				body, err := os.ReadFile(filepath.Join(dir, ".github/workflows/ci.yml"))
+				body, err := os.ReadFile(filepath.Join(dir, ".github/workflows/ci.yml")) //nolint:gosec // path is a temporary workflow fixture
 				qt.Assert(t, qt.IsNil(err))
 				qt.Check(t, qt.StringContains(string(body), `run-govulncheck: "true"`))
 			},
@@ -113,7 +113,7 @@ func TestApplyClearsTheNamedDoctorCheck(t *testing.T) {
 			check: "corepack-with-setup-bun",
 			plant: bunWorkflow,
 			after: func(t *testing.T, dir string) {
-				body, err := os.ReadFile(filepath.Join(dir, ".github/workflows/ci.yml"))
+				body, err := os.ReadFile(filepath.Join(dir, ".github/workflows/ci.yml")) //nolint:gosec // path is a temporary workflow fixture
 				qt.Assert(t, qt.IsNil(err))
 				qt.Check(t, qt.Not(qt.StringContains(string(body), "corepack enable")))
 			},
@@ -122,7 +122,7 @@ func TestApplyClearsTheNamedDoctorCheck(t *testing.T) {
 			check: "npx-in-bun-workspace",
 			plant: bunWorkflow,
 			after: func(t *testing.T, dir string) {
-				body, err := os.ReadFile(filepath.Join(dir, ".github/workflows/ci.yml"))
+				body, err := os.ReadFile(filepath.Join(dir, ".github/workflows/ci.yml")) //nolint:gosec // path is a temporary workflow fixture
 				qt.Assert(t, qt.IsNil(err))
 				qt.Check(t, qt.StringContains(string(body), "bunx tsc"))
 				qt.Check(t, qt.Not(qt.StringContains(string(body), "npx ")))
@@ -132,7 +132,7 @@ func TestApplyClearsTheNamedDoctorCheck(t *testing.T) {
 			check: "actions-floating-ref",
 			plant: bunWorkflow,
 			after: func(t *testing.T, dir string) {
-				body, err := os.ReadFile(filepath.Join(dir, ".github/workflows/ci.yml"))
+				body, err := os.ReadFile(filepath.Join(dir, ".github/workflows/ci.yml")) //nolint:gosec // path is a temporary workflow fixture
 				qt.Assert(t, qt.IsNil(err))
 				qt.Check(t, qt.StringContains(string(body), "gh-actions/setup-bun@v1.11"))
 				qt.Check(t, qt.Not(qt.StringContains(string(body), "@main")))
@@ -151,7 +151,7 @@ func TestApplyClearsTheNamedDoctorCheck(t *testing.T) {
 				}, "\n")+"\n")
 			},
 			after: func(t *testing.T, dir string) {
-				body, err := os.ReadFile(filepath.Join(dir, ".github/workflows/ci.yml"))
+				body, err := os.ReadFile(filepath.Join(dir, ".github/workflows/ci.yml")) //nolint:gosec // path is a temporary workflow fixture
 				qt.Assert(t, qt.IsNil(err))
 				qt.Check(t, qt.StringContains(string(body), "gh-actions/setup-bun@v1.11"))
 				qt.Check(t, qt.StringContains(string(body), "actions/checkout@v4"))
@@ -237,7 +237,7 @@ func TestFlowStyleWithGetsTheKey(t *testing.T) {
 	qt.Assert(t, qt.IsNil(err))
 	qt.Assert(t, qt.Equals(r.Outcome, Applied), qt.Commentf("reason = %q", r.Reason))
 
-	body, err := os.ReadFile(path)
+	body, err := os.ReadFile(path) //nolint:gosec // path is a temporary workflow fixture
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.StringContains(string(body), `with: { cache: true, run-govulncheck: "true" }`),
 		qt.Commentf("body = %q", body))
@@ -265,7 +265,7 @@ func TestFlowStyleWithGetsTheKey(t *testing.T) {
 	}, false)
 	qt.Assert(t, qt.IsNil(err))
 	qt.Assert(t, qt.Equals(r.Outcome, Applied), qt.Commentf("reason = %q", r.Reason))
-	emptyBody, err := os.ReadFile(emptyPath)
+	emptyBody, err := os.ReadFile(emptyPath) //nolint:gosec // path is a temporary workflow fixture
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.StringContains(string(emptyBody), `with: {run-govulncheck: "true"}`),
 		qt.Commentf("body = %q", emptyBody))
@@ -291,7 +291,7 @@ func TestUnprovableFlowStyleWithIsSkipped(t *testing.T) {
 			path := filepath.Join(dir, "ci.yml")
 			testutil.Write(t, dir, "ci.yml",
 				"jobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-go@v1.11\n        "+tc.with+"\n")
-			before, err := os.ReadFile(path)
+			before, err := os.ReadFile(path) //nolint:gosec // path is a temporary workflow fixture
 			qt.Assert(t, qt.IsNil(err))
 
 			r, err := Apply(doctor.Finding{
@@ -303,7 +303,7 @@ func TestUnprovableFlowStyleWithIsSkipped(t *testing.T) {
 			qt.Check(t, qt.Equals(r.Outcome, Skipped))
 			qt.Check(t, qt.Not(qt.Equals(r.Reason, "")))
 
-			after, err := os.ReadFile(path)
+			after, err := os.ReadFile(path) //nolint:gosec // path is a temporary workflow fixture
 			qt.Assert(t, qt.IsNil(err))
 			qt.Check(t, qt.Equals(string(after), string(before)))
 		})
@@ -319,7 +319,7 @@ func TestExistingGateTomlKeepsUnrelatedKeys(t *testing.T) {
 
 	applyNamed(t, dir, "next-build-typecheck-race", false)
 
-	body, err := os.ReadFile(filepath.Join(dir, ".gate.toml"))
+	body, err := os.ReadFile(filepath.Join(dir, ".gate.toml")) //nolint:gosec // path is a temporary config fixture
 	qt.Assert(t, qt.IsNil(err))
 	got := string(body)
 	qt.Check(t, qt.StringContains(got, "# keep"))
@@ -346,7 +346,7 @@ func TestShaPinDropsTheStaleHint(t *testing.T) {
 	qt.Assert(t, qt.IsNil(err))
 	qt.Assert(t, qt.Equals(r.Outcome, Applied))
 
-	body, err := os.ReadFile(path)
+	body, err := os.ReadFile(path) //nolint:gosec // path is a temporary workflow fixture
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.StringContains(string(body), "@v1.11"))
 	qt.Check(t, qt.Not(qt.StringContains(string(body), sha)))
@@ -374,7 +374,7 @@ func TestGovulncheckJoinsAnExistingWithBlock(t *testing.T) {
 	qt.Assert(t, qt.IsNil(err))
 	qt.Assert(t, qt.Equals(r.Outcome, Applied))
 
-	body, err := os.ReadFile(path)
+	body, err := os.ReadFile(path) //nolint:gosec // path is a temporary workflow fixture
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.StringContains(string(body), "cache: true"))
 	qt.Check(t, qt.StringContains(string(body), `run-govulncheck: "true"`))
@@ -393,7 +393,7 @@ func TestSerialApplierKeepsNewConfigKeys(t *testing.T) {
 
 	applyNamed(t, dir, "next-build-typecheck-race", false)
 
-	body, err := os.ReadFile(filepath.Join(dir, ".gate.toml"))
+	body, err := os.ReadFile(filepath.Join(dir, ".gate.toml")) //nolint:gosec // path is a temporary config fixture
 	qt.Assert(t, qt.IsNil(err))
 	got := string(body)
 	qt.Check(t, qt.StringContains(got, "serial = true"))
@@ -413,12 +413,12 @@ func TestPackageScriptsNpxClearsThroughDoctor(t *testing.T) {
 	path := filepath.Join(dir, "package.json")
 
 	applyNamed(t, dir, "npx-in-bun-workspace", true)
-	dry, err := os.ReadFile(path)
+	dry, err := os.ReadFile(path) //nolint:gosec // path is a temporary package fixture
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.StringContains(string(dry), "npx tsc"))
 
 	applyNamed(t, dir, "npx-in-bun-workspace", false)
-	body, err := os.ReadFile(path)
+	body, err := os.ReadFile(path) //nolint:gosec // path is a temporary package fixture
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.StringContains(string(body), "bunx tsc"))
 	qt.Check(t, qt.Not(qt.StringContains(string(body), "npx ")))

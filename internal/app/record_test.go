@@ -34,7 +34,7 @@ func TestMain(m *testing.M) {
 func committedRepo(t *testing.T, root string) string {
 	t.Helper()
 	git := func(args ...string) string {
-		cmd := exec.CommandContext(context.Background(), "git", append([]string{"-c", "user.name=t", "-c", "user.email=t@t"}, args...)...)
+		cmd := exec.CommandContext(context.Background(), "git", append([]string{"-c", "user.name=t", "-c", "user.email=t@t"}, args...)...) //nolint:gosec // test repository commands are fixed git operations
 		cmd.Dir = root
 		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
 		out, err := cmd.Output()
@@ -53,7 +53,7 @@ func readRecord(t *testing.T, root string) record {
 	t.Helper()
 	path, err := recordPath(canonicalRoot(root))
 	qt.Assert(t, qt.IsNil(err))
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // path is the temporary test record
 	qt.Assert(t, qt.IsNil(err))
 	var rec record
 	qt.Assert(t, qt.IsNil(json.Unmarshal(data, &rec)))

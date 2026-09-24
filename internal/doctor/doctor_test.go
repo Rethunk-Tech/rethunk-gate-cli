@@ -83,7 +83,7 @@ func treeDigest(t *testing.T, root string) string {
 		if d.IsDir() {
 			return nil
 		}
-		data, err := os.ReadFile(path)
+		data, err := os.ReadFile(path) //nolint:gosec // path comes from the temporary fixture walk
 		if err != nil {
 			return err
 		}

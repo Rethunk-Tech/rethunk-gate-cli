@@ -112,11 +112,11 @@ run = "./count.sh a"
 run = "./count.sh a && ./count.sh b"
 `)
 	testutil.Write(t, root, "count.sh", "#!/bin/sh\necho \"$1\" >> ran\n")
-	qt.Assert(t, qt.IsNil(os.Chmod(filepath.Join(root, "count.sh"), 0o755)))
+	qt.Assert(t, qt.IsNil(os.Chmod(filepath.Join(root, "count.sh"), 0o755))) //nolint:gosec // fixture script must be executable
 
 	_, stderr, code := runGateTest(t, "-C", root)
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
-	data, err := os.ReadFile(filepath.Join(root, "ran"))
+	data, err := os.ReadFile(filepath.Join(root, "ran")) //nolint:gosec // path is a temporary test fixture
 	qt.Assert(t, qt.IsNil(err))
 	lines := strings.Fields(string(data))
 	qt.Check(t, qt.HasLen(lines, 2), qt.Commentf("ran %q", lines))

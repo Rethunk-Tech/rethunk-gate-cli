@@ -37,7 +37,7 @@ func fakeBun(t *testing.T, status int) string {
 	bin := t.TempDir()
 	calls := filepath.Join(t.TempDir(), "bun-calls")
 	script := fmt.Sprintf("#!/bin/sh\necho \"$PWD: $*\" >> %q\necho bun-said-this\nexit %d\n", calls, status)
-	if err := os.WriteFile(filepath.Join(bin, "bun"), []byte(script), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(bin, "bun"), []byte(script), 0o755); err != nil { //nolint:gosec // fake executable fixture must be runnable
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -78,7 +78,7 @@ func tempLog(t *testing.T) string {
 
 func readLog(t *testing.T, path string) string {
 	t.Helper()
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // path is a temporary test log
 	if err != nil {
 		t.Fatalf("reading log: %v", err)
 	}
@@ -571,7 +571,7 @@ func TestResolvedPathIsShortenedOnTheVerdictLineOnly(t *testing.T) {
 			continue
 		}
 		found = true
-		if body, err := os.ReadFile(filepath.Join(logs, "gate", e.Name())); err != nil {
+		if body, err := os.ReadFile(filepath.Join(logs, "gate", e.Name())); err != nil { //nolint:gosec // path is a gate log created under the temporary test directory
 			t.Fatal(err)
 		} else if !strings.Contains(string(body), bin) {
 			t.Errorf("log trailer dropped the resolved path: %q", body)
@@ -2060,7 +2060,7 @@ func TestFixDryRunWritesNothingAndJSONNamesTheOutcome(t *testing.T) {
 	testutil.Write(t, root, "bun.lock", "")
 	wf := filepath.Join(".github", "workflows", "ci.yml")
 	testutil.Write(t, root, wf, "jobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-bun@main\n      - run: npx tsc\n")
-	before, err := os.ReadFile(filepath.Join(root, wf))
+	before, err := os.ReadFile(filepath.Join(root, wf)) //nolint:gosec // path is a temporary workflow fixture
 	qt.Assert(t, qt.IsNil(err))
 
 	stdout, stderr, code := runGateTest(t, "-C", root, "--json", "fix", "--dry-run")
@@ -2085,7 +2085,7 @@ func TestFixDryRunWritesNothingAndJSONNamesTheOutcome(t *testing.T) {
 	qt.Check(t, qt.IsTrue(sawDry), qt.Commentf("no dry-run outcome: %+v", got.Findings))
 	qt.Check(t, qt.IsTrue(sawSkip), qt.Commentf("no skip outcome: %+v", got.Findings))
 
-	after, err := os.ReadFile(filepath.Join(root, wf))
+	after, err := os.ReadFile(filepath.Join(root, wf)) //nolint:gosec // path is a temporary workflow fixture
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.Equals(string(after), string(before)))
 }
@@ -2103,14 +2103,14 @@ func TestFixAppliesAndDoctorStillWritesNothing(t *testing.T) {
 	qt.Check(t, qt.StringContains(stdout, "npx-in-bun-workspace"))
 	qt.Check(t, qt.StringContains(stdout, "applied"))
 
-	body, err := os.ReadFile(filepath.Join(root, wf))
+	body, err := os.ReadFile(filepath.Join(root, wf)) //nolint:gosec // path is a temporary workflow fixture
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.StringContains(string(body), "bunx tsc"))
 
 	before := string(body)
 	_, _, code = runGateTest(t, "-C", root, "doctor")
 	qt.Assert(t, qt.Equals(code, Success))
-	after, err := os.ReadFile(filepath.Join(root, wf))
+	after, err := os.ReadFile(filepath.Join(root, wf)) //nolint:gosec // path is a temporary workflow fixture
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.Equals(string(after), before), qt.Commentf("doctor wrote to the repository"))
 }
@@ -2454,7 +2454,7 @@ func TestNDJSONCarriesTheCacheLabel(t *testing.T) {
 func TestForceCacheRewritesAGoTestGateAndSetsTurboForce(t *testing.T) {
 	bin := t.TempDir()
 	script := "#!/bin/sh\necho \"argv: $*\"\necho \"TURBO_FORCE=$TURBO_FORCE\"\n"
-	if err := os.WriteFile(filepath.Join(bin, "go"), []byte(script), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(bin, "go"), []byte(script), 0o755); err != nil { //nolint:gosec // fake executable fixture must be runnable
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -2475,7 +2475,7 @@ func TestForceCacheRewritesAGoTestGateAndSetsTurboForce(t *testing.T) {
 func TestWithoutForceCacheAGoTestGateIsUnchanged(t *testing.T) {
 	bin := t.TempDir()
 	script := "#!/bin/sh\necho \"argv: $*\"\n"
-	if err := os.WriteFile(filepath.Join(bin, "go"), []byte(script), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(bin, "go"), []byte(script), 0o755); err != nil { //nolint:gosec // fake executable fixture must be runnable
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -2503,7 +2503,7 @@ func TestFrozenInstallRunsOnceInTheWorkspaceBeforeTheGates(t *testing.T) {
 	_, stderr, code := runGateTest(t, "-C", member)
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
 	qt.Check(t, qt.StringContains(stderr, "gate: install: bun install --frozen-lockfile (in "+ws+")"))
-	got, err := os.ReadFile(calls)
+	got, err := os.ReadFile(calls) //nolint:gosec // path is a temporary fake-tool log
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2549,7 +2549,7 @@ func TestCIRunPackageGateRunsInItsDirectoryUnlessConfigured(t *testing.T) {
 
 	_, stderr, code := runGateTest(t, "-C", root, "run", "frontend")
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
-	got, err := os.ReadFile(calls)
+	got, err := os.ReadFile(calls) //nolint:gosec // path is a temporary fake-tool log
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2585,7 +2585,7 @@ func TestCIRunPackageCoveredByAConfiguredGateIsNotGated(t *testing.T) {
 
 	_, stderr, code = runGateTest(t, "-C", root, "run", "web")
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
-	got, err := os.ReadFile(calls)
+	got, err := os.ReadFile(calls) //nolint:gosec // path is a temporary fake-tool log
 	if err != nil {
 		t.Fatal(err)
 	}
