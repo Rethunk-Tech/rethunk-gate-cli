@@ -21,25 +21,40 @@ type Step struct {
 	Text string
 }
 
-// Coverage reports whether the step collects coverage, and its key without
-// the flags that do it: `vitest run --coverage` is `vitest run` measured.
-func (s Step) Coverage() (plain string, ok bool) {
+// Instrumented reports how the step runs its suite beyond a plain run --
+// "coverage", "-race", or both -- and its key without the flags that do it:
+// `vitest run --coverage` is `vitest run` measured, and `go test -race ./...`
+// is `go test ./...` with the race detector on. Empty how means a plain run.
+func (s Step) Instrumented() (plain, how string) {
+	var coverage, race bool
 	f := strings.Fields(s.Key)
 	for i := 0; i < len(f); i++ {
 		t := f[i]
 		switch {
+		case t == "-race":
+			race = true
+			f = slices.Delete(f, i, i+1)
 		case t == "-coverprofile" || t == "-coverpkg" || t == "-covermode":
+			coverage = true
 			f = slices.Delete(f, i, min(i+2, len(f)))
 		case t == "-cover" || strings.HasPrefix(t, "--coverage") || strings.HasPrefix(t, "--cov") ||
 			strings.HasPrefix(t, "-coverprofile=") || strings.HasPrefix(t, "-coverpkg=") || strings.HasPrefix(t, "-covermode="):
+			coverage = true
 			f = slices.Delete(f, i, i+1)
 		default:
 			continue
 		}
-		ok = true
 		i--
 	}
-	return strings.Join(f, " "), ok
+	switch {
+	case coverage && race:
+		how = "coverage and -race"
+	case coverage:
+		how = "coverage"
+	case race:
+		how = "-race"
+	}
+	return strings.Join(f, " "), how
 }
 
 // Work breaks a command into the steps it runs, following package scripts and

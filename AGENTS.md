@@ -115,7 +115,7 @@ handed `${{ }}` values or in a job that starts services is a note instead.
 
 After configuration and `gate run` name checks, `dedupe` (`internal/app/dedupe.go`)
 breaks every gate into steps (`detect.Work`) and runs each step once: identical
-gates merge, a coverage variant drops the plain run, and an aggregate is split
+gates merge, a coverage or `-race` variant drops the plain run, and an aggregate is split
 to its uncovered steps or dropped. Each is a note.
 
 Whether a gate is browser e2e (`detect.IsE2E`) is read from its name, its

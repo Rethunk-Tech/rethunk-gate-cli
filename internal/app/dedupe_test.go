@@ -46,8 +46,8 @@ run = "npm run unit"
 	qt.Check(t, qt.StringContains(out, "note: merged check into check:unit"))
 }
 
-// A coverage run is the plain run measured, so the plain one is dropped, for
-// a package script and for go test alike.
+// A coverage or -race run is the plain run measured or race-checked, so the
+// plain one is dropped, for a package script and for go test alike.
 func TestDedupeCoverageSupersedesThePlainRun(t *testing.T) {
 	root := dedupeProject(t, `"unit":"vitest run","unit:coverage":"vitest run --coverage"`, `
 [gates.unit]
@@ -61,12 +61,19 @@ run = "go test ./..."
 
 [gates.gocover]
 run = "go test -coverpkg=./... -coverprofile coverage.out ./..."
+
+[gates.internal]
+run = "go test ./internal/..."
+
+[gates.race]
+run = "go test -race ./internal/..."
 `)
 	out := listDedupe(t, root)
 	qt.Check(t, qt.Not(qt.StringContains(out, "  unit       ")))
 	qt.Check(t, qt.Not(qt.StringContains(out, "  gotest     ")))
 	qt.Check(t, qt.StringContains(out, "note: dropped unit (`bun run unit`): unit:coverage runs the same suite with coverage"))
 	qt.Check(t, qt.StringContains(out, "note: dropped gotest (`go test ./...`): gocover runs the same suite with coverage"))
+	qt.Check(t, qt.StringContains(out, "note: dropped internal (`go test ./internal/...`): race runs the same suite with -race"))
 }
 
 // An aggregate whose steps are all other gates is dropped; one that also runs

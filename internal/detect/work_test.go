@@ -59,20 +59,21 @@ func TestWorkExpandsEveryTaskOfASinglePackage(t *testing.T) {
 	qt.Check(t, qt.DeepEquals(keys(Work(dir, "turbo run test")), []string{"vitest run"}))
 }
 
-func TestStepCoverage(t *testing.T) {
+func TestStepInstrumented(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
-		key, plain string
-		ok         bool
+		key, plain, how string
 	}{
-		{"vitest run --coverage", "vitest run", true},
-		{"go test -coverpkg=./... -coverprofile coverage.out ./...", "go test ./...", true},
-		{"go test -cover ./...", "go test ./...", true},
-		{"pytest --cov=src", "pytest", true},
-		{"go test ./...", "go test ./...", false},
+		{"vitest run --coverage", "vitest run", "coverage"},
+		{"go test -coverpkg=./... -coverprofile coverage.out ./...", "go test ./...", "coverage"},
+		{"go test -cover ./...", "go test ./...", "coverage"},
+		{"pytest --cov=src", "pytest", "coverage"},
+		{"go test -race ./...", "go test ./...", "-race"},
+		{"go test -race -coverprofile=c.out ./...", "go test ./...", "coverage and -race"},
+		{"go test ./...", "go test ./...", ""},
 	} {
-		plain, ok := Step{Key: c.key}.Coverage()
+		plain, how := Step{Key: c.key}.Instrumented()
 		qt.Check(t, qt.Equals(plain, c.plain), qt.Commentf("%s", c.key))
-		qt.Check(t, qt.Equals(ok, c.ok), qt.Commentf("%s", c.key))
+		qt.Check(t, qt.Equals(how, c.how), qt.Commentf("%s", c.key))
 	}
 }

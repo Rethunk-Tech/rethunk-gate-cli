@@ -354,9 +354,10 @@ into the steps it runs, following `<runner> run <script>` and root turbo tasks
 - **Merged**: gates whose steps are the same, in the same directory, are one
   gate under the more specific name (`test:unit` over `test`), listing both
   sources.
-- **Coverage wins**: a step another gate runs with coverage flags
-  (`--coverage`, `--cov`, `-cover`, `-coverprofile`, `-coverpkg`) is dropped
-  from the plain gate. `test` beside `test:coverage` runs only the coverage run.
+- **Instrumented wins**: a step another gate runs with coverage flags
+  (`--coverage`, `--cov`, `-cover`, `-coverprofile`, `-coverpkg`) or `-race`
+  is dropped from the plain gate. `test` beside `test:coverage` runs only the
+  coverage run; `go test ./...` beside `go test -race ./...` only the race run.
 - **Split**: a step two gates share stays in the one with fewer steps, and
   leaves the aggregate. An aggregate left with nothing is dropped; one that
   still runs something no other gate covers keeps only that, as `sh -c`, with

@@ -11,7 +11,7 @@ import (
 // dedupe makes sure nothing one run schedules runs twice. Gates arrive from
 // turbo, package scripts, CI steps and .gate.toml, each honest on its own, and
 // two of them can name the same work: a CI step and a configured role running
-// one script, a coverage run beside the plain one, or an aggregate script
+// one script, a coverage or -race run beside the plain one, or an aggregate script
 // whose steps are other gates.
 //
 // Each gate is broken into the steps it runs (detect.Work), and each step
@@ -19,8 +19,8 @@ import (
 //
 //   - Gates whose steps are the same in the same directory become one, under
 //     the more specific name, carrying both sources.
-//   - A step some other gate runs with coverage is dropped: the coverage run
-//     is the same suite, measured.
+//   - A step some other gate runs with coverage or -race is dropped: that run
+//     is the same suite, measured or race-checked.
 //   - A step two gates share stays in the one with fewer steps, the most
 //     specific statement of it, and leaves the aggregate.
 //
@@ -95,13 +95,13 @@ func dedupe(gates []gateSpec) ([]gateSpec, []string) {
 		}
 		var kept []detect.Step
 		var coveredBy []string
-		coverage := false
+		instrumented := ""
 		for _, s := range work[i] {
 			by := -1
 			for _, k := range slices.Sorted(maps.Keys(holders[gates[i].dir])) {
 				held := holders[gates[i].dir][k]
-				if plain, ok := (detect.Step{Key: k}).Coverage(); ok && plain == s.Key && !slices.Contains(held, i) {
-					by, coverage = owner(held), true
+				if plain, how := (detect.Step{Key: k}).Instrumented(); how != "" && plain == s.Key && !slices.Contains(held, i) {
+					by, instrumented = owner(held), how
 					break
 				}
 			}
@@ -120,8 +120,8 @@ func dedupe(gates []gateSpec) ([]gateSpec, []string) {
 		switch {
 		case len(coveredBy) == 0:
 			out = append(out, g)
-		case len(kept) == 0 && coverage && len(coveredBy) == 1:
-			notes = append(notes, "dropped "+g.role+" (`"+g.display+"`): "+coveredBy[0]+" runs the same suite with coverage")
+		case len(kept) == 0 && instrumented != "" && len(coveredBy) == 1:
+			notes = append(notes, "dropped "+g.role+" (`"+g.display+"`): "+coveredBy[0]+" runs the same suite with "+instrumented)
 		case len(kept) == 0:
 			notes = append(notes, "dropped "+g.role+" (`"+g.display+"`): "+already(coveredBy)+" everything it does")
 		default:
