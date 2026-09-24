@@ -1,29 +1,49 @@
+# canon go-golangci-lint-00001
 version: "2"
 
-# The default linter set (errcheck, govet, ineffassign, staticcheck, unused)
-# is kept as-is. The only tuning is below, and it is a deliberate exemption
-# rather than a preference.
 linters:
+  # canon go-golangci-lint-00002
+  default: standard
+  enable:
+    - bodyclose
+    - contextcheck
+    - errorlint
+    - gosec
+    - modernize
+    - nilerr
+    - noctx
+    - nolintlint
   settings:
+    # canon go-golangci-lint-00004
     errcheck:
-      # Writes of the verdict to the caller's own stdout/stderr. There is no
-      # recovery available at these call sites: gate is reporting an outcome
-      # when it reaches them, and a second failure to report the first one
-      # has nowhere to go. Go's runtime already turns EPIPE on fd 1 or 2 into
-      # SIGPIPE, so a piped-and-closed reader terminates the process rather
-      # than silently losing output.
-      #
-      # This does NOT cover the log file: a write that fails there loses the
-      # output gate exists to preserve, so those errors are handled.
       exclude-functions:
         - fmt.Fprint
         - fmt.Fprintf
         - fmt.Fprintln
+    # canon go-golangci-lint-00005
+    staticcheck:
+      checks: ["all"]
+    # canon go-golangci-lint-00006
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+  # canon go-golangci-lint-00008
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - contextcheck
+          - errorlint
+          - gosec
+          - noctx
 
+# canon go-golangci-lint-00003
 issues:
-  # Report every occurrence. golangci-lint otherwise caps repeats of one
-  # message at 3 and one linter at 50, which silently turns a real count
-  # into a much smaller one -- a gate that under-reports is a gate that
-  # hides the finding it exists to surface.
   max-issues-per-linter: 0
   max-same-issues: 0
+
+# canon go-golangci-lint-00007
+formatters:
+  enable:
+    - gofumpt
+    - goimports
