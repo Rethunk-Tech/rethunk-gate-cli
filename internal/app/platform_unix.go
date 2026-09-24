@@ -22,6 +22,18 @@ func logDir() string {
 	return filepath.Join(base, "gate")
 }
 
+// childTempDir is the TMPDIR and GOTMPDIR every gate runs with. Go's test
+// cache keys a result on the environment variables the test read, and
+// t.TempDir reads TMPDIR, so a caller whose TMPDIR differs from the last run's
+// misses the cache for every package that makes a temp dir. Pinning it makes a
+// warm run warm whoever starts it. GATE_TMPDIR chooses another location.
+func childTempDir() string {
+	if dir := os.Getenv("GATE_TMPDIR"); dir != "" {
+		return dir
+	}
+	return "/var/tmp"
+}
+
 // shellArgv wraps a config `run` string for the platform's shell. It is one
 // string rather than an argv precisely so it can carry pipes and globs, which
 // means it has to reach a shell to be split.

@@ -749,6 +749,12 @@ unset; on Windows, under what `TMP` or `TEMP` names. `/tmp` is deliberately not
 the default: it is a tmpfs on the machines this runs on, and a verbose build
 log is exactly the kind of large, disposable file that should not sit in RAM.
 
+Every gate runs with `TMPDIR` and `GOTMPDIR` set to `/var/tmp` on unix (or to
+`GATE_TMPDIR` when that is set), whatever the caller's `TMPDIR` is. Go's test
+cache keys a result on the environment a test read, and `t.TempDir` reads
+`TMPDIR`, so two callers with different values would each miss the other's
+cached results.
+
 The filename is derived from the command plus a random suffix, so a directory
 of logs can be read without opening them and two gates sharing a command name
 cannot collide. Logs are created **0600 in a 0700 directory** — they hold

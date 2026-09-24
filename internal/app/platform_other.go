@@ -15,6 +15,12 @@ func logDir() string {
 	return filepath.Join(os.TempDir(), "gate")
 }
 
+// childTempDir is empty off unix: TMP and TEMP already name a per-user
+// directory there, so there is no caller-dependent value to pin.
+func childTempDir() string {
+	return os.Getenv("GATE_TMPDIR")
+}
+
 // shellArgv wraps a config `run` string for the platform's shell. cmd.exe
 // splits its command line by rules that are not a POSIX shell's, so a `run`
 // string that works on both platforms is not something gate can promise.

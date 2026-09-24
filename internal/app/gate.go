@@ -33,6 +33,16 @@ func activeRoots() []string {
 
 // markRoot returns the child environment with dir added to the active roots.
 // os/exec keeps the last of duplicate keys, so appending is enough.
+// pinTempDir appends the pinned temp directory, when there is one, after the
+// inherited environment so it wins; a gate's own env is appended later still.
+func pinTempDir(env []string) []string {
+	dir := childTempDir()
+	if dir == "" {
+		return env
+	}
+	return append(env, "TMPDIR="+dir, "GOTMPDIR="+dir)
+}
+
 func markRoot(dir string) []string {
 	root, err := filepath.Abs(dir)
 	if err != nil {
@@ -595,7 +605,7 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 	// run it was supposed to bound.
 	cmd.WaitDelay = stopGrace
 	cmd.Dir = spec.dir
-	cmd.Env = markRoot(spec.dir)
+	cmd.Env = pinTempDir(markRoot(spec.dir))
 	// Appended after the process environment, so the gate wins over an
 	// inherited value the way a prefix on the command line would. os/exec
 	// keeps the last of duplicate keys, which is what makes appending an
