@@ -16,6 +16,10 @@ import (
 var version = "dev"
 
 func main() {
+	os.Exit(int(run()))
+}
+
+func run() app.Code {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -50,5 +54,5 @@ func main() {
 	if num := received.Load(); num != 0 {
 		code = app.Signaled(int(num))
 	}
-	os.Exit(int(code))
+	return code
 }
