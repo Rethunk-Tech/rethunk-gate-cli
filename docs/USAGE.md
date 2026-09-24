@@ -243,14 +243,16 @@ gate --force-cache          # every gate in this run, whatever tool it is
 1. **`Makefile` targets** — a target that exists is a deliberate wrapper, and
    usually adds flags a convention would miss.
 2. **`turbo.json` tasks** — where a task graph is declared, `turbo run <task>`
-   is the real entry point.
+   is the real entry point. Inside a workspace member, turbo runs only that
+   package's own tasks, so a task counts only where the member has the script;
+   the rest fall through to the rows below.
 3. **`package.json` scripts** — the project's own declared commands.
 4. **Conventions** — only for roles nothing above declares: `go build`/`go
    test`/`golangci-lint run --allow-parallel-runners`/`govulncheck`, `cargo
    build`/`cargo test`/`cargo clippy`/`cargo audit` where a `Cargo.toml`
    exists, `uv run pytest`/`ruff`/`pyrefly` plus `uv audit` where a
    `uv.lock` exists (pytest only where a manifest names it or a `tests/`,
-   `test/`, `conftest.py`, or `pytest.ini` exists), `biome`/`tsc --noEmit`
+   `test/`, `conftest.py`, or `pytest.ini` exists), `biome`/`tsc --noEmit` where a `tsconfig.json` exists
    (`tsc -b --noEmit` when `tsconfig.json` names project references — without
    `-b` a solution-style file exits 0 having checked nothing), `actionlint`
    where `.github/workflows` exists, and `shellcheck` over the project's own

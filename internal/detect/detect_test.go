@@ -972,6 +972,42 @@ func TestCIRunGoModuleAMakeTargetEntersIsNotGated(t *testing.T) {
 	qt.Check(t, qt.IsTrue(hasNote(proj, "CI runs src/setup/, and Makefile target test already enters it")))
 }
 
+// The majordomo shape: a Go module that is also a script-less workspace member.
+// From inside it turbo runs only that package's tasks, all <NONEXISTENT>, so
+// those are no roles at all and the module's Go gates claim them.
+func TestCIRunGoModuleInsideATurboWorkspaceRunsItsGoGates(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("PATH", filepath.Join(root, "no-such-bin"))
+	testutil.Write(t, root, "package.json", `{"workspaces":["apps/*"],"scripts":{"lint":"biome check ."}}`)
+	testutil.Write(t, root, "bun.lock", "")
+	testutil.Write(t, root, "turbo.json", `{"tasks":{"//#lint":{},"typecheck":{},"test":{}}}`)
+	testutil.WriteExecutable(t, root, "node_modules/.bin/turbo")
+	testutil.WriteExecutable(t, root, "node_modules/.bin/tsc")
+	testutil.Write(t, root, ".github/workflows/ci.yml", "        working-directory: apps/cli\n")
+	testutil.Write(t, root, "apps/cli/package.json", `{"name":"@app/cli","private":true}`)
+	testutil.Write(t, root, "apps/cli/go.mod", "module cli\n")
+
+	g := gateNamed(t, detect(t, root), "apps/cli")
+	qt.Check(t, qt.StringContains(g.Summary, "go test ./..."))
+	qt.Check(t, qt.Not(qt.StringContains(g.Summary, "turbo")))
+	qt.Check(t, qt.Not(qt.StringContains(g.Summary, "tsc")), qt.Commentf("no tsconfig.json, nothing to typecheck"))
+}
+
+// A member package that does have the script keeps turbo's task.
+func TestTurboFromAWorkspaceMemberClaimsOnlyItsOwnScripts(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("PATH", filepath.Join(root, "no-such-bin"))
+	testutil.Write(t, root, "package.json", `{"workspaces":["apps/*"]}`)
+	testutil.Write(t, root, "bun.lock", "")
+	testutil.Write(t, root, "turbo.json", `{"tasks":{"//#lint":{},"test":{},"build":{}}}`)
+	turbo := testutil.WriteExecutable(t, root, "node_modules/.bin/turbo")
+	testutil.Write(t, root, "apps/web/package.json", `{"scripts":{"test":"vitest run"}}`)
+
+	proj := detect(t, filepath.Join(root, "apps", "web"))
+	qt.Check(t, qt.DeepEquals(gateNamed(t, proj, "test").Argv, []string{turbo, "run", "test"}))
+	qt.Check(t, qt.IsFalse(slices.ContainsFunc(proj.Gates, func(g Gate) bool { return g.Name == "build" || g.Name == "lint" })))
+}
+
 // CI runs package scripts no role covers, and the tasks a declined ci
 // aggregate runs beyond the roles. Each becomes a gate, serial behind build,
 // carrying its step's env; a step that needs CI's services or values is a note.

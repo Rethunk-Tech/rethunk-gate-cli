@@ -325,7 +325,10 @@ func conventionGates(root string, proj *Project) ([]Gate, []Skip) {
 		if bin := resolve(root, proj, "biome"); bin != "" {
 			gates = append(gates, Gate{Name: "lint", Argv: []string{bin, "check", "."}, Source: "convention: node"})
 		}
-		if bin := resolve(root, proj, "tsc"); bin != "" {
+		// Without a tsconfig.json tsc has no project to check and exits
+		// printing its usage, so a package with no TypeScript -- a Go module
+		// that carries a package.json for its workspace -- has no typecheck.
+		if bin := resolve(root, proj, "tsc"); bin != "" && exists(filepath.Join(root, "tsconfig.json")) {
 			// Bare tsc loads tsconfig.json. A solution-style file
 			// (files: [] plus references) typechecked without -b exits 0
 			// having checked nothing -- a pass covering work that never
@@ -545,9 +548,26 @@ func turboGates(workspace string, proj *Project) []Gate {
 	if !ok {
 		return nil
 	}
+	// Run from inside a workspace member, turbo scopes itself to that package:
+	// a task it has no script for is <NONEXISTENT>, and root-only tasks are
+	// out of scope. Claiming that role would pass having run nothing, and
+	// would keep the package's real gates -- a Go module's go test -- from
+	// claiming it.
+	var member map[string]string
+	scoped := proj.Root != workspace
+	if scoped {
+		pkg, _ := readPackageJSON(filepath.Join(proj.Root, "package.json"))
+		member = pkg.Scripts
+	}
+
 	// A root-only task is declared "//#name" but still answers to
 	// `turbo run name`, so it covers the gate exactly as a package task does.
 	lookup := func(name string) (turboTask, bool) {
+		if scoped {
+			t, ok := tasks[name]
+			_, has := member[name]
+			return t, ok && has
+		}
 		if t, ok := tasks[name]; ok {
 			return t, true
 		}

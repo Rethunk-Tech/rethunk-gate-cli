@@ -45,6 +45,12 @@ Notable changes to `gate`. The format follows
 
 ### Fixed
 
+- A Go module that is also a script-less workspace member (majordomo's
+  `apps/cli`) runs its Go gates, `go test` included. Detected inside a
+  workspace member, a turbo task counts only where the member has the script,
+  since turbo scoped to that package runs nothing for the rest; and the `tsc`
+  convention needs a `tsconfig.json`.
+
 - A timed-out or interrupted gate is stopped gracefully: SIGINT to its process
   group, as Ctrl-C would send, then SIGKILL 5 s later to anything still alive.
   A first SIGKILL left Playwright's `webServer`, which sits in a group of its

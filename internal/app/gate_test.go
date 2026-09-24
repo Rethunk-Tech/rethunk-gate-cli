@@ -600,6 +600,7 @@ func TestJSONListingCarriesWhatListDoes(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	tsc := plantBin(t, root, "tsc")
+	testutil.Write(t, root, "tsconfig.json", "{}")
 	plantBin(t, root, "biome")
 	testutil.Write(t, root, "package.json", `{"name":"app","scripts":{"ci":"echo all"}}`)
 	testutil.Write(t, root, "bun.lock", "")
