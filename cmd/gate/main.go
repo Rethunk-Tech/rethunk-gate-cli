@@ -38,7 +38,7 @@ func run() app.Code {
 			return
 		}
 		if num, ok := s.(syscall.Signal); ok {
-			received.Store(int32(num)) //nolint:gosec // OS signal values fit in int32
+			received.Store(int32(num)) //nolint:gosec // only SIGINT and SIGTERM (2, 15) are registered with signal.Notify above
 		}
 		cancel()
 		// Hand the signal back to the operating system, so a second Ctrl-C
