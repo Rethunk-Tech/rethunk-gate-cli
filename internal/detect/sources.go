@@ -261,6 +261,27 @@ func conventionGates(ctx context.Context, root string, proj *Project) ([]Gate, [
 		}
 	}
 
+	if target, ok := dotnetTarget(root); ok {
+		if resolve(root, proj, "dotnet") == "" {
+			skipped = append(skipped, Skip{"build", "dotnet not installed; skipping the build gate (install the .NET SDK)"})
+			if hasDotnetTest(root) {
+				skipped = append(skipped, Skip{"test", "dotnet not installed; skipping the test gate (install the .NET SDK)"})
+			}
+		} else {
+			serial := hasDotnetTest(root)
+			gates = append(gates, Gate{
+				Name: "build", Argv: []string{"dotnet", "build", target, "-c", "Release"},
+				Source: "convention: dotnet", Serial: serial,
+			})
+			if serial {
+				gates = append(gates, Gate{
+					Name: "test", Argv: []string{"dotnet", "test", target, "-c", "Release", "--no-build"},
+					Source: "convention: dotnet", Serial: true,
+				})
+			}
+		}
+	}
+
 	if exists(filepath.Join(root, "pyproject.toml")) {
 		// Deliberately unprobed. `uv run` provisions the environment from the
 		// project's own declarations before executing, so a declared pytest or
@@ -385,6 +406,73 @@ func conventionGates(ctx context.Context, root string, proj *Project) ([]Gate, [
 	}
 
 	return gates, skipped
+}
+
+// dotnetTarget is the solution or single project `dotnet build` and
+// `dotnet test` should be pointed at: a *.sln/*.slnx at the repository
+// root, or failing that exactly one *.csproj/*.fsproj at the root or one
+// directory below it. Deeper trees are reached through the solution; a
+// second sibling project without one is not a guess this convention can make.
+func dotnetTarget(root string) (string, bool) {
+	var solutions []string
+	for _, pat := range []string{"*.sln", "*.slnx"} {
+		matches, _ := filepath.Glob(filepath.Join(root, pat))
+		solutions = append(solutions, matches...)
+	}
+	if len(solutions) > 0 {
+		slices.Sort(solutions)
+		rel, err := filepath.Rel(root, solutions[0])
+		if err != nil {
+			return "", false
+		}
+		return rel, true
+	}
+	var projs []string
+	for _, pat := range []string{"*.csproj", "*.fsproj", filepath.Join("*", "*.csproj"), filepath.Join("*", "*.fsproj")} {
+		matches, _ := filepath.Glob(filepath.Join(root, pat))
+		projs = append(projs, matches...)
+	}
+	if len(projs) != 1 {
+		return "", false
+	}
+	rel, err := filepath.Rel(root, projs[0])
+	if err != nil {
+		return "", false
+	}
+	return rel, true
+}
+
+// hasDotnetTest reports a test project under root: a *.Tests.csproj, or a
+// csproj/fsproj that references Microsoft.NET.Test.Sdk. bin/ and obj/ are
+// skipped so a copied-in publish output is not read as the project.
+func hasDotnetTest(root string) bool {
+	found := false
+	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || found {
+			return err
+		}
+		if d.IsDir() {
+			if path != root && (d.Name() == "bin" || d.Name() == "obj" || d.Name() == ".git") {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		name := d.Name()
+		if !strings.HasSuffix(name, ".csproj") && !strings.HasSuffix(name, ".fsproj") {
+			return nil
+		}
+		if strings.HasSuffix(name, ".Tests.csproj") {
+			found = true
+			return fs.SkipAll
+		}
+		data, err := os.ReadFile(path) //nolint:gosec // walk is rooted at the detected project
+		if err == nil && strings.Contains(string(data), "Microsoft.NET.Test.Sdk") {
+			found = true
+			return fs.SkipAll
+		}
+		return nil
+	})
+	return found
 }
 
 // scriptDirsSkipped are directories whose shell scripts are not the

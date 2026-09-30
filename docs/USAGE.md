@@ -252,7 +252,11 @@ gate --force-cache          # every gate in this run, whatever tool it is
 4. **Conventions** — only for roles nothing above declares: `go build`/`go
    test`/`golangci-lint run --allow-parallel-runners`/`govulncheck`, `cargo
    build`/`cargo test`/`cargo clippy`/`cargo audit` where a `Cargo.toml`
-   exists, `uv run pytest`/`ruff`/`pyrefly` plus `uv audit` where a
+   exists, `dotnet build <solution-or-project> -c Release` and, when a test
+   project is present, `dotnet test … -c Release --no-build` where a `*.sln`
+   or `*.slnx` sits at the root or exactly one `*.csproj`/`*.fsproj` is at
+   the root or one directory down (an absent `dotnet` is a note, not a silent
+   skip), `uv run pytest`/`ruff`/`pyrefly` plus `uv audit` where a
    `uv.lock` exists (pytest only where a manifest names it or a `tests/`,
    `test/`, `conftest.py`, or `pytest.ini` exists), `biome`/`tsc --noEmit` where a `tsconfig.json` exists
    (`tsc -b --noEmit` when `tsconfig.json` names project references — without
