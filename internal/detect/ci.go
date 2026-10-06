@@ -39,8 +39,10 @@ var (
 //
 // They run serial, behind the build gate, because that is what CI does: steps
 // in a job run in order on a built tree, and a search index or an e2e suite
-// reads that build. A step whose job starts services, or that CI hands
-// `${{ }}` values, is named in a note instead.
+// reads that build. Go's convention build is the exception: `go build ./...`
+// discards what it compiles, so no step can read it and it stays concurrent.
+// A step whose job starts services, or that CI hands `${{ }}` values, is
+// named in a note instead.
 func ciScriptGates(proj *Project) {
 	steps := ciScriptSteps(proj.Root)
 	if len(steps) == 0 {
@@ -134,7 +136,7 @@ func ciScriptGates(proj *Project) {
 	}
 	if len(added) > 0 {
 		for i := range proj.Gates {
-			if proj.Gates[i].Name == "build" {
+			if proj.Gates[i].Name == "build" && (proj.Gates[i].Declared || !slices.Equal(proj.Gates[i].Argv, []string{"go", "build", "./..."})) {
 				proj.Gates[i].Serial = true
 			}
 		}

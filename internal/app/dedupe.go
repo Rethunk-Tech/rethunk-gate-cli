@@ -28,6 +28,11 @@ import (
 // something no other gate covers -- a root tsc, a version check -- and
 // dropping it would stop checking that. A gate left with nothing is dropped.
 // Every merge, drop and split is a note, so --list hides nothing.
+//
+// A gate that runs one script file -- a CI step's `bun run gate` reaching
+// scripts/gate.sh -- cannot be split, so it is the other way round: each step
+// of another gate that the script's own lines run stays in the script, and
+// that gate is split or dropped. What the script never names still runs.
 func dedupe(gates []gateSpec) ([]gateSpec, []string) {
 	var notes []string
 	work := make([][]detect.Step, len(gates))
@@ -54,6 +59,8 @@ func dedupe(gates []gateSpec) ([]gateSpec, []string) {
 		}
 	}
 
+	claims := scriptClaims(gates, work, alive)
+
 	// holders[dir][key] is every live gate running that step there.
 	holders := map[string]map[string][]int{}
 	for i := range gates {
@@ -63,20 +70,30 @@ func dedupe(gates []gateSpec) ([]gateSpec, []string) {
 		if holders[gates[i].dir] == nil {
 			holders[gates[i].dir] = map[string][]int{}
 		}
-		for _, k := range stepKeys(work[i]) {
+		for _, k := range stepKeys(append(slices.Clone(work[i]), claims[i]...)) {
 			holders[gates[i].dir][k] = append(holders[gates[i].dir][k], i)
 		}
 	}
+	claimed := func(i int, key string) bool {
+		return slices.ContainsFunc(claims[i], func(s detect.Step) bool { return s.Key == key })
+	}
 	size := func(i int) int { return len(stepKeys(work[i])) }
 	// owner is the gate a shared step stays in: a default run's gate before an
-	// opt-in e2e one, then the fewest steps, then the first scheduled.
-	owner := func(held []int) int {
+	// opt-in e2e one, then a script that runs it, then the fewest steps, then
+	// the first scheduled.
+	owner := func(key string, held []int) int {
 		return slices.MinFunc(held, func(a, b int) int {
 			if gates[a].e2e != gates[b].e2e {
 				if gates[a].e2e {
 					return 1
 				}
 				return -1
+			}
+			if ca, cb := claimed(a, key), claimed(b, key); ca != cb {
+				if ca {
+					return -1
+				}
+				return 1
 			}
 			if size(a) != size(b) {
 				return size(a) - size(b)
@@ -101,12 +118,12 @@ func dedupe(gates []gateSpec) ([]gateSpec, []string) {
 			for _, k := range slices.Sorted(maps.Keys(holders[gates[i].dir])) {
 				held := holders[gates[i].dir][k]
 				if plain, how := (detect.Step{Key: k}).Instrumented(); how != "" && plain == s.Key && !slices.Contains(held, i) {
-					by, instrumented = owner(held), how
+					by, instrumented = owner(k, held), how
 					break
 				}
 			}
 			if by < 0 {
-				if o := owner(holders[gates[i].dir][s.Key]); o != i {
+				if o := owner(s.Key, holders[gates[i].dir][s.Key]); o != i {
 					by = o
 				}
 			}
@@ -137,6 +154,36 @@ func dedupe(gates []gateSpec) ([]gateSpec, []string) {
 		}
 	}
 	return out, notes
+}
+
+// scriptClaims is, per gate that runs one script file, the steps of other
+// gates in its directory that the script runs. A gate whose own script the
+// other already claims is left alone, so two scripts naming each other do not
+// drop each other. An e2e or allow-failure script claims nothing: moving a
+// step into it would skip or excuse that step.
+func scriptClaims(gates []gateSpec, work [][]detect.Step, alive []bool) [][]detect.Step {
+	claims := make([][]detect.Step, len(gates))
+	for i, g := range gates {
+		if !alive[i] || g.e2e || g.allowFailure || len(work[i]) != 1 {
+			continue
+		}
+		lines, ok := detect.ScriptLines(g.dir, work[i][0])
+		if !ok {
+			continue
+		}
+		for j := range gates {
+			if j == i || !alive[j] || gates[j].dir != g.dir ||
+				slices.ContainsFunc(claims[j], func(s detect.Step) bool { return s.Key == work[i][0].Key }) {
+				continue
+			}
+			for _, s := range work[j] {
+				if s.Key != work[i][0].Key && detect.Covered(g.dir, s, lines) {
+					claims[i] = append(claims[i], s)
+				}
+			}
+		}
+	}
+	return claims
 }
 
 // already names the gates a step moved to, as the subject of "already run".

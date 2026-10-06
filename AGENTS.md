@@ -110,13 +110,19 @@ script body, or a configured gate's `run`/`dir`) is not gated twice.
 A package script a push or pull-request workflow step runs whole
 (`<runner> run <script>`), or a task a declined aggregate runs beyond the
 roles, becomes a gate named for it (`ciScriptGates` in `internal/detect/ci.go`),
-serial behind a serial build, carrying the step's and job's `env`. A step
+serial behind a serial build (except Go's convention `go build ./...`, which
+writes nothing a step could read), carrying the step's and job's `env`. A step
 handed `${{ }}` values or in a job that starts services is a note instead.
 
 After configuration and `gate run` name checks, `dedupe` (`internal/app/dedupe.go`)
 breaks every gate into steps (`detect.Work`) and runs each step once: identical
 gates merge, a coverage or `-race` variant drops the plain run, and an aggregate is split
-to its uncovered steps or dropped. Each is a note.
+to its uncovered steps or dropped. Each is a note. A gate that runs one script
+file (a CI step's `bun run gate` reaching `scripts/gate.sh`) cannot be split, so
+it keeps every other gate's step its lines run (`detect.ScriptLines`, read and
+never run, following the repository scripts and package scripts it names) and
+those gates are split or dropped instead. A command the script runs only under
+a condition counts as run; a word in a comment does not.
 
 Whether a gate is browser e2e (`detect.IsE2E`) is read from its name, its
 argv and the package scripts it runs, and decided in `internal/app` after the

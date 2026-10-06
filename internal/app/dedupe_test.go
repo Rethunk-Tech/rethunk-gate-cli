@@ -139,3 +139,59 @@ run = "bun run unit:coverage"
 	qt.Check(t, qt.StringContains(stdout, "unit       bun run unit"))
 	qt.Check(t, qt.Not(qt.StringContains(stdout, "dropped")))
 }
+
+// A gate running one script file cannot be split, so the steps its lines run
+// leave the other gates instead: through a package script it runs, an `&&`
+// part of a script that has a pipe, and an env prefix. A step it only names
+// in a comment, or never names, still runs.
+func TestDedupeScriptFileClaimsTheStepsItRuns(t *testing.T) {
+	root := dedupeProject(t,
+		`"gate":"scripts/gate.sh","bindings":"gen bindings","typecheck":"bun run bindings && tsc --noEmit",`+
+			`"lint":"biome check . && tool-x --a | tee out","test":"go test -race ./... && bun test && tool-y"`, `
+[gates.gate]
+run = "bun run gate"
+
+[gates.build]
+run = "go build ./..."
+
+[gates.typecheck]
+run = "bun run typecheck"
+
+[gates.lint]
+run = "bun run lint"
+
+[gates.test]
+run = "bun run test"
+`)
+	testutil.Write(t, root, "scripts/gate.sh", `#!/usr/bin/env bash
+# go build ./... is left to the build gate
+bun run bindings >"$logs/bindings" 2>&1 &
+step tsc tsc --noEmit
+step go-test env TMPDIR="$tmp" go test -race ./...
+step bun-test bun test
+step lint bash -c "biome check . && tool-x --a | tee out"
+`)
+	out := listDedupe(t, root)
+	qt.Check(t, qt.StringContains(out, "gate       bun run gate"))
+	qt.Check(t, qt.StringContains(out, "build      go build ./..."))
+	qt.Check(t, qt.StringContains(out, "note: dropped typecheck (`bun run typecheck`): gate already runs everything it does"))
+	qt.Check(t, qt.StringContains(out, "note: dropped lint (`bun run lint`): gate already runs everything it does"))
+	qt.Check(t, qt.StringContains(out, "test       tool-y"))
+	qt.Check(t, qt.StringContains(out, "note: split test to `tool-y`: gate already runs the rest"))
+}
+
+// A script that runs none of the other gates' steps changes nothing.
+func TestDedupeScriptFileRunningNothingElseLeavesTheRoles(t *testing.T) {
+	root := dedupeProject(t, `"gate":"scripts/gate.sh","test":"go test ./..."`, `
+[gates.gate]
+run = "bun run gate"
+
+[gates.test]
+run = "bun run test"
+`)
+	testutil.Write(t, root, "scripts/gate.sh", "#!/bin/sh\n# go test ./... runs in the test gate\necho checked\n")
+	out := listDedupe(t, root)
+	qt.Check(t, qt.StringContains(out, "test       bun run test"))
+	qt.Check(t, qt.Not(qt.StringContains(out, "note: dropped")))
+	qt.Check(t, qt.Not(qt.StringContains(out, "note: split")))
+}

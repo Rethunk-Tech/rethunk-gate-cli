@@ -1097,6 +1097,21 @@ func TestCIScriptStepsCoveredByRolesChangeNothing(t *testing.T) {
 		qt.Commentf("gates = %v", proj.Gates))
 }
 
+// Go's convention build discards what it compiles, so nothing a CI step runs
+// reads it: it stays concurrent beside the CI script gates.
+func TestCIScriptStepsLeaveTheGoConventionBuildConcurrent(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, "go.mod", "module example.com/x\n\ngo 1.22\n")
+	testutil.Write(t, root, "package.json", `{"scripts":{"gate":"scripts/gate.sh"}}`)
+	testutil.Write(t, root, ".github/workflows/ci.yml", "on: [push, pull_request]\njobs:\n  a:\n    steps:\n      - run: bun run gate\n")
+
+	proj := detect(t, root)
+	qt.Check(t, qt.DeepEquals(gateNamed(t, proj, "build").Argv, []string{"go", "build", "./..."}))
+	qt.Check(t, qt.IsFalse(gateNamed(t, proj, "build").Serial))
+	qt.Check(t, qt.IsTrue(gateNamed(t, proj, "gate").Serial))
+}
+
 // A Go-only submodule inside a JS superproject ran the superproject's frozen
 // install on every gate, and parallel submodule gates raced on that one
 // node_modules. The repository root bounds the search.

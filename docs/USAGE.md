@@ -336,7 +336,9 @@ on a schedule are not read.
 
 These gates run serial, in the order CI names them, and the build gate joins
 them first: CI runs its steps in order on a built tree, and a search index or
-an e2e suite reads that build. A step's `env`, and its job's, reach the gate,
+an e2e suite reads that build. Go's convention `go build ./...` is the
+exception and stays concurrent: it discards what it compiles, so no step can
+read it. A step's `env`, and its job's, reach the gate,
 under anything `.gate.toml` sets for it, with `CI=true` as the runner sets it:
 Playwright's usual `reuseExistingServer: !process.env.CI` would otherwise test
 whatever app already holds the port. A step CI hands `${{ }}` values, or
@@ -366,6 +368,13 @@ into the steps it runs, following `<runner> run <script>` and root turbo tasks
   (`--coverage`, `--cov`, `-cover`, `-coverprofile`, `-coverpkg`) or `-race`
   is dropped from the plain gate. `test` beside `test:coverage` runs only the
   coverage run; `go test ./...` beside `go test -race ./...` only the race run.
+- **Script file wins**: a gate that runs one script file, such as CI's `bun
+  run gate` with `gate` set to `scripts/gate.sh`, cannot be split, so each
+  step of another gate that the script runs stays in it, and that gate is
+  split or dropped. gate reads the script, never runs it: a step counts as run
+  when its words appear in order on one line of the script, of a repository
+  script it names, or of a package script it runs with `<runner> run`.
+  Comments do not count; a command run only under a condition does.
 - **Split**: a step two gates share stays in the one with fewer steps, and
   leaves the aggregate. An aggregate left with nothing is dropped; one that
   still runs something no other gate covers keeps only that, as `sh -c`, with
