@@ -419,11 +419,11 @@ func actionRefs(body string) []actionRef {
 			continue
 		}
 		rest := line[i:]
-		at := strings.LastIndex(rest, "@")
-		if at < 0 {
+		_, after, ok := strings.CutLast(rest, "@")
+		if !ok {
 			continue
 		}
-		ref := strings.TrimSpace(rest[at+1:])
+		ref := strings.TrimSpace(after)
 		var hint string
 		if cut := strings.IndexAny(ref, " \t#"); cut >= 0 {
 			hint = versionHint(ref[cut:])
