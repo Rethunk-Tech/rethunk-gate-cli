@@ -1,7 +1,7 @@
 # AGENTS.md
 
 Internals for anyone changing this repository. To *use* `gate`, read
-[HUMANS.md](HUMANS.md). To submit changes, read @CONTRIBUTING.md.
+[HUMANS.md](HUMANS.md). To submit changes, read [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## The one invariant
 
