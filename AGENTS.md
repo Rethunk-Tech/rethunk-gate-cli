@@ -167,27 +167,7 @@ the same split the gate listing makes between a display and a resolved argv.
 Gates run **concurrently by default**; nothing infers order. Measured over 7 days,
 back-to-back chains cost 7.93h sequentially vs 5.57h overlapped.
 
-Per repository, median of three runs each way, every gate passing, `--timeout
-5m` so nothing is killed mid-measurement:
-
-| Repository | gates | `--serial` | default | Saved |
-| --- | --- | --- | --- | --- |
-| `cyber-defense-game` | 6 | 0.30s | 0.07s | 77% |
-| `Routed` | 5 | 0.28s | 0.07s | 75% |
-| `sagaforge-ts` | 5 | 0.30s | 0.08s | 73% |
-| `rethunk-git-cli` | 6 | 1.69s | 1.01s | 40% |
-| `rethunk-gate-cli` | 6 | 0.97s | 0.67s | 31% |
-| `gravewell` | 6 | 1.10s | 0.81s | 26% |
-| `paper-trail` | 7 | 5.32s | 4.81s | 10% |
-
-**These numbers are a cache state as much as a schedule.** Warm caches are what
-gates actually run in, and there `cyber-defense-game`'s six turbo tasks each
-return in about 71ms, so the whole run is 0.07s rather than the 51.40s an
-earlier reading of this table recorded — that reading was taken with turbo's
-caches cold, and the 170x is that, not a regression. The direction survives
-either state: overlapping helps most where per-gate overhead dominates, least
-where one long gate sets the floor. `claude-plugins` is absent because the
-repository is not on this machine.
+Overlapping saved 10-77% per repository (median of three, every gate passing). Warm caches shrink every gate to tens of milliseconds, so the direction is the rule, not the figure: overlap helps most where per-gate overhead dominates, least where one long gate sets the floor.
 
 Depending on another gate's *result* is never inferred. Three ways to state it:
 turbo `dependsOn` between roles, `gates.<role>.serial` in `.gate.toml`, or
