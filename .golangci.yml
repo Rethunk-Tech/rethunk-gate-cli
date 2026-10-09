@@ -55,6 +55,9 @@ linters:
     - usetesting
     - wastedassign
     - zerologlint
+  # canon go-golangci-lint-00014
+  exclusions:
+    generated: lax
   settings:
     # canon go-golangci-lint-00008
     govet:
