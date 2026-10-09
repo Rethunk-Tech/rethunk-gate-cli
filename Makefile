@@ -8,7 +8,7 @@ help:
 	@echo "Targets:"
 	@echo "  build              build ./cmd/gate into ./$(BINARY)"
 	@echo "  install            go install ./cmd/gate into GOBIN"
-	@echo "  test               go test ./...            (full suite)"
+	@echo "  test               go test -race ./...      (full suite)"
 	@echo "  lint               golangci-lint run ./...  (.golangci.yml)"
 	@echo "  fix-diff           go fix -diff ./...       (preview)"
 	@echo "  fix                go fix ./... twice       (fixes can unlock fixes)"
