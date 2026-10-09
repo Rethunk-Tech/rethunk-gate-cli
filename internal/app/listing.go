@@ -30,6 +30,9 @@ type listing struct {
 	// silence there reads as "nothing to say" rather than "a decision was
 	// made".
 	Notes []string `json:"notes"`
+
+	// Warnings are tools CI runs that no gate does.
+	Warnings []string `json:"warnings"`
 }
 
 // listedGate is one gate as it will actually run.
@@ -85,10 +88,11 @@ type listedGate struct {
 // the exit status.
 func writeListingJSON(w io.Writer, project detect.Project, files []string, opts options) error {
 	out := listing{
-		Root:   project.Root,
-		Gates:  make([]listedGate, 0, len(opts.gates)),
-		Config: array(files),
-		Notes:  array(project.Notes),
+		Root:     project.Root,
+		Gates:    make([]listedGate, 0, len(opts.gates)),
+		Config:   array(files),
+		Notes:    array(project.Notes),
+		Warnings: array(project.Warnings),
 	}
 	// Same rule the text listing follows: a workspace equal to the root is
 	// the root said twice, and reporting it would invite a consumer to treat
@@ -264,6 +268,9 @@ func formatEnv(env map[string]string) string {
 func writeNotes(w io.Writer, project detect.Project) {
 	for _, note := range project.Notes {
 		fmt.Fprintf(w, "note: %s\n", note)
+	}
+	for _, warning := range project.Warnings {
+		fmt.Fprintf(w, "warning: %s\n", warning)
 	}
 }
 

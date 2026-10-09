@@ -6,6 +6,14 @@ Notable changes to `gate`. The format follows
 
 ## [Unreleased]
 
+## [0.6.5] - 2026-10-09
+
+### Added
+
+- A warning, in `gate --list`, `--json` (`warnings`) and at the start of a run, for each known tool a workflow `run:`
+  step invokes that no gate runs, naming the workflow file and line. Unknown commands are ignored, so a project's own
+  scripts never raise one. Docs: docs/USAGE.md, CI coverage warnings.
+
 ## [0.6.4] - 2026-10-09
 
 ### Fixed

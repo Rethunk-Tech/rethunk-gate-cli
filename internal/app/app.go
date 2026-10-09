@@ -552,6 +552,14 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		}
 	}
 
+	if project.Root != "" && len(roles) == 0 && len(opts.gates) > 0 {
+		texts := make([]string, len(opts.gates))
+		for i, g := range opts.gates {
+			texts[i] = g.display + "\n" + detect.GateCommandText(project.Root, g.dir, g.argv, g.source)
+		}
+		project.Warnings = detect.CIGaps(project.Root, texts)
+	}
+
 	// JSON first: both flags name the same listing, and a consumer that asked
 	// for the machine shape must not be handed the human one.
 	if opts.jsonList {
@@ -593,6 +601,9 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	// resolved quietly: choosing silently between two stated intents is the
 	// one behaviour that would make this untrustworthy.
 	writeShadowWarnings(stderr, opts.gates)
+	for _, warning := range project.Warnings {
+		fmt.Fprintf(stderr, "gate: warning: %s\n", warning)
+	}
 	if opts.logPath != "" && !filepath.IsAbs(opts.logPath) {
 		opts.logPath = filepath.Join(dir, opts.logPath)
 	}

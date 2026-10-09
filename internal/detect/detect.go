@@ -101,6 +101,11 @@ type Project struct {
 	// of a tool. Configuration can still fill that role, and detection never
 	// reads configuration, so the merge needs the role to withdraw the note.
 	Skipped []Skip
+
+	// Warnings are what the caller found wrong with the set of gates after
+	// configuration was merged: a tool CI runs that no gate does. Detection
+	// never sets them, because the answer needs the final gate list.
+	Warnings []string
 }
 
 // Install is one frozen install and the directory it runs in.
