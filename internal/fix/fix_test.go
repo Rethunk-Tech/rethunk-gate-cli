@@ -134,7 +134,7 @@ func TestApplyClearsTheNamedDoctorCheck(t *testing.T) {
 			after: func(t *testing.T, dir string) {
 				body, err := os.ReadFile(filepath.Join(dir, ".github/workflows/ci.yml")) //nolint:gosec // path is a temporary workflow fixture
 				qt.Assert(t, qt.IsNil(err))
-				qt.Check(t, qt.StringContains(string(body), "gh-actions/setup-bun@v1.14"))
+				qt.Check(t, qt.StringContains(string(body), "gh-actions/setup-bun@v1.15"))
 				qt.Check(t, qt.Not(qt.StringContains(string(body), "@main")))
 			},
 		},
@@ -153,7 +153,7 @@ func TestApplyClearsTheNamedDoctorCheck(t *testing.T) {
 			after: func(t *testing.T, dir string) {
 				body, err := os.ReadFile(filepath.Join(dir, ".github/workflows/ci.yml")) //nolint:gosec // path is a temporary workflow fixture
 				qt.Assert(t, qt.IsNil(err))
-				qt.Check(t, qt.StringContains(string(body), "gh-actions/setup-bun@v1.14"))
+				qt.Check(t, qt.StringContains(string(body), "gh-actions/setup-bun@v1.15"))
 				qt.Check(t, qt.StringContains(string(body), "actions/checkout@v4"))
 			},
 		},
