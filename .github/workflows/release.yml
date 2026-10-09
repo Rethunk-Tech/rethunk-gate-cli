@@ -17,8 +17,8 @@ permissions:
 
 # Third-party actions are pinned by commit SHA with the version in a comment.
 # A tag is a mutable pointer its owner can repoint, and these run in jobs that
-# hold tokens worth stealing. Rethunk-Tech/gh-actions stays on a tag, which is
-# fleet policy and what `gate doctor` advises for it.
+# hold tokens worth stealing. Rethunk-Tech/gh-actions is pinned the same way;
+# `gate doctor` only objects to a moving ref (main, master, HEAD) for it.
 jobs:
   # No contents: write in this job. It runs checkout, a shared action and the
   # build, and the token that can publish a release is deliberately not in
