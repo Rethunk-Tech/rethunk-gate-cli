@@ -49,6 +49,7 @@ jobs:
         with:
           go-version-file: go.mod
           run-lint: "true"
+          lint-version: v2.14.0
           run-govulncheck: "true"
 
   # The release publishes a windows binary, so something has to run one.

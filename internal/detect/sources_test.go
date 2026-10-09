@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -90,8 +91,12 @@ func TestDotnetConvention(t *testing.T) {
 			}
 			bin := t.TempDir()
 			if tt.dotnet {
-				p := filepath.Join(bin, "dotnet")
-				if err := os.Symlink("/bin/true", p); err != nil {
+				// Windows finds a command by extension and has no /bin/true.
+				if runtime.GOOS == "windows" {
+					if err := os.WriteFile(filepath.Join(bin, "dotnet.exe"), nil, 0o600); err != nil {
+						t.Fatal(err)
+					}
+				} else if err := os.Symlink("/bin/true", filepath.Join(bin, "dotnet")); err != nil {
 					t.Fatal(err)
 				}
 			}
