@@ -233,3 +233,13 @@ Logs older than 14 days are swept from `gate`'s own directory, once per
 process and at most once a day — a stamp file makes that one stat rather than
 one per log. A directory `--log` names is never swept: `gate` does not delete
 files it did not place.
+
+## Gate budget
+
+Measured at load average 3 to 8 on 32 cores. CI parity: gate schedules build, lint, `make test`
+(`go test -race ./...`), govulncheck, actionlint and shellcheck, the Linux legs of CI; the
+windows-only leg is not reproducible locally. Warm: 6.8 s wall and 6.7 CPU-s when two packages
+were uncached, 0.8 s and 5 CPU-s when everything was. Cold (fresh `GOCACHE` and golangci-lint
+cache): 12.8 s wall, 73 CPU-s, under the 30 s cold bar; `make test` is 12.8 s of it, the `-race`
+compile dominating. Chaining build, lint and test with `serial = true` cut CPU to 58 s but raised
+wall to 16.6 s, so the gates stay concurrent.
