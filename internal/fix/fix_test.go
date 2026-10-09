@@ -101,7 +101,7 @@ func TestApplyClearsTheNamedDoctorCheck(t *testing.T) {
 			plant: func(t *testing.T, dir string) {
 				testutil.Write(t, dir, "go.mod", "module demo\n\ngo 1.26\n")
 				testutil.Write(t, dir, ".github/workflows/ci.yml",
-					"jobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-go@v1.13\n")
+					"jobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-go@v1.14\n")
 			},
 			after: func(t *testing.T, dir string) {
 				body, err := os.ReadFile(filepath.Join(dir, ".github/workflows/ci.yml")) //nolint:gosec // path is a temporary workflow fixture
@@ -134,7 +134,7 @@ func TestApplyClearsTheNamedDoctorCheck(t *testing.T) {
 			after: func(t *testing.T, dir string) {
 				body, err := os.ReadFile(filepath.Join(dir, ".github/workflows/ci.yml")) //nolint:gosec // path is a temporary workflow fixture
 				qt.Assert(t, qt.IsNil(err))
-				qt.Check(t, qt.StringContains(string(body), "gh-actions/setup-bun@v1.13"))
+				qt.Check(t, qt.StringContains(string(body), "gh-actions/setup-bun@v1.14"))
 				qt.Check(t, qt.Not(qt.StringContains(string(body), "@main")))
 			},
 		},
@@ -153,7 +153,7 @@ func TestApplyClearsTheNamedDoctorCheck(t *testing.T) {
 			after: func(t *testing.T, dir string) {
 				body, err := os.ReadFile(filepath.Join(dir, ".github/workflows/ci.yml")) //nolint:gosec // path is a temporary workflow fixture
 				qt.Assert(t, qt.IsNil(err))
-				qt.Check(t, qt.StringContains(string(body), "gh-actions/setup-bun@v1.13"))
+				qt.Check(t, qt.StringContains(string(body), "gh-actions/setup-bun@v1.14"))
 				qt.Check(t, qt.StringContains(string(body), "actions/checkout@v4"))
 			},
 		},
@@ -227,7 +227,7 @@ func TestFlowStyleWithGetsTheKey(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "ci.yml")
 	testutil.Write(t, dir, "ci.yml",
-		"jobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-go@v1.13\n        with: { cache: true }\n")
+		"jobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-go@v1.14\n        with: { cache: true }\n")
 
 	r, err := Apply(doctor.Finding{
 		Check: "ci-govulncheck-off",
@@ -257,7 +257,7 @@ func TestFlowStyleWithGetsTheKey(t *testing.T) {
 	empty := t.TempDir()
 	emptyPath := filepath.Join(empty, "ci.yml")
 	testutil.Write(t, empty, "ci.yml",
-		"jobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-go@v1.13\n        with: {}\n")
+		"jobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-go@v1.14\n        with: {}\n")
 	r, err = Apply(doctor.Finding{
 		Check: "ci-govulncheck-off",
 		Path:  emptyPath,
@@ -290,7 +290,7 @@ func TestUnprovableFlowStyleWithIsSkipped(t *testing.T) {
 			dir := t.TempDir()
 			path := filepath.Join(dir, "ci.yml")
 			testutil.Write(t, dir, "ci.yml",
-				"jobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-go@v1.13\n        "+tc.with+"\n")
+				"jobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-go@v1.14\n        "+tc.with+"\n")
 			before, err := os.ReadFile(path) //nolint:gosec // path is a temporary workflow fixture
 			qt.Assert(t, qt.IsNil(err))
 
@@ -341,14 +341,14 @@ func TestShaPinDropsTheStaleHint(t *testing.T) {
 		Check: "actions-stale-ref",
 		Path:  path,
 		What:  "shared action pinned to " + sha,
-		Fix:   "bump to v1.13 or newer",
+		Fix:   "bump to v1.14 or newer",
 	}, false)
 	qt.Assert(t, qt.IsNil(err))
 	qt.Assert(t, qt.Equals(r.Outcome, Applied))
 
 	body, err := os.ReadFile(path) //nolint:gosec // path is a temporary workflow fixture
 	qt.Assert(t, qt.IsNil(err))
-	qt.Check(t, qt.StringContains(string(body), "@v1.13"))
+	qt.Check(t, qt.StringContains(string(body), "@v1.14"))
 	qt.Check(t, qt.Not(qt.StringContains(string(body), sha)))
 	qt.Check(t, qt.Not(qt.StringContains(string(body), "v1.7")))
 }
@@ -361,7 +361,7 @@ func TestGovulncheckJoinsAnExistingWithBlock(t *testing.T) {
 		"jobs:",
 		"  a:",
 		"    steps:",
-		"      - uses: Rethunk-Tech/gh-actions/setup-go@v1.13",
+		"      - uses: Rethunk-Tech/gh-actions/setup-go@v1.14",
 		"        with:",
 		"          cache: true",
 	}, "\n")+"\n")

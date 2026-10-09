@@ -37,7 +37,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: Rethunk-Tech/gh-actions/setup-go@99dfb9093ab089d28f76d8036322a7c062259e76 # v1.13
+      - uses: Rethunk-Tech/gh-actions/setup-go@77071f0a197d38f7d90c9acf67547fdd990f269a # v1.14
         with:
           go-version-file: go.mod
 
