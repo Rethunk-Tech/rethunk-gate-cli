@@ -60,5 +60,5 @@ Tiered, nothing repeated between tiers: README orients and links, `HUMANS.md`
 covers running it, `docs/` holds the reference, `AGENTS.md` holds internals,
 this file holds process. Anything `gate --help` already says belongs in none of
 them. An `@-reference` in `AGENTS.md` is pulled into every agent session
-whether or not a change touches that file, so only `@CONTRIBUTING.md` keeps
-one; everything else is a markdown link.
+whether or not a change touches that file, so `AGENTS.md` uses none; every
+cross-reference there is a markdown link.
