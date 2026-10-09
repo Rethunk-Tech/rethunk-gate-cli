@@ -387,7 +387,11 @@ func conventionGates(ctx context.Context, root string, proj *Project) ([]Gate, [
 		// or a collected script that runs it is already a gate, so this is only
 		// for a project that declares the tool and never wrote the script.
 		if !slices.ContainsFunc(collectedNames, func(name string) bool { return strings.Contains(pkg.Scripts[name], "knip") }) {
-			if bin := nodeTool(root, proj, pkg, "knip", "knip"); bin != "" {
+			// Declared, not merely on PATH: a knip installed globally says
+			// nothing about whether this project is configured for it.
+			_, inDeps := pkg.Dependencies["knip"]
+			_, inDev := pkg.DevDeps["knip"]
+			if bin := nodeTool(root, proj, pkg, "knip", "knip"); bin != "" && (inDeps || inDev) {
 				gates = append(gates, Gate{Name: "knip", Argv: []string{bin}, Source: "convention: node"})
 			}
 		}

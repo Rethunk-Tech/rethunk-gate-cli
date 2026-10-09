@@ -6,6 +6,13 @@ Notable changes to `gate`. The format follows
 
 ## [Unreleased]
 
+## [0.6.4] - 2026-10-09
+
+### Fixed
+
+- `knip` is detected only where `package.json` declares it. A knip found on `PATH` alone, as on a CI runner with a global
+  install, added a gate to projects that never configured the tool.
+
 ## [0.6.3] - 2026-10-09
 
 ### Changed
