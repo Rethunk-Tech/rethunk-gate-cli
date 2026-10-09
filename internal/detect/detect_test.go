@@ -567,7 +567,7 @@ func TestATurboCiTaskIsReportedRatherThanRun(t *testing.T) {
 		qt.Commentf("notes = %v", proj.Notes))
 }
 
-// bun writes bun.lock now and wrote bun.lockb before, and the two are the same
+// bun writes bun.lock (text) or bun.lockb (binary), and the two are the same
 // statement. A root recognised by one spelling and not the other is not found
 // as a workspace at all, so resolve never searches the workspace bin directory
 // and a global tool wins over the project's own copy -- the substitution

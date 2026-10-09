@@ -86,7 +86,7 @@ type Project struct {
 	Workspace string
 
 	// Installs are the frozen installs gate runs once each, before any gate:
-	// gates run against whatever node_modules holds, and one left over from
+	// gates run against whatever node_modules holds, and one from
 	// an older lockfile typechecks code CI rejects. The workspace's comes
 	// first; each CI-run package with its own lockfile adds its own. Empty
 	// without a lockfile.
@@ -270,7 +270,7 @@ func (p Project) workspaceOrRoot() string {
 var manifestNames = []string{"go.mod", "package.json", "pyproject.toml", "Cargo.toml", "Makefile"}
 
 // bunLockNames are the two spellings of bun's lockfile -- the text bun.lock
-// current bun writes, and the binary bun.lockb it wrote before. Both say the
+// current bun writes, and the binary bun.lockb older bun wrote. Both say the
 // same thing, so every place that asks "is this a bun workspace" reads this
 // one list. Half-recognising a project is worse than not recognising it: a
 // root found as a workspace here but not by packageRunner (or the reverse)

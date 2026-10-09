@@ -59,7 +59,7 @@ func exists(path string) bool {
 // whose test gate is `make test`. That recurses into `go test`, which runs
 // this suite again.
 //
-// GATE_ACTIVE_ROOTS now stops that loop at the second level rather than
+// GATE_ACTIVE_ROOTS stops that loop at the second level rather than
 // letting it fork-bomb, but a test that relied on it would still be running
 // the whole suite inside itself to reach a refusal. Tests that legitimately
 // exercise bare detection isolate themselves first, with t.Chdir into a

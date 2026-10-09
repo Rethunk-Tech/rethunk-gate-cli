@@ -566,7 +566,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		return Success
 	}
 
-	// Removed only now, so the listings above still name every e2e gate.
+	// Removed after the listings so the listings above still name every e2e gate.
 	var skipped []gateSpec
 	if opts.skipE2E {
 		skipped = slices.DeleteFunc(slices.Clone(opts.gates), func(g gateSpec) bool { return !g.e2e })
