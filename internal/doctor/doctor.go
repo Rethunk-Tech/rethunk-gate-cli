@@ -324,7 +324,7 @@ func checkWorkflows(proj detect.Project, add func(Finding)) {
 					Where: path,
 					What:  "shared action pinned to a moving ref (" + ref.ref + ")",
 					Why:   "a moving ref changes what CI runs without any commit here recording it",
-					Fix:   "pin to a tag, currently " + knownGoodActionsTag,
+					Fix:   "pin to the commit SHA of tag " + knownGoodActionsTag + ", with the tag in a trailing comment",
 				})
 				continue
 			}

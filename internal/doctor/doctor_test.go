@@ -407,6 +407,8 @@ func TestFindingsShareOneBase(t *testing.T) {
 	qt.Assert(t, qt.IsTrue(ok), qt.Commentf("findings = %v", checkNames(findings)))
 	qt.Check(t, qt.Equals(wf.Where, filepath.Join(".github", "workflows", "ci.yml")),
 		qt.Commentf("workflow finding is not repository-relative: %q", wf.Where))
+	qt.Check(t, qt.StringContains(wf.Fix, "commit SHA of tag "+knownGoodActionsTag),
+		qt.Commentf("the remedy must name the fleet's SHA-pin shape: %q", wf.Fix))
 
 	for _, f := range findings {
 		if f.Where == "" {
