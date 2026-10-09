@@ -301,6 +301,26 @@ silently skipping the rest of what `check` does.
 `workflows` and `shell` are not among the aggregated gates: linting workflow files or shell scripts is a
 different thing from what a project's `ci` target runs.
 
+### Nested projects, shared roles and undeclared tools
+
+Beyond the directories CI names, a Go module, Python project or Rust crate one or two levels down is a project
+of its own and gets the same one-gate treatment. Discovery asks git, so what `.gitignore` excludes is never found, and it
+skips `node_modules`, `vendor`, `testdata`, `.venv` and hidden directories. A nested Python project under a Python
+root, or a crate under a crate, is taken for a workspace member. A JavaScript package still needs CI to name it.
+
+Where a Go module, crate or Python project shares a directory with a `package.json` that declares build, lint or
+test, the package scripts win the roles and the other toolchain's gates run together as one gate named for it (`go`),
+when CI runs that toolchain. Go code that embeds a directory (`//go:embed`) makes the gate follow the build, serially.
+A Makefile target that wraps the toolchain wins its roles without a second gate.
+
+A root gate that enters a Go module (`cd backend && go build`) no longer hides the roles it never runs there: the
+lint and vulnerability scan become a gate named for the directory.
+
+For a `package.json` that declares `typescript`, `@biomejs/biome` or `knip`, the tool is detected even before
+`node_modules` exists, because the frozen install runs before any gate. A `tsconfig.<name>.json` beside a
+reference-free `tsconfig.json` is typechecked too (`tsconfig.build.json` excepted); `knip` is a gate of its own unless a
+script already runs it; and bun projects with `.test.` files and no `test` script run `bun test`.
+
 ### Packages CI runs in a subdirectory
 
 Detection stops at the nearest manifest, so a JavaScript package in a

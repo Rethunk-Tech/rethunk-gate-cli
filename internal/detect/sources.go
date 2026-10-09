@@ -339,17 +339,23 @@ func conventionGates(ctx context.Context, root string, proj *Project) ([]Gate, [
 		}
 	}
 
-	if exists(filepath.Join(root, "package.json")) {
+	if pkg, ok := readPackageJSON(filepath.Join(root, "package.json")); ok {
 		// The RESOLVED path, not the bare name: biome and tsc usually live in
 		// node_modules/.bin and are absent from PATH, so a bare name would be
 		// found by detection and then fail to execute.
-		if bin := resolve(root, proj, "biome"); bin != "" {
+		//
+		// A declared tool is predicted even when node_modules has not been
+		// installed yet: gate runs the frozen install before any gate, so on a
+		// fresh clone the binary exists by the time the gate does, and
+		// detecting only what is already on disk made the typecheck vanish
+		// from exactly the checkout CI starts from.
+		if bin := nodeTool(root, proj, pkg, "biome", "@biomejs/biome"); bin != "" {
 			gates = append(gates, Gate{Name: "lint", Argv: []string{bin, "check", "."}, Source: "convention: node"})
 		}
 		// Without a tsconfig.json tsc has no project to check and exits
 		// printing its usage, so a package with no TypeScript -- a Go module
 		// that carries a package.json for its workspace -- has no typecheck.
-		if bin := resolve(root, proj, "tsc"); bin != "" && exists(filepath.Join(root, "tsconfig.json")) {
+		if bin := nodeTool(root, proj, pkg, "tsc", "typescript"); bin != "" && exists(filepath.Join(root, "tsconfig.json")) {
 			// Bare tsc loads tsconfig.json. A solution-style file
 			// (files: [] plus references) typechecked without -b exits 0
 			// having checked nothing -- a pass covering work that never
@@ -360,7 +366,31 @@ func conventionGates(ctx context.Context, root string, proj *Project) ([]Gate, [
 			if tsconfigHasProjectReferences(root) {
 				argv = []string{bin, "-b", "--noEmit"}
 			}
-			gates = append(gates, Gate{Name: "typecheck", Argv: argv, Source: "convention: node"})
+			gate := Gate{Name: "typecheck", Argv: argv, Source: "convention: node"}
+			// A sibling tsconfig.<name>.json is its own program (an extension
+			// or a test tree) that the root config's include list does not
+			// reach, so a reference-free root leaves it unchecked.
+			if extra := siblingTsconfigs(root); len(extra) > 0 && !tsconfigHasProjectReferences(root) {
+				commands := []string{shellJoin(argv)}
+				for _, name := range extra {
+					commands = append(commands, shellJoin([]string{bin, "--noEmit", "-p", name}))
+				}
+				gate.Summary = strings.Join(commands, " && ")
+				gate.Argv = []string{"sh", "-c", gate.Summary}
+			}
+			gates = append(gates, gate)
+		}
+		// knip finds the dead code lint cannot. A package script of that name
+		// or a collected script that runs it is already a gate, so this is only
+		// for a project that declares the tool and never wrote the script.
+		if !slices.ContainsFunc(collectedNames, func(name string) bool { return strings.Contains(pkg.Scripts[name], "knip") }) {
+			if bin := nodeTool(root, proj, pkg, "knip", "knip"); bin != "" {
+				gates = append(gates, Gate{Name: "knip", Argv: []string{bin}, Source: "convention: node"})
+			}
+		}
+		// bun test needs no script: it finds *.test.* files itself.
+		if _, scripted := pkg.Scripts["test"]; !scripted && IsBunWorkspace(proj.workspaceOrRoot()) && hasBunTests(root) {
+			gates = append(gates, Gate{Name: "test", Argv: []string{"bun", "test"}, Source: "convention: node (bun test)"})
 		}
 	}
 
@@ -551,6 +581,17 @@ func shellScripts(ctx context.Context, root string) []string {
 // whether git answered at all, so an unusable answer is never mistaken for a
 // project with no scripts.
 func gitScripts(ctx context.Context, root string) ([]string, bool) {
+	all, ok := gitFiles(ctx, root)
+	if !ok {
+		return nil, false
+	}
+	return slices.DeleteFunc(all, func(name string) bool { return !strings.HasSuffix(name, ".sh") }), true
+}
+
+// gitFiles lists the files git tracks or would track under root,
+// slash-separated, sorted. Callers filter: the argv stays a constant, which is
+// what makes running git here safe.
+func gitFiles(ctx context.Context, root string) ([]string, bool) {
 	ctx, cancel := context.WithTimeout(ctx, gitDeadline)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git",
@@ -558,7 +599,7 @@ func gitScripts(ctx context.Context, root string) ([]string, bool) {
 		// a repository gate did not create: a repository can otherwise name a
 		// program there for git to execute on its behalf.
 		"-c", "core.fsmonitor=",
-		"ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "*.sh")
+		"ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "*")
 	cmd.Dir = root
 	out, err := cmd.Output()
 	if err != nil {
@@ -815,9 +856,10 @@ func ciPackageDirs(root string) []string {
 	return dirs
 }
 
-// ciPackageGates adds one gate for each package CI runs in a subdirectory
-// that no root gate reaches: a JavaScript package with its own lockfile, or a
-// Go module of its own. Detection from the root never looks below the root,
+// ciPackageGates adds one gate for each package in a subdirectory that no root
+// gate reaches: a JavaScript package with its own lockfile that CI runs, or a
+// Go module, Python project or Rust crate of its own that CI runs or that sits
+// one or two levels down (nested.go). Detection from the root never looks below the root,
 // a lockfile makes the package no workspace member, and a nested go.mod is
 // outside the root module's ./..., so a Python repository's frontend/ or
 // setup tool was checked by CI and not by gate.
@@ -833,10 +875,9 @@ func ciPackageDirs(root string) []string {
 // from inside the package, roles only: shell and workflows stay with the
 // repository's own gates, which already see every file.
 func ciPackageGates(ctx context.Context, proj *Project) {
-	for _, rel := range ciPackageDirs(proj.Root) {
+	for _, rel := range nestedCandidates(ctx, proj.Root) {
 		dir := filepath.Join(proj.Root, rel)
-		js := exists(filepath.Join(dir, "package.json")) && frozenInstall(dir) != nil
-		if !js && !exists(filepath.Join(dir, "go.mod")) {
+		if !nestedProject(proj.Root, dir) {
 			continue
 		}
 		name := filepath.ToSlash(rel)
@@ -844,8 +885,21 @@ func ciPackageGates(ctx context.Context, proj *Project) {
 			proj.Notes = append(proj.Notes, "CI runs "+name+"/, but its name is a gate role; not run")
 			continue
 		}
-		if i := slices.IndexFunc(proj.Gates, func(g Gate) bool { return Enters(gateText(proj.Root, g), name) }); i >= 0 {
-			proj.Notes = append(proj.Notes, "CI runs "+name+"/, and "+proj.Gates[i].Source+" already enters it; not gated twice")
+		var entered strings.Builder
+		enteredBy := ""
+		for _, g := range proj.Gates {
+			if text := gateText(proj.Root, g); Enters(text, name) {
+				entered.WriteString("\n" + text)
+				if enteredBy == "" {
+					enteredBy = g.Source
+				}
+			}
+		}
+		// A Go module is outside the root's ./..., so what a root gate that
+		// enters it never runs (CI's golangci-lint, govulncheck) is run beside
+		// it. Anything else a root gate enters is its own, whole.
+		if entered.Len() > 0 && !exists(filepath.Join(dir, "go.mod")) {
+			proj.Notes = append(proj.Notes, "CI runs "+name+"/, and "+enteredBy+" already enters it; not gated twice")
 			continue
 		}
 		sub, err := detectOne(ctx, dir)
@@ -854,13 +908,21 @@ func ciPackageGates(ctx context.Context, proj *Project) {
 		}
 		var parts []Gate
 		for _, g := range sub.Gates {
-			if slices.Contains(declaredNames, g.Name) {
+			if slices.Contains(declaredNames, g.Name) && (entered.Len() == 0 || !strings.Contains(entered.String(), toolKey(g.Argv))) {
 				parts = append(parts, g)
 			}
+		}
+		if entered.Len() > 0 && len(parts) == 0 {
+			proj.Notes = append(proj.Notes, "CI runs "+name+"/, and "+enteredBy+" already enters it; not gated twice")
+			continue
 		}
 		if len(parts) == 0 {
 			proj.Notes = append(proj.Notes, "CI runs "+name+"/, but gate found no gates there; not run")
 			continue
+		}
+		if entered.Len() > 0 {
+			proj.Notes = append(proj.Notes, name+"/ is entered by "+enteredBy+", which never runs "+
+				strings.Join(roleNames(parts), ", ")+"; those run as the "+name+" gate")
 		}
 		// A Go module under a JavaScript workspace finds that workspace
 		// upward, and the root's install already runs it.
@@ -983,4 +1045,86 @@ func shellJoin(argv []string) string {
 		}
 	}
 	return strings.Join(words, " ")
+}
+
+// nodeTool is name's resolved path, or where it will be once the frozen
+// install has run, when package.json declares dep and an install is due.
+func nodeTool(root string, proj *Project, pkg packageJSON, name, dep string) string {
+	if bin := resolve(root, proj, name); bin != "" {
+		return bin
+	}
+	_, inDeps := pkg.Dependencies[dep]
+	_, inDev := pkg.DevDeps[dep]
+	if (inDeps || inDev) && len(proj.Installs) > 0 {
+		return filepath.Join(proj.Installs[0].Dir, "node_modules", ".bin", name)
+	}
+	return ""
+}
+
+// siblingTsconfigs are the tsconfig.<name>.json files beside the root
+// tsconfig.json, sorted, that are not build configs: `tsconfig.build.json`
+// compiles what the root config already checks.
+func siblingTsconfigs(root string) []string {
+	files, _ := filepath.Glob(filepath.Join(root, "tsconfig.*.json"))
+	var names []string
+	for _, f := range files {
+		name := filepath.Base(f)
+		if name != "tsconfig.build.json" {
+			names = append(names, name)
+		}
+	}
+	slices.Sort(names)
+	return names
+}
+
+// testExts are the extensions bun test collects `.test.` files in.
+var testExts = []string{".ts", ".tsx", ".js", ".jsx", ".mjs"}
+
+// hasBunTests reports whether a `.test.` file bun would collect sits in root
+// outside the skipped directories.
+func hasBunTests(root string) bool {
+	found := false
+	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if found {
+			return fs.SkipAll
+		}
+		if d.IsDir() {
+			if path != root && (nestedSkipped[d.Name()] || strings.HasPrefix(d.Name(), ".")) {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		found = strings.Contains(d.Name(), ".test.") && slices.Contains(testExts, filepath.Ext(d.Name()))
+		return nil
+	})
+	return found
+}
+
+// toolKey is the part of a gate's command that names what it runs, for asking
+// whether some other command already runs it: `go vet` for a go command, the
+// tool itself behind `uv run` or `bun run`.
+func toolKey(argv []string) string {
+	words := slices.Clone(argv)
+	if len(words) >= 2 && (words[0] == "uv" || words[0] == "bun") && words[1] == "run" {
+		words = words[2:]
+	}
+	if len(words) == 0 {
+		return ""
+	}
+	key := filepath.Base(words[0])
+	if key == "go" && len(words) > 1 {
+		key += " " + words[1]
+	}
+	return key
+}
+
+func roleNames(gates []Gate) []string {
+	names := make([]string, len(gates))
+	for i, g := range gates {
+		names[i] = g.Name
+	}
+	return names
 }

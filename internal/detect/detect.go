@@ -115,7 +115,7 @@ type Install struct {
 //
 // A role missing from this list never reaches Project.Gates, silently. Adding
 // or renaming one means editing here in the same change.
-var gateOrder = []string{"build", "typecheck", "lint", "workflows", "shell", "test", "vuln"}
+var gateOrder = []string{"build", "typecheck", "lint", "knip", "workflows", "shell", "test", "vuln"}
 
 // IsRole reports whether name is one of the gate roles. Role names carry no
 // path separator and no leading dash, so an exact match is enough to tell one
@@ -153,8 +153,20 @@ func detectOne(ctx context.Context, dir string) (Project, error) {
 	}
 
 	byName := map[string]Gate{}
+	// shadowed is the convention gates of one toolchain that lost a role to
+	// another source in the same directory: a Go module beside a package.json
+	// that declares build, lint and test. Dropping them left CI's go build,
+	// vet and race tests unrun.
+	shadowed := map[string][]Gate{}
+	var shadowOrder []string
 	claim := func(g Gate) {
 		if existing, taken := byName[g.Name]; taken {
+			if chain, lost := conventionToolchain(g.Source); lost && shadowsAcross(chain, existing.Source) {
+				if _, seen := shadowed[chain]; !seen {
+					shadowOrder = append(shadowOrder, chain)
+				}
+				shadowed[chain] = append(shadowed[chain], g)
+			}
 			// turbo runs the package script of the same name, so those two are
 			// one declaration written in two places rather than two that
 			// disagree. Reporting it would fire on the ordinary monorepo shape
@@ -225,6 +237,13 @@ func detectOne(ctx context.Context, dir string) (Project, error) {
 		if g, ok := byName[name]; ok {
 			proj.Gates = append(proj.Gates, g)
 		}
+	}
+	for _, chain := range shadowOrder {
+		if !ciRunsToolchain(proj.Root, chain) {
+			proj.Notes = append(proj.Notes, chain+" gates share roles with another toolchain here, but CI never runs "+chain+"; not run")
+			continue
+		}
+		proj.Gates = append(proj.Gates, shadowedGate(proj.Root, chain, shadowed[chain], &proj))
 	}
 
 	// An aggregate target means "run the whole pipeline", and running it beside

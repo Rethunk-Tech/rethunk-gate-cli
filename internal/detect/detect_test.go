@@ -969,8 +969,10 @@ func TestCIRunGoModuleAMakeTargetEntersIsNotGated(t *testing.T) {
 	testutil.Write(t, root, "src/setup/go.mod", "module setup\n")
 
 	proj := detect(t, root)
-	qt.Check(t, qt.IsFalse(slices.ContainsFunc(proj.Gates, func(g Gate) bool { return g.Name == "src/setup" })))
-	qt.Check(t, qt.IsTrue(hasNote(proj, "CI runs src/setup/, and Makefile target test already enters it")))
+	// The root recipe only says `-C src/setup test`, so what it runs there is
+	// unknown; the module still gets a gate, and the note says why.
+	qt.Check(t, qt.IsTrue(hasGate(proj, "src/setup")))
+	qt.Check(t, qt.IsTrue(hasNote(proj, "src/setup/ is entered by Makefile target test")))
 }
 
 // The majordomo shape: a Go module that is also a script-less workspace member.

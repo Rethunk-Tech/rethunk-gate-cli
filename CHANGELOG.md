@@ -6,6 +6,14 @@ Notable changes to `gate`. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Detection no longer misses nested or shadowed projects. A Go module, Python project or Rust crate one or two levels
+  down, or a directory CI names, gets its own gate; a Go module beside a `package.json` that declared every role
+  runs as a `go` gate; a Go module a root gate enters still gets the lint and vulnerability scan that gate never ran;
+  and a declared `tsc`, `biome` or `knip` is detected on a fresh clone, with a second `tsconfig.<name>.json`
+  typechecked and `bun test` run when no script is. Docs: docs/USAGE.md, Nested projects.
+
 ## [0.6.2] - 2026-10-09
 
 ### Fixed
