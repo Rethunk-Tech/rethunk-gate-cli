@@ -6,6 +6,13 @@ Notable changes to `gate`. The format follows
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-10-09
+
+### Fixed
+
+- `gate doctor` advises pinning a shared action to a commit SHA with the tag in a
+  trailing comment, the shape the fleet's workflows use.
+
 ## [0.6.1] - 2026-10-09
 
 ### Added
