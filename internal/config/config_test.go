@@ -304,3 +304,30 @@ func TestE2EAndBudgetKeys(t *testing.T) {
 	qt.Assert(t, qt.IsNotNil(err))
 	qt.Check(t, qt.IsTrue(strings.Contains(err.Error(), "budget")), qt.Commentf("error = %v", err))
 }
+
+// detect.exclude layers user then project, and matches a directory gate by its
+// whole name or its last segment, with wildcards.
+func TestDetectExcludeMatchesByNameOrLastSegment(t *testing.T) {
+	home := isolate(t)
+	testutil.Write(t, home, "gate/config.toml", "[detect]\nexclude = [\"scratch\"]\n")
+	root := t.TempDir()
+	testutil.Write(t, root, ProjectFile, "[detect]\nexclude = [\"python-app-broken\", \".github/test-fixtures/*-unformatted\"]\n")
+
+	cfg, err := Load(root)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsTrue(cfg.Excluded(".github/test-fixtures/python-app-broken")))
+	qt.Check(t, qt.IsTrue(cfg.Excluded(".github/test-fixtures/python-app-unformatted")))
+	qt.Check(t, qt.IsTrue(cfg.Excluded("tools/scratch")))
+	qt.Check(t, qt.IsFalse(cfg.Excluded(".github/test-fixtures/python-app")))
+	qt.Check(t, qt.IsFalse(cfg.Excluded("lint")))
+}
+
+// A pattern path.Match cannot read is refused, like any unusable value.
+func TestDetectExcludeRefusesABadPattern(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	testutil.Write(t, root, ProjectFile, "[detect]\nexclude = [\"[\", \"\"]\n")
+	_, err := Load(root)
+	qt.Assert(t, qt.IsNotNil(err))
+	qt.Check(t, qt.StringContains(err.Error(), "detect.exclude has an unusable pattern"))
+}

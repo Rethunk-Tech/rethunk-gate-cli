@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/testutil"
@@ -50,4 +51,23 @@ func TestNamedRoleRunDoesNotWarn(t *testing.T) {
 	_, stderr, code := runGateTest(t, "-C", root, "run", "check")
 	qt.Check(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
 	qt.Check(t, qt.Not(qt.StringContains(stderr, "warning: CI runs")))
+}
+
+// A directory CI names is gated unless the project excludes it, and an
+// excluded one leaves a note saying so.
+func TestDetectExcludeLeavesACINamedDirectoryOut(t *testing.T) {
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "")
+	testutil.Write(t, root, ".github/workflows/ci.yml", "      - working-directory: fixtures/broken\n      - working-directory: fixtures/good\n")
+	testutil.Write(t, root, "fixtures/broken/go.mod", "module broken\n")
+	testutil.Write(t, root, "fixtures/good/go.mod", "module good\n")
+
+	stdout, _, _ := runGateTest(t, "-C", root, "--list")
+	qt.Check(t, qt.StringContains(stdout, "fixtures/broken"))
+
+	testutil.Write(t, root, ".gate.toml", "[detect]\nexclude = [\"broken\"]\n")
+	stdout, _, _ = runGateTest(t, "-C", root, "--list")
+	qt.Check(t, qt.IsFalse(strings.Contains(stdout, "  fixtures/broken ")))
+	qt.Check(t, qt.StringContains(stdout, "  fixtures/good "))
+	qt.Check(t, qt.StringContains(stdout, "CI runs fixtures/broken/, but detect.exclude in .gate.toml leaves it out"))
 }

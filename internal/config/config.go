@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	pathpkg "path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -96,6 +97,11 @@ type Config struct {
 	// "not set", which takes the default, from a deliberate 0.
 	Budget    time.Duration
 	HasBudget bool
+
+	// Exclude names directories detection found that the project does not
+	// want gated: patterns for the name of a nested or CI-run gate (its
+	// directory), layered user file first. See Excluded.
+	Exclude []string
 }
 
 // file is the on-disk shape. Both optional settings are pointers so an absent
@@ -109,7 +115,10 @@ type Config struct {
 // DisallowUnknownFields, the same as any typo, rather than silently accepted.
 type file struct {
 	Budget *string `toml:"budget"`
-	Gates  map[string]struct {
+	Detect struct {
+		Exclude []string `toml:"exclude"`
+	} `toml:"detect"`
+	Gates map[string]struct {
 		Run          string            `toml:"run"`
 		Serial       *bool             `toml:"serial"`
 		Timeout      *string           `toml:"timeout"`
@@ -212,6 +221,14 @@ func (c *Config) merge(path string, data []byte) error {
 		}
 	}
 
+	for _, pattern := range f.Detect.Exclude {
+		if _, err := pathpkg.Match(pattern, ""); err != nil || pattern == "" {
+			unusable = append(unusable, fmt.Sprintf("detect.exclude has an unusable pattern %q", pattern))
+			continue
+		}
+		c.Exclude = append(c.Exclude, pattern)
+	}
+
 	for name, g := range f.Gates {
 		merged := c.Gates[name]
 		merged.Source = path
@@ -273,4 +290,21 @@ func (c *Config) merge(path string, data []byte) error {
 		return fmt.Errorf("%s: unusable setting(s):\n%s", path, strings.Join(unusable, "\n"))
 	}
 	return nil
+}
+
+// Excluded reports whether a nested or CI-run gate, named for its directory
+// (`.github/test-fixtures/python-app-broken`), is one the project asked
+// detection to leave out. A pattern matches the whole name or its last path
+// segment, with path.Match's wildcards, so `python-app-broken` and
+// `.github/test-fixtures/*-broken` both name it.
+func (c *Config) Excluded(name string) bool {
+	for _, pattern := range c.Exclude {
+		if ok, _ := pathpkg.Match(pattern, name); ok {
+			return true
+		}
+		if ok, _ := pathpkg.Match(pattern, pathpkg.Base(name)); ok {
+			return true
+		}
+	}
+	return false
 }

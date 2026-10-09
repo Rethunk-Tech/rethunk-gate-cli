@@ -301,6 +301,22 @@ silently skipping the rest of what `check` does.
 `workflows` and `shell` are not among the aggregated gates: linting workflow files or shell scripts is a
 different thing from what a project's `ci` target runs.
 
+### Leaving a directory out
+
+A directory detection gates because CI names it or it holds a manifest, but that the project does not want checked
+(a test fixture that is broken on purpose), is left out in `.gate.toml`:
+
+```toml
+[detect]
+exclude = ["python-app-broken", ".github/test-fixtures/*-unformatted"]
+```
+
+Each entry is a `path.Match` pattern tried against the gate's name, which is its directory relative to the project
+root, and against that name's last segment, so `python-app-broken` finds `.github/test-fixtures/python-app-broken`.
+Entries from the user file and the project file are joined. Only a gate named for a directory is excluded; a role is
+turned off by configuring it. A note in `--list` names each directory left out, and its package's frozen install
+is skipped with it. A pattern `path.Match` cannot read, or an empty one, is refused like any other bad value.
+
 ### CI coverage warnings
 
 `gate --list`, `--json` and the start of a run warn, never fail, when a workflow runs a known tool that no gate

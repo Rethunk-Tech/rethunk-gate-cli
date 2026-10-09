@@ -6,6 +6,14 @@ Notable changes to `gate`. The format follows
 
 ## [Unreleased]
 
+## [0.6.6] - 2026-10-09
+
+### Added
+
+- `[detect] exclude = [...]` in `.gate.toml` leaves a directory detection would gate (named by CI, or holding a
+  manifest) out of the run, matched against the gate's directory name or its last segment. Docs: docs/USAGE.md,
+  Leaving a directory out.
+
 ## [0.6.5] - 2026-10-09
 
 ### Added

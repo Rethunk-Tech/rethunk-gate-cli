@@ -360,6 +360,13 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 			})
 		})
 		for _, g := range proj.Gates {
+			// Only a gate named for a directory can be excluded: a role is
+			// removed by configuring it, not by detect.exclude.
+			if g.Dir != "" && cfg.Excluded(g.Name) {
+				project.Notes = append(project.Notes, "CI runs "+g.Name+"/, but detect.exclude in .gate.toml leaves it out")
+				project.Installs = slices.DeleteFunc(slices.Clone(project.Installs), func(in detect.Install) bool { return in.Dir == g.Dir })
+				continue
+			}
 			if by := configEnters(cfg, proj.Root, g); by != "" {
 				project.Notes = append(project.Notes, "CI runs "+g.Name+"/, and "+by+" already enters it; not gated twice")
 				project.Installs = slices.DeleteFunc(slices.Clone(project.Installs), func(in detect.Install) bool { return in.Dir == g.Dir })
