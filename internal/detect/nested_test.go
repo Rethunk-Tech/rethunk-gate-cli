@@ -100,7 +100,7 @@ func TestGoModuleBesideAPackageJSONStillRuns(t *testing.T) {
 	proj := detect(t, root)
 	goGate := gateNamed(t, proj, "go")
 	qt.Check(t, qt.StringContains(goGate.Display(), "go build ./..."))
-	qt.Check(t, qt.StringContains(goGate.Display(), "go test ./..."))
+	qt.Check(t, qt.StringContains(goGate.Display(), "go test -race ./..."))
 	// An embed reads the dist/ the build rewrites, so the two cannot overlap.
 	qt.Check(t, qt.IsTrue(goGate.Serial))
 	qt.Check(t, qt.IsTrue(gateNamed(t, proj, "build").Serial))
@@ -204,4 +204,12 @@ func TestKnipAlreadyRunByAScriptIsNotAddedAgain(t *testing.T) {
 	testutil.Write(t, root, "package.json", `{"scripts":{"lint":"biome check . && knip"},"devDependencies":{"knip":"^6"}}`)
 	testutil.Write(t, root, "bun.lock", "")
 	qt.Check(t, qt.IsFalse(hasGate(detect(t, root), "knip")))
+}
+
+// CI's go test runs under the race detector, so the detected one does too.
+func TestDetectedGoTestRunsUnderTheRaceDetector(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, "go.mod", "module demo\n")
+	qt.Check(t, qt.Equals(gateNamed(t, detect(t, root), "test").Display(), "go test -race ./..."))
 }

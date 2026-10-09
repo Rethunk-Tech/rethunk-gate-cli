@@ -6,6 +6,10 @@ Notable changes to `gate`. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- The detected Go test runs `go test -race ./...`, as the fleet's CI does, so a data race fails the gate and not only CI.
+
 ### Fixed
 
 - Detection no longer misses nested or shadowed projects. A Go module, Python project or Rust crate one or two levels

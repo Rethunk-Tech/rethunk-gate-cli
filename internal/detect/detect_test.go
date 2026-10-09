@@ -991,7 +991,7 @@ func TestCIRunGoModuleInsideATurboWorkspaceRunsItsGoGates(t *testing.T) {
 	testutil.Write(t, root, "apps/cli/go.mod", "module cli\n")
 
 	g := gateNamed(t, detect(t, root), "apps/cli")
-	qt.Check(t, qt.StringContains(g.Summary, "go test ./..."))
+	qt.Check(t, qt.StringContains(g.Summary, "go test -race ./..."))
 	qt.Check(t, qt.Not(qt.StringContains(g.Summary, "turbo")))
 	qt.Check(t, qt.Not(qt.StringContains(g.Summary, "tsc")), qt.Commentf("no tsconfig.json, nothing to typecheck"))
 }

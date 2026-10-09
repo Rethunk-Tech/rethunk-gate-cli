@@ -204,7 +204,10 @@ func conventionGates(ctx context.Context, root string, proj *Project) ([]Gate, [
 	if exists(filepath.Join(root, "go.mod")) {
 		gates = append(gates,
 			Gate{Name: "build", Argv: []string{"go", "build", "./..."}, Source: "convention: go"},
-			Gate{Name: "test", Argv: []string{"go", "test", "./..."}, Source: "convention: go"},
+			// -race because that is what the fleet's CI runs: the shared setup-go
+			// action's run-test-race step and most workflows call
+			// `go test -race ./...`, and a plain run passes data races CI fails.
+			Gate{Name: "test", Argv: []string{"go", "test", "-race", "./..."}, Source: "convention: go"},
 		)
 		// golangci-lint (153 uses) subsumes go vet (220), so it wins where
 		// it is installed and vet is the fallback rather than both running.
