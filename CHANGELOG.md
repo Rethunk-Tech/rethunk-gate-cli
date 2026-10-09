@@ -6,8 +6,12 @@ Notable changes to `gate`. The format follows
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-10-09
+
 ### Changed
 
+- `gate doctor` and the workflows track gh-actions v1.15: the known-good tag is `v1.15` and the shared `setup-go`
+  pins are the v1.15 commit.
 - The detected Go test runs `go test -race ./...`, as the fleet's CI does, so a data race fails the gate and not only CI.
 
 ### Fixed
