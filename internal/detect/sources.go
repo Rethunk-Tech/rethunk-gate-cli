@@ -275,7 +275,7 @@ func conventionGates(ctx context.Context, root string, proj *Project) ([]Gate, [
 			})
 			if serial {
 				gates = append(gates, Gate{
-					Name: "test", Argv: []string{"dotnet", "test", target, "-c", "Release", "--no-build"},
+					Name: "test", Argv: dotnetTestArgv(root, target),
 					Source: "convention: dotnet", Serial: true,
 				})
 			}
@@ -440,6 +440,44 @@ func dotnetTarget(root string) (string, bool) {
 		return "", false
 	}
 	return rel, true
+}
+
+// dotnetTestArgv is the `dotnet test` command line. Under the Microsoft.Testing.Platform runner (global.json
+// "test": {"runner": ...}) the target is a flag, `--solution` or `--project`; the VSTest runner takes it positionally.
+func dotnetTestArgv(root, target string) []string {
+	argv := []string{"dotnet", "test"}
+	if dotnetUsesTestingPlatform(root) {
+		flag := "--project"
+		if ext := filepath.Ext(target); ext == ".sln" || ext == ".slnx" {
+			flag = "--solution"
+		}
+		argv = append(argv, flag, target)
+	} else {
+		argv = append(argv, target)
+	}
+	return append(argv, "-c", "Release", "--no-build")
+}
+
+// dotnetUsesTestingPlatform reports whether root's global.json selects the Microsoft.Testing.Platform test runner.
+func dotnetUsesTestingPlatform(root string) bool {
+	dir, err := os.OpenRoot(root)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = dir.Close() }()
+	b, err := dir.ReadFile("global.json")
+	if err != nil {
+		return false
+	}
+	var cfg struct {
+		Test struct {
+			Runner string `json:"runner"`
+		} `json:"test"`
+	}
+	if json.Unmarshal(b, &cfg) != nil {
+		return false
+	}
+	return strings.EqualFold(cfg.Test.Runner, "Microsoft.Testing.Platform")
 }
 
 // hasDotnetTest reports a test project under root: a *.Tests.csproj, or a

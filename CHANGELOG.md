@@ -43,6 +43,10 @@ Notable changes to `gate`. The format follows
   gate already enters (a make recipe's `cd frontend`, a configured `run`) is
   not gated a second time.
 
+- The dotnet convention runs `dotnet test --solution <sln>` (or `--project`) when `global.json` selects the
+  Microsoft.Testing.Platform runner, which `dotnet test` on SDK 10 requires; the VSTest runner keeps the positional
+  target.
+
 ### Fixed
 
 - A Go module that is also a script-less workspace member (majordomo's

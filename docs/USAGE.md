@@ -253,7 +253,7 @@ gate --force-cache          # every gate in this run, whatever tool it is
    test`/`golangci-lint run --allow-parallel-runners`/`govulncheck`, `cargo
    build`/`cargo test`/`cargo clippy`/`cargo audit` where a `Cargo.toml`
    exists, `dotnet build <solution-or-project> -c Release` and, when a test
-   project is present, `dotnet test … -c Release --no-build` where a `*.sln`
+   project is present, `dotnet test … -c Release --no-build` (with `--solution` or `--project` when `global.json` selects the Microsoft.Testing.Platform runner) where a `*.sln`
    or `*.slnx` sits at the root or exactly one `*.csproj`/`*.fsproj` is at
    the root or one directory down (an absent `dotnet` is a note, not a silent
    skip), `uv run pytest`/`ruff`/`pyrefly` plus `uv audit` where a

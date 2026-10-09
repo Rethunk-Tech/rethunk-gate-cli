@@ -46,6 +46,31 @@ func TestDotnetConvention(t *testing.T) {
 			},
 		},
 		{
+			name:   "slnx under the Microsoft.Testing.Platform runner",
+			dotnet: true,
+			files: map[string]string{
+				"App.slnx":                         "",
+				"global.json":                      `{"test":{"runner":"Microsoft.Testing.Platform"}}`,
+				"tests/App.Tests/App.Tests.csproj": sdk,
+			},
+			wantArgv: [][]string{
+				{"dotnet", "build", "App.slnx", "-c", "Release"},
+				{"dotnet", "test", "--solution", "App.slnx", "-c", "Release", "--no-build"},
+			},
+		},
+		{
+			name:   "project under the Microsoft.Testing.Platform runner",
+			dotnet: true,
+			files: map[string]string{
+				"global.json":          `{"test":{"runner":"Microsoft.Testing.Platform"}}`,
+				"src/App.Tests.csproj": sdk,
+			},
+			wantArgv: [][]string{
+				{"dotnet", "build", filepath.Join("src", "App.Tests.csproj"), "-c", "Release"},
+				{"dotnet", "test", "--project", filepath.Join("src", "App.Tests.csproj"), "-c", "Release", "--no-build"},
+			},
+		},
+		{
 			name:   "single csproj one level down",
 			dotnet: true,
 			files: map[string]string{
