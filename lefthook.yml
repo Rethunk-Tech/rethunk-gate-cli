@@ -6,11 +6,8 @@
 # the complete log on disk, and the command's own exit status as the verdict.
 #
 # The split follows measurement, not taste. Commits here are frequent and
-# small by policy, so pre-commit carries only what is imperceptible; the rest
-# waits for the push, which happens rarely and once.
-#
-#   gate run lint   0.14s
-#   gate        2.88s   (build, lint, workflows, test, vuln)
+# small by policy, so pre-commit carries only the cheap checks; everything
+# else waits for the push, which happens rarely and once.
 #
 # Enable with `lefthook install`. Hooks are not committed by git, so this file
 # is the decision; running that command is what applies it.
