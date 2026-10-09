@@ -6,6 +6,8 @@ Notable changes to `gate`. The format follows
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-10-09
+
 ### Added
 
 - Nothing a run schedules runs twice. Gates running the same steps in one
