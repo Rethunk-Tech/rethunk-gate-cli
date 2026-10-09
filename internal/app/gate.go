@@ -621,7 +621,8 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 	// One writer for both streams, so interleaving in the log matches what a
 	// terminal would have shown. Splitting them would reorder the very lines
 	// a failure is read from.
-	sink := io.MultiWriter(logFile, res.tracker, cache)
+	logSink := &lenientWriter{w: logFile}
+	sink := io.MultiWriter(logSink, res.tracker, cache)
 	cmd.Stdout = sink
 	cmd.Stderr = sink
 
@@ -669,7 +670,10 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 	// a log, it is one line, and it comes after every byte the command
 	// wrote -- so nothing is displaced and the log still starts with exactly
 	// what the command produced.
-	if err := writeTrailer(logFile, res, danglingLine); err != nil {
+	if logSink.err != nil {
+		res.fatalErr = fmt.Errorf("log %s may be incomplete: %w", res.logPath, logSink.err)
+	}
+	if err := writeTrailer(logFile, res, danglingLine); err != nil && res.fatalErr == nil {
 		res.fatalErr = fmt.Errorf("log %s may be incomplete: %w", res.logPath, err)
 	}
 
@@ -685,6 +689,24 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 	}
 
 	return res
+}
+
+// lenientWriter remembers the first write error and keeps accepting bytes.
+// io.MultiWriter stops at the first failing writer, which would stop the copy
+// feeding the command's pipe: the command would die of SIGPIPE and the tracker
+// would never see its output, so a full disk would change the verdict.
+type lenientWriter struct {
+	w   io.Writer
+	err error
+}
+
+func (l *lenientWriter) Write(p []byte) (int, error) {
+	if l.err == nil {
+		if _, err := l.w.Write(p); err != nil {
+			l.err = err
+		}
+	}
+	return len(p), nil
 }
 
 // openLog creates the file this gate's output goes to, and records its path.

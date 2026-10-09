@@ -2708,3 +2708,16 @@ func TestBudgetWarnsOnASlowPassOnly(t *testing.T) {
 	_, stderr, _ = runGateTest(t, "-C", root, "--budget", "1m")
 	qt.Check(t, qt.Not(qt.StringContains(stderr, "budget")), qt.Commentf("stderr = %q", stderr))
 }
+
+// A log that cannot be written must not change the command's verdict or hide
+// its output: the failure is reported beside the command's own status.
+func TestAFailingLogDoesNotChangeTheCommandsStatus(t *testing.T) {
+	if _, err := os.Stat("/dev/full"); err != nil {
+		t.Skip("no /dev/full")
+	}
+	t.Parallel()
+	stdout, stderr, code := runGateTest(t, "--log", "/dev/full", "sh", "-c", "i=0; while [ $i -lt 20000 ]; do echo line $i; i=$((i+1)); done; exit 3")
+	qt.Check(t, qt.Equals(code, Code(3)), qt.Commentf("stdout=%q stderr=%q", stdout, stderr))
+	qt.Check(t, qt.StringContains(stderr, "line 19999"))
+	qt.Check(t, qt.StringContains(stderr, "may be incomplete"))
+}
