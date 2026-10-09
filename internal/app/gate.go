@@ -570,8 +570,8 @@ func writeTimeoutRemedy(w io.Writer, role string) {
 }
 
 // stopGrace is how long a timed-out or interrupted gate has between SIGINT
-// and SIGKILL to its process group.
-const stopGrace = 5 * time.Second
+// and SIGKILL to its process group. A var so a test can shorten it.
+var stopGrace = 5 * time.Second
 
 // runOne runs a single gate, sending every byte it writes to a log file and
 // keeping only a bounded summary in memory.

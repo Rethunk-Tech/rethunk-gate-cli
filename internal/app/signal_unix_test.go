@@ -37,7 +37,11 @@ func TestATimedOutGateRunsItsInterruptHandler(t *testing.T) {
 // SIGINT is a request. Anything in the group that ignores it is SIGKILLed
 // once the grace runs out, or the timeout bounds nothing.
 func TestAGateIgnoringSigintIsKilledAfterTheGrace(t *testing.T) {
-	t.Parallel()
+	// Not parallel: it rewrites stopGrace, and parallel tests only resume
+	// once every serial test, and this cleanup, has finished.
+	orig := stopGrace
+	stopGrace = 500 * time.Millisecond
+	t.Cleanup(func() { stopGrace = orig })
 	pidFile := filepath.Join(t.TempDir(), "pid")
 	// sh starts the background sleep with SIGINT ignored, so both the shell
 	// and a worker it started refuse it.
