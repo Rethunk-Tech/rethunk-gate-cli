@@ -164,7 +164,8 @@ func packageRunner(workspace string) []string {
 // frozenInstall is the install that brings node_modules in line with the
 // lockfile in workspace without rewriting it, or nil where there is no
 // lockfile. Same precedence as packageRunner, so the installer is the
-// manager the gates run under.
+// manager the gates run under. uv.lock is not one of these: a Node
+// lockfile still chooses this install, and uvInstall runs beside it.
 func frozenInstall(workspace string) []string {
 	switch {
 	case IsBunWorkspace(workspace):
@@ -177,6 +178,16 @@ func frozenInstall(workspace string) []string {
 		return []string{"pnpm", "install", "--frozen-lockfile"}
 	}
 	return nil
+}
+
+// uvInstall is the locked sync that brings .venv in line with uv.lock in
+// dir, or nil where there is none. It does not rewrite the lockfile.
+// A Node lockfile in the same tree still owns frozenInstall; both run.
+func uvInstall(dir string) []string {
+	if !exists(filepath.Join(dir, "uv.lock")) {
+		return nil
+	}
+	return []string{"uv", "sync", "--locked"}
 }
 
 // Skip is a role the ladder deliberately left without a gate because the tool

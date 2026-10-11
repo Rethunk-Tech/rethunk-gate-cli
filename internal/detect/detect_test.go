@@ -328,6 +328,32 @@ func TestThePythonVulnGateFollowsTheLockfile(t *testing.T) {
 	qt.Check(t, qt.IsTrue(hasNote(proj, "uv.lock")), qt.Commentf("notes = %v", proj.Notes))
 }
 
+// uv.lock schedules a locked sync and does not take the Node workspace.
+// A Node lockfile beside it still owns that install; both are scheduled.
+func TestUvLockSchedulesALockedSyncBesideANodeInstall(t *testing.T) {
+	t.Parallel()
+
+	both := t.TempDir()
+	testutil.Write(t, both, "pyproject.toml", "[project]\nname = \"demo\"\n")
+	testutil.Write(t, both, "uv.lock", "version = 1\n")
+	testutil.Write(t, both, "bun.lock", "")
+	proj := detect(t, both)
+	qt.Check(t, qt.Equals(proj.Workspace, both))
+	qt.Check(t, qt.DeepEquals(proj.Installs, []Install{
+		{Dir: both, Argv: []string{"bun", "install", "--frozen-lockfile"}},
+		{Dir: both, Argv: []string{"uv", "sync", "--locked"}},
+	}))
+
+	only := t.TempDir()
+	testutil.Write(t, only, "pyproject.toml", "[project]\nname = \"demo\"\n")
+	testutil.Write(t, only, "uv.lock", "version = 1\n")
+	proj = detect(t, only)
+	qt.Check(t, qt.Equals(proj.Workspace, ""), qt.Commentf("uv.lock became the Node workspace"))
+	qt.Check(t, qt.DeepEquals(proj.Installs, []Install{
+		{Dir: only, Argv: []string{"uv", "sync", "--locked"}},
+	}))
+}
+
 // pytest exits 5 when it collects nothing, so a Python project that never
 // asked for pytest must not get a test gate that can only fail.
 func TestThePythonTestGateNeedsPytestDeclared(t *testing.T) {
@@ -1114,14 +1140,16 @@ func TestCIScriptStepsLeaveTheGoConventionBuildConcurrent(t *testing.T) {
 	qt.Check(t, qt.IsTrue(gateNamed(t, proj, "gate").Serial))
 }
 
-// A Go-only submodule inside a JS superproject ran the superproject's frozen
-// install on every gate, and parallel submodule gates raced on that one
-// node_modules. The repository root bounds the search.
+// A Go-only submodule inside a superproject ran the superproject's install
+// on every gate, and parallel submodule gates raced on that one
+// node_modules. The repository root bounds the search, for a Node lockfile
+// and for uv.lock.
 func TestSubmoduleDoesNotInstallItsSuperproject(t *testing.T) {
 	t.Parallel()
 	super := t.TempDir()
 	testutil.Write(t, super, "package.json", `{}`)
 	testutil.Write(t, super, "bun.lock", "")
+	testutil.Write(t, super, "uv.lock", "version = 1\n")
 	testutil.Write(t, super, "sub/.git", "gitdir: ../.git/modules/sub\n")
 	testutil.Write(t, super, "sub/go.mod", "module example.com/sub\n\ngo 1.27\n")
 

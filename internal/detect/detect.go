@@ -85,11 +85,12 @@ type Project struct {
 	// manifest" and "workspace root" are usually different.
 	Workspace string
 
-	// Installs are the frozen installs gate runs once each, before any gate:
-	// gates run against whatever node_modules holds, and one from
-	// an older lockfile typechecks code CI rejects. The workspace's comes
-	// first; each CI-run package with its own lockfile adds its own. Empty
-	// without a lockfile.
+	// Installs are the installs gate runs once each, before any gate: a Node
+	// lockfile's frozen install, then `uv sync --locked` where a uv.lock is
+	// present. Gates run against whatever node_modules or .venv holds, and
+	// one from an older lockfile typechecks code CI rejects. The workspace's
+	// Node install comes first; each CI-run package with its own lockfile
+	// adds its own. Empty without a lockfile.
 	Installs []Install
 
 	Gates []Gate
@@ -153,7 +154,15 @@ func detectOne(ctx context.Context, dir string) (Project, error) {
 	if ws, ok := findUp(proj.Root, workspaceNames); ok {
 		proj.Workspace = ws
 		if argv := frozenInstall(ws); argv != nil {
-			proj.Installs = []Install{{Dir: ws, Argv: argv}}
+			proj.Installs = append(proj.Installs, Install{Dir: ws, Argv: argv})
+		}
+	}
+	// A separate walk. uv.lock is not in workspaceNames: findUp returns the
+	// first directory holding any listed name, so a closer uv.lock would
+	// hide a Node lockfile and its install. Both run when both exist.
+	if uvRoot, ok := findUp(proj.Root, uvLockNames); ok {
+		if argv := uvInstall(uvRoot); argv != nil {
+			proj.Installs = append(proj.Installs, Install{Dir: uvRoot, Argv: argv})
 		}
 	}
 
@@ -316,6 +325,10 @@ var workspaceNames = slices.Concat(
 	bunLockNames,
 	[]string{"yarn.lock", "pnpm-lock.yaml", "package-lock.json"},
 )
+
+// uvLockNames is the lockfile `uv sync --locked` reads. Kept out of
+// workspaceNames so it cannot win the Node workspace walk.
+var uvLockNames = []string{"uv.lock"}
 
 // findUp walks from dir upward for the first directory containing any of
 // names, stopping at the enclosing repository's root: a submodule without its

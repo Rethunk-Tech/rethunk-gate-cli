@@ -113,10 +113,13 @@ the frozen install for it once, from the workspace root, before any gate (and
 one for each [package CI runs in a subdirectory](#packages-ci-runs-in-a-subdirectory)):
 `bun install --frozen-lockfile`, `yarn install --frozen-lockfile`, `npm ci`, or
 `pnpm install --frozen-lockfile`, in the same lockfile precedence the package
-runner uses. It prints `gate: install: <command> (in <workspace>)` on stderr.
-A failed install is the run's verdict: its output is quoted, its exit status
-passes through, and no gate runs. Without it, gates typecheck against whatever
-`node_modules` holds, which passes code CI's fresh install rejects. A wrapped
+runner uses. A `uv.lock`, walked separately so it cannot hide a Node lockfile,
+runs `uv sync --locked` in the directory that holds it; both run when both
+lockfiles exist, and a Node lockfile still chooses the Node install. It prints
+`gate: install: <command> (in <workspace>)` on stderr. A failed install is the
+run's verdict: its output is quoted, its exit status passes through, and no
+gate runs. Without it, gates typecheck against whatever `node_modules` or
+`.venv` holds, which passes code CI's fresh install rejects. A wrapped
 command, `--list` and `--json` never install.
 
 ### Streaming what a run did

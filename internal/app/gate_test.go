@@ -34,10 +34,22 @@ func plantBin(t *testing.T, dir, name string) string {
 // (absent in CI) nor a real install belongs in a test about something else.
 func fakeBun(t *testing.T, status int) string {
 	t.Helper()
+	return fakeTool(t, "bun", status)
+}
+
+// fakeUv is fakeBun for `uv`. A uv.lock fixture syncs before any gate, and
+// the real uv would try to install into the fixture.
+func fakeUv(t *testing.T, status int) string {
+	t.Helper()
+	return fakeTool(t, "uv", status)
+}
+
+func fakeTool(t *testing.T, name string, status int) string {
+	t.Helper()
 	bin := t.TempDir()
-	calls := filepath.Join(t.TempDir(), "bun-calls")
-	script := fmt.Sprintf("#!/bin/sh\necho \"$PWD: $*\" >> %q\necho bun-said-this\nexit %d\n", calls, status)
-	if err := os.WriteFile(filepath.Join(bin, "bun"), []byte(script), 0o755); err != nil { //nolint:gosec // fake executable fixture must be runnable
+	calls := filepath.Join(t.TempDir(), name+"-calls")
+	script := fmt.Sprintf("#!/bin/sh\necho \"$PWD: $*\" >> %q\necho %s-said-this\nexit %d\n", calls, name, status)
+	if err := os.WriteFile(filepath.Join(bin, name), []byte(script), 0o755); err != nil { //nolint:gosec // fake executable fixture must be runnable
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -2573,6 +2585,92 @@ func TestAFailedFrozenInstallFailsTheRunBeforeAnyGate(t *testing.T) {
 	qt.Check(t, qt.StringContains(stderr, "bun-said-this"))
 	qt.Check(t, qt.StringContains(stderr, "gate: FAIL install: bun install --frozen-lockfile (exit 7)"))
 	qt.Check(t, qt.IsFalse(exists(marker)), qt.Commentf("a gate ran after the install failed"))
+}
+
+// A uv.lock syncs once, from the directory that holds it, before any gate.
+// --list, --json, and a command named on the argv install nothing.
+func TestUvSyncLockedRunsInTheWorkspaceBeforeTheGates(t *testing.T) {
+	calls := fakeUv(t, 0)
+	t.Setenv("TMPDIR", t.TempDir())
+	ws := t.TempDir()
+	testutil.Write(t, ws, "uv.lock", "version = 1\n")
+	member := filepath.Join(ws, "packages", "a")
+	marker := filepath.Join(t.TempDir(), "install-seen")
+	testutil.Write(t, member, "Makefile", "test:\n\tcp "+calls+" "+marker+"\nlint:\n\ttrue\n")
+
+	_, stderr, code := runGateTest(t, "-C", member)
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.StringContains(stderr, "gate: install: uv sync --locked (in "+ws+")"))
+	got, err := os.ReadFile(calls) //nolint:gosec // path is a temporary fake-tool log
+	if err != nil {
+		t.Fatal(err)
+	}
+	qt.Check(t, qt.Equals(string(got), ws+": sync --locked\n"))
+	qt.Check(t, qt.IsTrue(exists(marker)), qt.Commentf("the test gate did not run after the sync"))
+	qt.Check(t, qt.Not(qt.StringContains(stderr, "uv-said-this")), qt.Commentf("a passing sync was quoted: %q", stderr))
+
+	for _, args := range [][]string{
+		{"-C", member, "--list"},
+		{"-C", member, "--json"},
+		{"-C", member, "true"},
+	} {
+		_, _, code = runGateTest(t, args...)
+		qt.Assert(t, qt.Equals(code, Success), qt.Commentf("args = %q", args))
+	}
+	after, err := os.ReadFile(calls) //nolint:gosec // path is a temporary fake-tool log
+	if err != nil {
+		t.Fatal(err)
+	}
+	qt.Check(t, qt.Equals(string(after), string(got)), qt.Commentf("a listing or named command ran uv sync"))
+}
+
+// A failed uv sync is the run's verdict: its exit status passes through,
+// its output is quoted, and no gate runs against the .venv it just failed
+// to bring in line with uv.lock.
+func TestAFailedUvSyncFailsTheRunBeforeAnyGate(t *testing.T) {
+	fakeUv(t, 7)
+	t.Setenv("TMPDIR", t.TempDir())
+	root := t.TempDir()
+	marker := filepath.Join(root, "test-ran")
+	testutil.Write(t, root, "uv.lock", "version = 1\n")
+	testutil.Write(t, root, "pyproject.toml", "[project]\nname = \"demo\"\n")
+	testutil.Write(t, root, "Makefile", "typecheck:\n\ttouch "+marker+"\n")
+
+	_, stderr, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Code(7)), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.StringContains(stderr, "gate: install: uv sync --locked (in "+root+")"))
+	qt.Check(t, qt.StringContains(stderr, "uv-said-this"))
+	qt.Check(t, qt.StringContains(stderr, "gate: FAIL install: uv sync --locked (exit 7)"))
+	qt.Check(t, qt.IsFalse(exists(marker)), qt.Commentf("a gate ran after the sync failed"))
+}
+
+// A Node lockfile and a uv.lock in the same tree each install. The Node
+// command stays the one its own lockfile names.
+func TestNodeAndUvInstallsBothRun(t *testing.T) {
+	bunCalls := fakeBun(t, 0)
+	uvCalls := fakeUv(t, 0)
+	t.Setenv("TMPDIR", t.TempDir())
+	root := t.TempDir()
+	testutil.Write(t, root, "bun.lock", "")
+	testutil.Write(t, root, "uv.lock", "version = 1\n")
+	testutil.Write(t, root, "Makefile", "test:\n\ttrue\n")
+
+	_, stderr, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	bunAt := strings.Index(stderr, "gate: install: bun install --frozen-lockfile (in "+root+")")
+	uvAt := strings.Index(stderr, "gate: install: uv sync --locked (in "+root+")")
+	qt.Check(t, qt.IsTrue(bunAt >= 0 && uvAt > bunAt), qt.Commentf("stderr = %q", stderr))
+
+	bunGot, err := os.ReadFile(bunCalls) //nolint:gosec // path is a temporary fake-tool log
+	if err != nil {
+		t.Fatal(err)
+	}
+	uvGot, err := os.ReadFile(uvCalls) //nolint:gosec // path is a temporary fake-tool log
+	if err != nil {
+		t.Fatal(err)
+	}
+	qt.Check(t, qt.Equals(string(bunGot), root+": install --frozen-lockfile\n"))
+	qt.Check(t, qt.Equals(string(uvGot), root+": sync --locked\n"))
 }
 
 // A CI-run package gate runs in its own directory after its own frozen

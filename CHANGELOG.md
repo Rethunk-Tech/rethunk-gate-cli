@@ -6,6 +6,10 @@ Notable changes to `gate`. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- A `uv.lock` runs `uv sync --locked` before any gate, in the directory that holds it. A failed sync is the run's verdict and no gate starts. A Node lockfile still chooses the Node install; both run when both lockfiles exist.
+
 ### Fixed
 
 - `--force-cache` sets `MAKEFLAGS` with `-B`, so a `.gate.toml` `run` string such as `make test` rebuilds. The string is still not parsed; `GOFLAGS=-count=1` covers a `go test` nested inside it.

@@ -637,11 +637,11 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	return runGates(ctx, opts, stdout, stderr)
 }
 
-// frozenInstall runs the project's frozen installs once each, before any
-// gate, and fails the run when one fails: a lockfile out of step with
-// package.json is a failure CI reports too, and gates run over a stale
-// node_modules pass code CI rejects. Output is quoted only on failure, on
-// stderr, so stdout stays the gates' own (NDJSON included).
+// frozenInstall runs the project's installs once each, before any gate,
+// and fails the run when one fails: a lockfile out of step with its
+// manifest is a failure CI reports too, and gates run over a stale
+// node_modules or .venv pass code CI rejects. Output is quoted only on
+// failure, on stderr, so stdout stays the gates' own (NDJSON included).
 func frozenInstall(ctx context.Context, project detect.Project, stderr io.Writer) Code {
 	for _, install := range project.Installs {
 		display := strings.Join(install.Argv, " ")
