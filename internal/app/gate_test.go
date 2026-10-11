@@ -2469,6 +2469,52 @@ func TestForceCacheRewritesAGoTestGateAndSetsTurboForce(t *testing.T) {
 	qt.Check(t, qt.StringContains(output, "TURBO_FORCE=1"), qt.Commentf("log = %q", output))
 }
 
+// A .gate.toml `run` string is sh -c, so the argv rewrite that inserts make -B
+// never sees make. MAKEFLAGS=-B is what makes an up-to-date target rebuild,
+// and GOFLAGS=-count=1 is what a nested go test inherits through the same shell.
+func TestForceCacheBustsMakeAndGoTestInsideARunString(t *testing.T) {
+	setLogDir(t)
+	t.Setenv("MAKEFLAGS", "")
+	t.Setenv("GOFLAGS", "")
+
+	bin := t.TempDir()
+	root := t.TempDir()
+	seen := filepath.Join(root, "go-flags")
+	script := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$GOFLAGS\" > %q\n", seen)
+	if err := os.WriteFile(filepath.Join(bin, "go"), []byte(script), 0o755); err != nil { //nolint:gosec // fake executable fixture must be runnable
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	testutil.Write(t, root, "Makefile", "stamp:\n\techo RAN > stamp.ran\n")
+	testutil.Write(t, root, "stamp", "")
+	testutil.Write(t, root, ".gate.toml", "[gates.mk]\nrun = \"make stamp\"\n\n[gates.gotest]\nrun = \"go test ./...\"\n")
+
+	_, stderr, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	if _, err := os.Stat(filepath.Join(root, "stamp.ran")); !os.IsNotExist(err) {
+		t.Fatalf("make rebuilt an up-to-date target without --force-cache: %v", err)
+	}
+	without, err := os.ReadFile(seen) //nolint:gosec // path is inside the test temp root
+	if err != nil {
+		t.Fatal(err)
+	}
+	qt.Assert(t, qt.Equals(strings.TrimSpace(string(without)), ""))
+
+	_, stderr, code = runGateTest(t, "-C", root, "--force-cache")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	ran, err := os.ReadFile(filepath.Join(root, "stamp.ran")) //nolint:gosec // path is inside the test temp root
+	if err != nil {
+		t.Fatal(err)
+	}
+	qt.Assert(t, qt.Equals(strings.TrimSpace(string(ran)), "RAN"))
+	with, err := os.ReadFile(seen) //nolint:gosec // path is inside the test temp root
+	if err != nil {
+		t.Fatal(err)
+	}
+	qt.Assert(t, qt.StringContains(string(with), "-count=1"))
+}
+
 // Without --force-cache, a gate that would have been rewritten runs exactly
 // as named -- forcing is opt-in, never inferred from the gate's shape.
 func TestWithoutForceCacheAGoTestGateIsUnchanged(t *testing.T) {

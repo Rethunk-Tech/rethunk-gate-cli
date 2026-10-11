@@ -227,13 +227,15 @@ A gate whose output carries none of these reads exactly as it always did:
 this cannot tell "ran fresh" from "a marker this build does not recognise"
 apart, and reporting a guess would be worse than reporting nothing.
 
-`--force-cache` re-runs a gate for real: `TURBO_FORCE=1` and
-`GOFLAGS=-count=1` on every gate (harmless where nothing reads them),
-`-count=1` appended to a `go test` command, `-B` (always make) appended to a
-Makefile target. A `.gate.toml` `run` gate is a shell string gate cannot see
-inside, so it gets the two environment variables alone; `GOFLAGS` is what
-reaches a `go test` behind `make` or a script, since `make -B` does not clear
-Go's test cache.
+`--force-cache` re-runs a gate for real: `TURBO_FORCE=1`, `GOFLAGS=-count=1`,
+and `MAKEFLAGS` including `-B` on every gate (harmless where nothing reads
+them), `-count=1` appended to a `go test` command, `-B` (always make) appended
+to a Makefile target. A `.gate.toml` `run` gate is a shell string that gate does
+not parse, so it is not rewritten; the environment variables are what reach a
+tool inside it. `GOFLAGS` reruns a nested `go test` (including one behind
+`make`, since `make -B` does not clear Go's test cache). `MAKEFLAGS=-B` is
+what reruns a Makefile target named only inside that string, such as
+`run = "make test"`.
 
 ```console
 TURBO_FORCE=1 bun run ci   # by hand, project by project

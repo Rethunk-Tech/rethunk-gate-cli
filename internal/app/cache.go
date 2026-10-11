@@ -210,16 +210,24 @@ func (s *cacheScanner) verdict() cacheVerdict {
 // exactly as it would without the flag, the same safe direction
 // cacheScanner takes on the way back.
 //
-// TURBO_FORCE and GOFLAGS=-count=1 are set unconditionally -- an environment variable a command
-// never reads changes nothing about it, so there is no cost to setting it on
-// a gate that turns out not to be turbo. The two argv rewrites are narrower:
-// they fire only where argv[0] resolves to exactly "go" or "make", because
+// TURBO_FORCE, GOFLAGS=-count=1, and MAKEFLAGS including -B are set
+// unconditionally. An environment variable a command never reads changes
+// nothing about it, so there is no cost to setting them on a gate that turns
+// out not to be turbo, go, or make. The two argv rewrites are narrower: they
+// fire only where argv[0] resolves to exactly "go" or "make", because
 // inserting a flag into a command gate cannot identify would be guessing at
 // another program's argument grammar.
 //
+// A config `run` gate is `sh -c <string>` (or `cmd /c` on Windows). Gate does
+// not parse that string. The environment is what reaches a tool buried in it:
+// GOFLAGS forces a nested `go test` to rerun, and MAKEFLAGS=-B is the same
+// unconditional rebuild as `make -B` on the argv of a direct make gate.
+//
 // The flag is the most local statement of intent (the same precedence
 // --timeout follows over a gate's own configured value), so it overrides
-// whatever a project's .gate.toml already set for TURBO_FORCE.
+// whatever a project's .gate.toml already set for TURBO_FORCE. GOFLAGS and
+// MAKEFLAGS are merged with a value the gate or the process already had, so
+// an existing -j or -count is kept and the force flag is added beside it.
 func applyForceCache(spec *gateSpec) {
 	if spec.env == nil {
 		spec.env = map[string]string{}
@@ -229,6 +237,7 @@ func applyForceCache(spec *gateSpec) {
 	// and make -B does not clear Go's test cache. GOFLAGS reaches it through
 	// any wrapper; the go command ignores a GOFLAGS flag a subcommand lacks.
 	spec.env["GOFLAGS"] = strings.TrimSpace(firstNonEmpty(spec.env["GOFLAGS"], os.Getenv("GOFLAGS")) + " -count=1")
+	spec.env["MAKEFLAGS"] = withAlwaysMake(firstNonEmpty(spec.env["MAKEFLAGS"], os.Getenv("MAKEFLAGS")))
 
 	if len(spec.argv) == 0 {
 		return
@@ -245,6 +254,36 @@ func applyForceCache(spec *gateSpec) {
 			spec.display = strings.Join(spec.argv, " ")
 		}
 	}
+}
+
+// withAlwaysMake returns flags with GNU make's unconditional-rebuild switch
+// present. -B is appended as its own word: fusing it onto a short option that
+// takes an argument (the -j in -j4) makes make read the letter as that
+// argument instead of as always-make.
+func withAlwaysMake(flags string) string {
+	if makeflagsForcesRebuild(flags) {
+		return flags
+	}
+	flags = strings.TrimSpace(flags)
+	if flags == "" {
+		return "-B"
+	}
+	return flags + " -B"
+}
+
+func makeflagsForcesRebuild(flags string) bool {
+	if strings.Contains(flags, "--always-make") {
+		return true
+	}
+	for field := range strings.FieldsSeq(flags) {
+		if field == "-B" {
+			return true
+		}
+		if len(field) > 1 && field[0] == '-' && field[1] != '-' && strings.ContainsRune(field, 'B') {
+			return true
+		}
+	}
+	return false
 }
 
 func firstNonEmpty(values ...string) string {

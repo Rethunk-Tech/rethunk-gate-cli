@@ -6,6 +6,10 @@ Notable changes to `gate`. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `--force-cache` sets `MAKEFLAGS` with `-B`, so a `.gate.toml` `run` string such as `make test` rebuilds. The string is still not parsed; `GOFLAGS=-count=1` covers a `go test` nested inside it.
+
 ## [0.6.6] - 2026-10-09
 
 ### Added

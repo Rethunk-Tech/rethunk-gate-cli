@@ -202,12 +202,15 @@ cache out, not gate rewriting a status the command never gave.
 
 `--force-cache` is a single, global flag — not a per-gate `.gate.toml` key,
 because the case for it (about to push, want a real answer once) is a
-one-off, not a standing project setting. It sets `TURBO_FORCE=1`
-unconditionally (harmless for anything that never reads it) and rewrites
-argv only where it can name the tool with certainty: `go test` gets
+one-off, not a standing project setting. It sets `TURBO_FORCE=1`,
+`GOFLAGS=-count=1`, and `MAKEFLAGS` including `-B` unconditionally (an
+environment variable a command never reads changes nothing about it) and
+rewrites argv only where it can name the tool with certainty: `go test` gets
 `-count=1`, a Makefile target gets `make -B`. A `run` gate is a shell
 string (`sh -c <string>`), and gate does not parse shell to find a `go test`
-or `make` buried inside one — TURBO_FORCE is what it gets.
+or `make` buried inside one. Those variables are what reach it: `GOFLAGS`
+reruns a nested `go test`, and `MAKEFLAGS=-B` is the same unconditional
+rebuild as `make -B`, including a recipe written `run = "make test"`.
 
 ## Exit codes
 

@@ -97,10 +97,12 @@ func TestCacheScannerCapsAnOversizedLineLikeLineTrackerDoes(t *testing.T) {
 }
 
 func TestApplyForceCacheSetsTurboForceUnconditionally(t *testing.T) {
+	t.Setenv("MAKEFLAGS", "")
 	spec := gateSpec{argv: []string{"echo", "hi"}, display: "echo hi"}
 	applyForceCache(&spec)
 	qt.Assert(t, qt.Equals(spec.env["TURBO_FORCE"], "1"))
 	qt.Assert(t, qt.StringContains(spec.env["GOFLAGS"], "-count=1"))
+	qt.Assert(t, qt.Equals(spec.env["MAKEFLAGS"], "-B"))
 	// Unrecognised commands are left otherwise untouched.
 	qt.Assert(t, qt.DeepEquals(spec.argv, []string{"echo", "hi"}))
 	qt.Assert(t, qt.Equals(spec.display, "echo hi"))
@@ -133,11 +135,32 @@ func TestApplyForceCacheInsertsMakeAlwaysMake(t *testing.T) {
 }
 
 func TestApplyForceCacheOnAShellStringLeavesArgvAlone(t *testing.T) {
-	// A config `run` or a caller's own command is `sh -c <string>`; gate
-	// cannot identify what the string invokes without a shell parser it
-	// does not have, so forcing there is TURBO_FORCE alone.
-	spec := gateSpec{argv: []string{"sh", "-c", "go test ./..."}, display: "go test ./..."}
+	// A config `run` or a caller's own command is `sh -c <string>`. Gate does
+	// not parse that string. The environment is what reaches make and go test
+	// inside it; the argv stays the string the project wrote.
+	t.Setenv("MAKEFLAGS", "")
+	spec := gateSpec{argv: []string{"sh", "-c", "make test"}, display: "make test"}
 	applyForceCache(&spec)
-	qt.Assert(t, qt.DeepEquals(spec.argv, []string{"sh", "-c", "go test ./..."}))
+	qt.Assert(t, qt.DeepEquals(spec.argv, []string{"sh", "-c", "make test"}))
+	qt.Assert(t, qt.Equals(spec.display, "make test"))
 	qt.Assert(t, qt.Equals(spec.env["TURBO_FORCE"], "1"))
+	qt.Assert(t, qt.Equals(spec.env["MAKEFLAGS"], "-B"))
+	qt.Assert(t, qt.StringContains(spec.env["GOFLAGS"], "-count=1"))
+}
+
+func TestApplyForceCacheKeepsExistingMakeFlagsAndAddsAlwaysMake(t *testing.T) {
+	spec := gateSpec{
+		env:  map[string]string{"MAKEFLAGS": "-j4 --jobserver-auth=fifo:/tmp/js"},
+		argv: []string{"sh", "-c", "make test"},
+	}
+	applyForceCache(&spec)
+	qt.Assert(t, qt.Equals(spec.env["MAKEFLAGS"], "-j4 --jobserver-auth=fifo:/tmp/js -B"))
+}
+
+func TestApplyForceCacheDoesNotDuplicateAlwaysMake(t *testing.T) {
+	for _, flags := range []string{"-B", "-j4 -B", "--always-make", "-sB"} {
+		spec := gateSpec{env: map[string]string{"MAKEFLAGS": flags}, argv: []string{"make", "test"}}
+		applyForceCache(&spec)
+		qt.Assert(t, qt.Equals(spec.env["MAKEFLAGS"], flags), qt.Commentf("flags %q", flags))
+	}
 }
