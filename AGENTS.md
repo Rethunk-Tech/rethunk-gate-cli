@@ -225,7 +225,9 @@ verdict goes.
 ## State
 
 Logs, and one result record per project root (`record.go`; format in
-[docs/USAGE.md](docs/USAGE.md#result-record)). The record's git read runs
+[docs/USAGE.md](docs/USAGE.md#result-record)). `status` hashes the porcelain
+status, the diff against HEAD, and each untracked file, so two dirty trees at
+one commit do not share a pass. The record's git read runs
 beside the gates rather than before them, so a run pays no extra wall time for
 it; its write failing is a stderr line, never a change to the exit status or
 to stdout. Logs go to `$TMPDIR`, or `/var/tmp` when unset —

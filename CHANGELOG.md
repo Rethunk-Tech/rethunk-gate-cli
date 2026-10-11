@@ -10,6 +10,10 @@ Notable changes to `gate`. The format follows
 
 - A `uv.lock` runs `uv sync --locked` before any gate, in the directory that holds it. A failed sync is the run's verdict and no gate starts. A Node lockfile still chooses the Node install; both run when both lockfiles exist.
 
+### Changed
+
+- The result record is schema 2. `status` is the SHA-256 of `git status --porcelain=v1 -z`, then `git diff HEAD`, then `git hash-object` (no `-w`) of each untracked path, so two dirty trees at one HEAD do not share a pass. A clean tree hashes empty status and an empty diff. `head` and `dirty` stay. A direct `gate <cmd>` still writes no record. Docs: docs/USAGE.md, Result record.
+
 ### Fixed
 
 - `--force-cache` sets `MAKEFLAGS` with `-B`, so a `.gate.toml` `run` string such as `make test` rebuilds. The string is still not parsed; `GOFLAGS=-count=1` covers a `go test` nested inside it.

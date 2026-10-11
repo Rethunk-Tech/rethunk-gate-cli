@@ -859,10 +859,11 @@ for a repository with no commit.
 
 ```json
 {
-  "schema": 1,
+  "schema": 2,
   "root": "/usr/local/src/example",
   "head": "35f23ab5255d6ac9e2804b7bc8ecea389a70aea6",
   "dirty": false,
+  "status": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
   "partial": false,
   "started": "2026-09-23T10:00:00.123456789-07:00",
   "finished": "2026-09-23T10:00:04.5-07:00",
@@ -878,15 +879,24 @@ for a repository with no commit.
 | --- | --- |
 | `schema` | Bumped on any change a reader has to know about |
 | `head` | `git rev-parse HEAD` at the start of the run |
-| `dirty` | `git status --porcelain` printed anything (untracked files count) |
+| `dirty` | `git status --porcelain=v1 -z` was non-empty (untracked files count) |
+| `status` | Hex SHA-256 of that status, then `git diff HEAD`, then `git hash-object` of each untracked path. See below |
 | `partial` | `gate run <names>`: only those gates ran, so a pass is not the project's whole gate |
 | `exit` | gate's own exit status for the run |
 | `gates` | One entry per gate, in declaration order, each the same object `--ndjson` emits |
 
-The record is true only of the commit and dirty state it names. A reader shows
-it only when the tree's current HEAD equals `head` and its dirty state equals
-`dirty`, and shows nothing otherwise. A dirty record matches any dirty tree at
-that HEAD; the file does not say which edits were present.
+`status` is the hex SHA-256 of three outputs concatenated, in order: the raw
+stdout of `git status --porcelain=v1 -z`, of `git diff HEAD`, and of
+`git hash-object --` (never `-w`) for each untracked path, in the order status
+printed them. `hash-object` refuses a directory, so an untracked directory is
+the files `git ls-files -z --others --exclude-standard` lists inside it. A
+clean tree is empty status plus an empty diff, which is the SHA-256 of no
+bytes. Color is forced off so a `color.ui` setting cannot change the diff.
+
+The record is true only of the commit and the tree `status` names. A reader
+trusts it only when the current HEAD equals `head` and a fresh hash equals
+`status`. `dirty` stays, and is not enough: two dirty trees at one HEAD do
+not share a pass.
 
 ## Exit codes
 

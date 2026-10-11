@@ -362,7 +362,7 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 	if opts.root != "" {
 		if state := <-tree; state.ok {
 			rec := record{
-				Schema: recordSchema, Root: canonicalRoot(opts.root), Head: state.head, Dirty: state.dirty,
+				Schema: recordSchema, Root: canonicalRoot(opts.root), Head: state.head, Dirty: state.dirty, Status: state.status,
 				Partial: opts.partial, Started: started, Finished: started.Add(wall), Exit: int(code),
 				Gates: make([]result, 0, len(results)),
 			}

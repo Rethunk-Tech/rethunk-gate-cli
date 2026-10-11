@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -15,17 +16,18 @@ import (
 
 // recordSchema is bumped on any change a reader must know about. See
 // docs/USAGE.md, Result record.
-const recordSchema = 1
+const recordSchema = 2
 
 // record is the last run's outcome for one project root, kept so a tool that
 // did not start the run -- a dashboard, an agent picking up work -- can tell
 // whether the tree in front of it has passed. It is only true of the commit
-// and dirty state it names; a reader compares both before trusting it.
+// and status it names; a reader compares head and status before trusting it.
 type record struct {
 	Schema int    `json:"schema"`
 	Root   string `json:"root"`
 	Head   string `json:"head"`
 	Dirty  bool   `json:"dirty"`
+	Status string `json:"status"`
 
 	// Partial marks a `gate run <names>` run: only the named gates ran, so a
 	// pass here is not the project's whole gate passing.
@@ -38,34 +40,141 @@ type record struct {
 	Gates []result `json:"gates"`
 }
 
-// treeState is HEAD and whether the working tree differs from it, or ok false
-// where root is not a git work tree with a commit.
+// treeState is HEAD, whether the work tree differs from it, and the status
+// hash of that tree. ok is false where root is not a git work tree with a
+// commit, or the tree could not be hashed.
 type treeState struct {
-	head  string
-	dirty bool
-	ok    bool
+	head   string
+	dirty  bool
+	status string
+	ok     bool
 }
 
-// readTree asks git for HEAD and porcelain status. Optional locks are off so
-// this never contends with a gate that is itself running git, and fsmonitor is
-// emptied for the same reason detection empties it: a repository must not get
-// to name a program for this read to run.
+// readTree asks git for HEAD and the working tree. Optional locks are off so
+// this never contends with a gate that is itself running git, and fsmonitor
+// is emptied for the same reason detection empties it: a repository must not
+// get to name a program for this read to run. color is off so a color.ui
+// setting cannot change the diff bytes the hash covers.
 func readTree(ctx context.Context, root string) treeState {
-	git := func(args ...string) (string, bool) {
-		cmd := exec.CommandContext(ctx, "git", append([]string{"-C", root, "-c", "core.fsmonitor="}, args...)...) //nolint:gosec // repository inspection uses fixed git arguments
+	git := func(args ...string) ([]byte, bool) {
+		cmd := exec.CommandContext(ctx, "git", append([]string{"-C", root, "-c", "core.fsmonitor=", "-c", "color.ui=false"}, args...)...) //nolint:gosec // repository inspection uses fixed git arguments
 		cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
 		out, err := cmd.Output()
-		return string(out), err == nil
+		return out, err == nil
 	}
 	head, ok := git("rev-parse", "--verify", "--quiet", "HEAD")
 	if !ok {
 		return treeState{}
 	}
-	status, ok := git("status", "--porcelain")
+	status, ok := git("status", "--porcelain=v1", "-z")
 	if !ok {
 		return treeState{}
 	}
-	return treeState{head: strings.TrimSpace(head), dirty: strings.TrimSpace(status) != "", ok: true}
+	diff, ok := git("diff", "HEAD")
+	if !ok {
+		return treeState{}
+	}
+	files, ok := untrackedFiles(status, git)
+	if !ok {
+		return treeState{}
+	}
+	blobs, ok := hashObjects(git, files)
+	if !ok {
+		return treeState{}
+	}
+	return treeState{
+		head:   strings.TrimSpace(string(head)),
+		dirty:  len(status) > 0,
+		status: statusHash(status, diff, blobs),
+		ok:     true,
+	}
+}
+
+// statusHash is the hex SHA-256 of three outputs concatenated, in order: raw
+// `git status --porcelain=v1 -z`, raw `git diff HEAD`, and `git hash-object`
+// (never -w) for each untracked file. A clean tree is empty status plus an
+// empty diff, which is the SHA-256 of no bytes.
+func statusHash(status, diff, blobs []byte) string {
+	sum := sha256.New()
+	_, _ = sum.Write(status)
+	_, _ = sum.Write(diff)
+	_, _ = sum.Write(blobs)
+	return hex.EncodeToString(sum.Sum(nil))
+}
+
+// untrackedPaths reads porcelain v1 -z records. A rename or copy occupies two
+// NUL-terminated paths; neither is untracked.
+func untrackedPaths(status []byte) []string {
+	var paths []string
+	for len(status) > 0 {
+		i := bytes.IndexByte(status, 0)
+		if i < 0 {
+			break
+		}
+		rec := status[:i]
+		status = status[i+1:]
+		if len(rec) < 4 || rec[2] != ' ' {
+			continue
+		}
+		xy, path := rec[:2], rec[3:]
+		if xy[0] == 'R' || xy[0] == 'C' || xy[1] == 'R' || xy[1] == 'C' {
+			j := bytes.IndexByte(status, 0)
+			if j < 0 {
+				break
+			}
+			status = status[j+1:]
+		}
+		if bytes.Equal(xy, []byte("??")) {
+			paths = append(paths, string(path))
+		}
+	}
+	return paths
+}
+
+// untrackedFiles is every untracked file status named, with an untracked
+// directory replaced by the files git lists inside it, in the order status
+// printed the paths. hash-object refuses a directory. Ignored files stay out.
+func untrackedFiles(status []byte, git func(...string) ([]byte, bool)) ([]string, bool) {
+	var files []string
+	for _, p := range untrackedPaths(status) {
+		if !strings.HasSuffix(p, "/") {
+			files = append(files, p)
+			continue
+		}
+		out, ok := git("ls-files", "-z", "--others", "--exclude-standard", "--", strings.TrimSuffix(p, "/"))
+		if !ok {
+			return nil, false
+		}
+		for f := range bytes.SplitSeq(out, []byte{0}) {
+			if len(f) > 0 {
+				files = append(files, string(f))
+			}
+		}
+	}
+	return files, true
+}
+
+// hashObjects is the concatenated stdout of `git hash-object --` over files,
+// in batches. No -w: the object database is not modified. An empty list is
+// an empty chunk.
+func hashObjects(git func(...string) ([]byte, bool), files []string) ([]byte, bool) {
+	if len(files) == 0 {
+		return nil, true
+	}
+	var buf bytes.Buffer
+	const batch = 50
+	for i := 0; i < len(files); i += batch {
+		j := min(i+batch, len(files))
+		args := make([]string, 0, 2+j-i)
+		args = append(args, "hash-object", "--")
+		args = append(args, files[i:j]...)
+		out, ok := git(args...)
+		if !ok {
+			return nil, false
+		}
+		buf.Write(out)
+	}
+	return buf.Bytes(), true
 }
 
 // stateDir is $XDG_STATE_HOME, or ~/.local/state where it is unset or not
