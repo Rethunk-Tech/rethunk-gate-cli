@@ -45,6 +45,11 @@ var ciTools = []ciTool{
 	{name: "dotnet test", re: regexp.MustCompile(`\bdotnet test\b`)},
 	{name: "vsce", re: regexp.MustCompile(`\bvsce\b`)},
 	{name: "osv-scanner", re: regexp.MustCompile(`\bosv-scanner\b`)},
+	{name: "actionlint", re: regexp.MustCompile(`\bactionlint\b`)},
+	{name: "shellcheck", re: regexp.MustCompile(`\bshellcheck\b`)},
+	// Two words, so `uv run` and `cargo test` do not count as the audit.
+	{name: "uv audit", re: regexp.MustCompile(`\buv audit\b`)},
+	{name: "cargo audit", re: regexp.MustCompile(`\bcargo audit\b`)},
 }
 
 // raceFlag marks a CI `go test` that runs under the race detector, which a gate

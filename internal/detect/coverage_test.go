@@ -57,6 +57,42 @@ func TestCIGapsNamesScannersNoGateRuns(t *testing.T) {
 	qt.Check(t, qt.HasLen(got, 2))
 }
 
+// actionlint is skipped when it is not installed, and CI still runs it.
+func TestCIGapsNamesActionlintNoGateRuns(t *testing.T) {
+	t.Parallel()
+	got := gaps(t, "      - run: actionlint\n", "make ci")
+	qt.Check(t, qt.HasLen(got, 1))
+	qt.Check(t, qt.HasLen(gaps(t, "      - run: actionlint\n", "actionlint"), 0))
+}
+
+// shellcheck is skipped when it is not installed, and CI still runs it.
+func TestCIGapsNamesShellcheckNoGateRuns(t *testing.T) {
+	t.Parallel()
+	got := gaps(t, "      - run: shellcheck scripts/ci.sh\n", "make ci")
+	qt.Check(t, qt.HasLen(got, 1))
+	qt.Check(t, qt.StringContains(got[0], "CI runs `shellcheck scripts/ci.sh`"))
+	qt.Check(t, qt.StringContains(got[0], "no gate runs shellcheck"))
+	qt.Check(t, qt.HasLen(gaps(t, "      - run: shellcheck scripts/ci.sh\n", "shellcheck scripts/ci.sh"), 0))
+}
+
+// `uv audit` is two words, so a gate that only runs `uv run` does not cover it.
+func TestCIGapsNamesUvAuditNoGateRuns(t *testing.T) {
+	t.Parallel()
+	got := gaps(t, "      - run: uv run pytest\n      - run: uv audit\n", "uv run pytest")
+	qt.Check(t, qt.HasLen(got, 1))
+	qt.Check(t, qt.StringContains(got[0], "no gate runs uv audit"))
+	qt.Check(t, qt.HasLen(gaps(t, "      - run: uv audit\n", "uv audit"), 0))
+}
+
+// `cargo audit` is two words, so a gate that only runs `cargo test` does not cover it.
+func TestCIGapsNamesCargoAuditNoGateRuns(t *testing.T) {
+	t.Parallel()
+	got := gaps(t, "      - run: cargo test\n      - run: cargo audit\n", "cargo test")
+	qt.Check(t, qt.HasLen(got, 1))
+	qt.Check(t, qt.StringContains(got[0], "no gate runs cargo audit"))
+	qt.Check(t, qt.HasLen(gaps(t, "      - run: cargo audit\n", "cargo audit"), 0))
+}
+
 // A command outside the fixed list is never a finding: the YouDone packaging
 // script, arbitrary shell, and anything built from an expression.
 func TestCIGapsIgnoresUnknownCommands(t *testing.T) {

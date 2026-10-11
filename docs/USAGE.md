@@ -322,10 +322,10 @@ is skipped with it. A pattern `path.Match` cannot read, or an empty one, is refu
 ### CI coverage warnings
 
 `gate --list`, `--json` and the start of a run warn, never fail, when a workflow runs a known tool that no gate
-runs: `warning: CI runs \`go vet ./...\` (.github/workflows/ci.yml:70), but no gate runs go vet`. Only `run:` steps are read, and
+runs: `warning: CI runs \`go vet ./...\` (.github/workflows/ci.yml:70), but no gate runs go vet`. Only`run:` steps are read, and
 only a fixed list of tools is recognised (go test, vet, build, mod tidy and verify; golangci-lint; govulncheck; pytest;
-ruff; pyrefly; mypy; bun test; vitest; knip; biome; tsc; cargo test and clippy; dotnet build and test; vsce;
-osv-scanner), so an unknown command, a project script or an expression never raises one. A tool counts as run
+ruff; pyrefly; mypy; bun test; vitest; knip; biome; tsc; cargo test, clippy and audit; dotnet build and test; vsce;
+osv-scanner; actionlint; shellcheck; uv audit), so an unknown command, a project script or an expression never raises one. A tool counts as run
 when it appears in any gate's command, in a make recipe the gate names (read from the Makefile in the gate's directory), or
 in a workspace package script behind a turbo gate; golangci-lint covers go vet, and a CI `go test -race` is
 covered only by a gate that also passes `-race`. Each tool is reported once, at its first line. A named run
