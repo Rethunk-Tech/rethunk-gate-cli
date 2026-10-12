@@ -8,6 +8,8 @@ Notable changes to `gate`. The format follows
 
 ### Added
 
+- `gate --json record` adds `fresh` and `reason` (`missing`, `stale`, `partial`, `failed`, or null when the record is fresh). The stored record stays schema 2. `gate record` without `--json` stays text. Docs: docs/USAGE.md, Result record.
+
 - `gate record` prints the last result record for this project and exits 0 only when it is schema 2, `head` is the current HEAD, `status` matches this tree, `partial` is false, and the run exited 0. A missing record exits 1. A stale tree exits 1 and says stale. A fresh record whose run failed exits with that status and says failed. A matching record with `partial` true exits 1 and says partial. `gate --json record` prints the record as JSON. Docs: docs/USAGE.md, Result record.
 
 - A `uv.lock` runs `uv sync --locked` before any gate, in the directory that holds it. A failed sync is the run's verdict and no gate starts. A Node lockfile still chooses the Node install; both run when both lockfiles exist.

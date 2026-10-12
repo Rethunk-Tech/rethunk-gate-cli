@@ -905,8 +905,15 @@ hashed), `partial` is false, and `exit` is 0. A missing file exits 1 and says
 missing. A record that fails the comparison exits 1 and says stale. A record
 that matches and whose run exited non-zero exits with that status and says
 failed. A matching record with `exit` 0 and `partial` true exits 1 and says
-partial: only the named gates ran. `gate --json record` prints the record as
-JSON; the missing, stale, partial, or failed line is on stderr.
+partial: only the named gates ran. `gate --json record` prints the stored
+record plus `fresh` and `reason`. `fresh` is true only in the exit-0 case.
+`reason` is `"missing"`, `"stale"`, `"partial"`, `"failed"`, or `null` when
+the record is fresh — the same decision as the exit, in that order: a tree
+or schema mismatch is stale even when the run failed, a non-zero `exit` is
+failed even when `partial` is true, and partial is what remains. Those two
+fields are not stored, and `schema` stays 2. A missing file prints only
+`fresh` and `reason`. `gate record` without `--json` stays the text layout
+below. The missing, stale, partial, or failed line is on stderr.
 
 ```console
 $ gate record

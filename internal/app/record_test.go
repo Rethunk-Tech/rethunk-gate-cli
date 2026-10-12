@@ -226,6 +226,22 @@ func TestUntrackedPathsSkipsRenameTargets(t *testing.T) {
 	qt.Check(t, qt.DeepEquals(untrackedPaths(status), []string{"note", "sub/"}))
 }
 
+func assertRecordView(t *testing.T, js string, fresh bool, reason string) {
+	t.Helper()
+	var got struct {
+		Fresh  bool    `json:"fresh"`
+		Reason *string `json:"reason"`
+	}
+	qt.Assert(t, qt.IsNil(json.Unmarshal([]byte(js), &got)), qt.Commentf("stdout = %q", js))
+	qt.Check(t, qt.Equals(got.Fresh, fresh))
+	if reason == "" {
+		qt.Check(t, qt.IsNil(got.Reason))
+		return
+	}
+	qt.Assert(t, qt.IsNotNil(got.Reason))
+	qt.Check(t, qt.Equals(*got.Reason, reason))
+}
+
 func TestRecordReportsAFreshPass(t *testing.T) {
 	setLogDir(t)
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
@@ -245,6 +261,8 @@ func TestRecordReportsAFreshPass(t *testing.T) {
 	qt.Check(t, qt.StringContains(stdout, state.head))
 	qt.Check(t, qt.StringContains(stdout, state.status))
 
+	qt.Check(t, qt.Not(qt.StringContains(stdout, "fresh")))
+
 	js, stderr, code := runGateTest(t, "-C", root, "--json", "record")
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
 	var rec record
@@ -254,6 +272,7 @@ func TestRecordReportsAFreshPass(t *testing.T) {
 	qt.Check(t, qt.Equals(rec.Status, state.status))
 	qt.Check(t, qt.Equals(rec.Exit, 0))
 	qt.Check(t, qt.IsFalse(rec.Dirty))
+	assertRecordView(t, js, true, "")
 }
 
 func TestRecordSaysPartialAfterANamedRun(t *testing.T) {
@@ -285,6 +304,7 @@ func TestRecordSaysPartialAfterANamedRun(t *testing.T) {
 	qt.Assert(t, qt.IsNil(json.Unmarshal([]byte(js), &got)), qt.Commentf("stdout = %q", js))
 	qt.Check(t, qt.IsTrue(got.Partial))
 	qt.Check(t, qt.Equals(got.Exit, 0))
+	assertRecordView(t, js, false, "partial")
 }
 
 func TestRecordSaysFailedAfterAFailedRun(t *testing.T) {
@@ -306,6 +326,11 @@ func TestRecordSaysFailedAfterAFailedRun(t *testing.T) {
 	qt.Assert(t, qt.IsTrue(state.ok))
 	qt.Check(t, qt.StringContains(stdout, state.head))
 	qt.Check(t, qt.StringContains(stdout, state.status))
+
+	js, stderr, code := runGateTest(t, "-C", root, "--json", "record")
+	qt.Check(t, qt.Equals(code, Code(2)))
+	qt.Check(t, qt.StringContains(stderr, "failed"))
+	assertRecordView(t, js, false, "failed")
 }
 
 func TestRecordSaysStaleWhenTheTreeChanges(t *testing.T) {
@@ -331,6 +356,7 @@ func TestRecordSaysStaleWhenTheTreeChanges(t *testing.T) {
 	qt.Assert(t, qt.IsNil(json.Unmarshal([]byte(js), &rec)), qt.Commentf("stdout = %q", js))
 	state := readTree(context.Background(), root)
 	qt.Check(t, qt.Not(qt.Equals(rec.Status, state.status)))
+	assertRecordView(t, js, false, "stale")
 }
 
 // A pass recorded for a dirty tree stays fresh until the tree changes again.
@@ -370,9 +396,10 @@ func TestRecordStaleWhenHeadOrSchemaDiffer(t *testing.T) {
 	rec.Head = state.head
 	rec.Schema = 1
 	qt.Assert(t, qt.IsNil(writeRecord(rec)))
-	_, stderr, code = runGateTest(t, "-C", root, "record")
+	js, stderr, code := runGateTest(t, "-C", root, "--json", "record")
 	qt.Check(t, qt.Equals(code, recordNotFresh))
 	qt.Check(t, qt.StringContains(stderr, "stale"))
+	assertRecordView(t, js, false, "stale")
 }
 
 func TestRecordMissing(t *testing.T) {
@@ -385,6 +412,11 @@ func TestRecordMissing(t *testing.T) {
 	_, stderr, code := runGateTest(t, "-C", root, "record")
 	qt.Check(t, qt.Equals(code, recordNotFresh))
 	qt.Check(t, qt.StringContains(stderr, "missing"))
+
+	js, stderr, code := runGateTest(t, "-C", root, "--json", "record")
+	qt.Check(t, qt.Equals(code, recordNotFresh))
+	qt.Check(t, qt.Equals(stderr, "gate: result record missing\n"))
+	assertRecordView(t, js, false, "missing")
 }
 
 // A command named directly writes no record, so the reader has nothing to trust.

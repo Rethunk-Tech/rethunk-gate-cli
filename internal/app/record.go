@@ -35,8 +35,8 @@ record is schema 2, names the current HEAD and this tree's status hash,
 the run exited 0, and partial is false. A missing record, a stale tree, a
 partial run, or a failed run exits non-zero.
 
-gate --json record prints the record as JSON. The missing, stale, partial,
-or failed line is on stderr.
+gate --json record prints the record as JSON with fresh and reason
+(missing, stale, partial, failed, or null). That line stays on stderr.
 
 Read-only. It never runs a gate.
 
@@ -331,10 +331,44 @@ func writeRecordText(w io.Writer, rec record) {
 	}
 }
 
-func writeRecordJSON(w io.Writer, rec record) error {
+// recordVerdict is why a loaded record is or is not fresh, in the same order
+// runRecord decides the exit: a tree or schema mismatch is stale even when
+// the run failed, a failed run is failed even when partial, and partial is
+// only the remaining case. An empty reason means fresh.
+func recordVerdict(rec record, state treeState) (fresh bool, reason string) {
+	if !state.ok || rec.Schema != recordSchema || rec.Head != state.head || rec.Status != state.status {
+		return false, "stale"
+	}
+	if rec.Exit != 0 {
+		return false, "failed"
+	}
+	if !recordFresh(rec, state) {
+		return false, "partial"
+	}
+	return true, ""
+}
+
+// writeRecordView prints the stored record plus whether it is fresh. A nil
+// record is a missing file: only fresh and reason, so a zero record is not
+// invented. reason is null when the record is fresh.
+func writeRecordView(w io.Writer, rec *record, fresh bool, reason string) error {
+	var reasonVal any
+	if reason != "" {
+		reasonVal = reason
+	}
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
-	return enc.Encode(rec)
+	if rec == nil {
+		return enc.Encode(struct {
+			Fresh  bool `json:"fresh"`
+			Reason any  `json:"reason"`
+		}{fresh, reasonVal})
+	}
+	return enc.Encode(struct {
+		record
+		Fresh  bool `json:"fresh"`
+		Reason any  `json:"reason"`
+	}{record: *rec, Fresh: fresh, Reason: reasonVal})
 }
 
 // runRecord prints the last result for the project at dir. The exit is 0 only
@@ -349,30 +383,36 @@ func runRecord(ctx context.Context, dir string, asJSON bool, stdout, stderr io.W
 	rec, err := loadRecord(proj.Root)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
+			if asJSON {
+				if err := writeRecordView(stdout, nil, false, "missing"); err != nil {
+					fmt.Fprintf(stderr, "gate: cannot write the record: %v\n", err)
+					return Fatal
+				}
+			}
 			fmt.Fprintln(stderr, "gate: result record missing")
 			return recordNotFresh
 		}
 		fmt.Fprintf(stderr, "gate: cannot read the result record: %v\n", err)
 		return Fatal
 	}
+	state := readTree(ctx, proj.Root)
+	fresh, reason := recordVerdict(rec, state)
 	if asJSON {
-		if err := writeRecordJSON(stdout, rec); err != nil {
+		if err := writeRecordView(stdout, &rec, fresh, reason); err != nil {
 			fmt.Fprintf(stderr, "gate: cannot write the record: %v\n", err)
 			return Fatal
 		}
 	} else {
 		writeRecordText(stdout, rec)
 	}
-	state := readTree(ctx, proj.Root)
-	if !state.ok || rec.Schema != recordSchema || rec.Head != state.head || rec.Status != state.status {
+	switch reason {
+	case "stale":
 		fmt.Fprintln(stderr, "gate: result record stale")
 		return recordNotFresh
-	}
-	if rec.Exit != 0 {
+	case "failed":
 		fmt.Fprintln(stderr, "gate: result record failed")
 		return Code(rec.Exit)
-	}
-	if !recordFresh(rec, state) {
+	case "partial":
 		fmt.Fprintln(stderr, "gate: result record partial")
 		return recordNotFresh
 	}
