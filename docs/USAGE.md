@@ -901,10 +901,12 @@ not share a pass.
 `gate record` is that reader. It prints the record for this project root.
 The exit status is 0 when `schema` is 2, `head` is the current HEAD, `status`
 equals a fresh hash of this tree (the same three git outputs the writer
-hashed), and `exit` is 0. A missing file exits 1 and says missing. A record
-that fails the comparison exits 1 and says stale. A fresh record whose run
-exited non-zero exits with that status and says failed. `gate --json record`
-prints the record as JSON; the missing, stale, or failed line is on stderr.
+hashed), `partial` is false, and `exit` is 0. A missing file exits 1 and says
+missing. A record that fails the comparison exits 1 and says stale. A record
+that matches and whose run exited non-zero exits with that status and says
+failed. A matching record with `exit` 0 and `partial` true exits 1 and says
+partial: only the named gates ran. `gate --json record` prints the record as
+JSON; the missing, stale, partial, or failed line is on stderr.
 
 ```console
 $ gate record

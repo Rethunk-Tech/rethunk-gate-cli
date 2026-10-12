@@ -31,12 +31,12 @@ const recordNotFresh Code = 1
 const recordHelp = `usage: gate [-C <path>] [--json] record
 
 Prints the last result record for this project. Exits 0 only when that
-record is schema 2, names the current HEAD and this tree's status hash, and
-the run exited 0. A missing record, a stale tree, or a failed run exits
-non-zero.
+record is schema 2, names the current HEAD and this tree's status hash,
+the run exited 0, and partial is false. A missing record, a stale tree, a
+partial run, or a failed run exits non-zero.
 
-gate --json record prints the record as JSON. The missing, stale, or failed
-line is on stderr.
+gate --json record prints the record as JSON. The missing, stale, partial,
+or failed line is on stderr.
 
 Read-only. It never runs a gate.
 
@@ -300,10 +300,16 @@ func loadRecord(root string) (record, error) {
 	return rec, nil
 }
 
-// recordFresh reports whether rec is schema 2 for the tree state names. state
-// comes from readTree, which is the hash writeRecord stored.
+// recordFresh reports whether rec is schema 2 for the tree state names and
+// covers every gate. state comes from readTree, which is the hash writeRecord
+// stored. A partial run named only some gates, so it is not a pass of this
+// tree even when head, status, and exit agree.
 func recordFresh(rec record, state treeState) bool {
-	return state.ok && rec.Schema == recordSchema && rec.Head == state.head && rec.Status == state.status
+	return state.ok &&
+		rec.Schema == recordSchema &&
+		rec.Head == state.head &&
+		rec.Status == state.status &&
+		!rec.Partial
 }
 
 func writeRecordText(w io.Writer, rec record) {
@@ -333,6 +339,7 @@ func writeRecordJSON(w io.Writer, rec record) error {
 
 // runRecord prints the last result for the project at dir. The exit is 0 only
 // when that record is fresh for the current tree and the run itself exited 0.
+// A partial run is printed, then refused: head and status can match a subset.
 func runRecord(ctx context.Context, dir string, asJSON bool, stdout, stderr io.Writer) Code {
 	proj, err := detect.Detect(ctx, dir)
 	if err != nil {
@@ -356,13 +363,18 @@ func runRecord(ctx context.Context, dir string, asJSON bool, stdout, stderr io.W
 	} else {
 		writeRecordText(stdout, rec)
 	}
-	if !recordFresh(rec, readTree(ctx, proj.Root)) {
+	state := readTree(ctx, proj.Root)
+	if !state.ok || rec.Schema != recordSchema || rec.Head != state.head || rec.Status != state.status {
 		fmt.Fprintln(stderr, "gate: result record stale")
 		return recordNotFresh
 	}
 	if rec.Exit != 0 {
 		fmt.Fprintln(stderr, "gate: result record failed")
 		return Code(rec.Exit)
+	}
+	if !recordFresh(rec, state) {
+		fmt.Fprintln(stderr, "gate: result record partial")
+		return recordNotFresh
 	}
 	return Success
 }

@@ -256,6 +256,37 @@ func TestRecordReportsAFreshPass(t *testing.T) {
 	qt.Check(t, qt.IsFalse(rec.Dirty))
 }
 
+func TestRecordSaysPartialAfterANamedRun(t *testing.T) {
+	setLogDir(t)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "build:\n\ttrue\n\ntest:\n\ttrue\n")
+	committedRepo(t, root)
+
+	_, _, code := runGateTest(t, "-C", root, "run", "build")
+	qt.Assert(t, qt.Equals(code, Success))
+	rec := readRecord(t, root)
+	qt.Assert(t, qt.IsTrue(rec.Partial))
+	qt.Assert(t, qt.Equals(rec.Exit, 0))
+	state := readTree(context.Background(), root)
+	qt.Assert(t, qt.IsTrue(state.ok))
+	qt.Assert(t, qt.Equals(rec.Head, state.head))
+	qt.Assert(t, qt.Equals(rec.Status, state.status))
+
+	stdout, stderr, code := runGateTest(t, "-C", root, "record")
+	qt.Check(t, qt.Equals(code, recordNotFresh))
+	qt.Check(t, qt.Equals(stderr, "gate: result record partial\n"))
+	qt.Check(t, qt.StringContains(stdout, "partial  true"))
+
+	js, stderr, code := runGateTest(t, "-C", root, "--json", "record")
+	qt.Check(t, qt.Equals(code, recordNotFresh))
+	qt.Check(t, qt.Equals(stderr, "gate: result record partial\n"))
+	var got record
+	qt.Assert(t, qt.IsNil(json.Unmarshal([]byte(js), &got)), qt.Commentf("stdout = %q", js))
+	qt.Check(t, qt.IsTrue(got.Partial))
+	qt.Check(t, qt.Equals(got.Exit, 0))
+}
+
 func TestRecordSaysFailedAfterAFailedRun(t *testing.T) {
 	setLogDir(t)
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
