@@ -22,6 +22,8 @@ Notable changes to `gate`. The format follows
 
 ### Changed
 
+- `doctor`'s `knownGoodActionsTag` is `v1.16`.
+
 - The result record is schema 2. `status` is the SHA-256 of `git status --porcelain=v1 -z`, then `git diff HEAD`, then `git hash-object` (no `-w`) of each untracked path, so two dirty trees at one HEAD do not share a pass. A clean tree hashes empty status and an empty diff. `head` and `dirty` stay. A direct `gate <cmd>` still writes no record. Docs: docs/USAGE.md, Result record.
 
 ### Fixed
