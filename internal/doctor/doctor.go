@@ -17,6 +17,7 @@ import (
 
 	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/config"
 	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/detect"
+	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/result"
 )
 
 // Finding is one thing worth doing.
@@ -98,6 +99,7 @@ func Run(ctx context.Context, dir string) ([]Finding, error) {
 	checkNpxInPackageScripts(root, proj, add)
 	checkDeclaredGates(root, proj, add)
 	checkNextBuildRace(root, proj, cfg, add)
+	checkResultRecord(ctx, root, add)
 
 	// Stable order: worse first, then by check name so two runs agree.
 	slices.SortStableFunc(findings, func(a, b Finding) int {
@@ -110,6 +112,41 @@ func Run(ctx context.Context, dir string) ([]Finding, error) {
 		return strings.Compare(a.Check, b.Check)
 	})
 	return findings, nil
+}
+
+// checkResultRecord flags a schema-2 result that is not fresh for this tree:
+// stale, partial, or failed. A missing file stays quiet. A clone that has
+// never run gate has nothing to be stale about, and flagging it would fire
+// on every one.
+func checkResultRecord(ctx context.Context, root string, add func(Finding)) {
+	loaded, err := result.Load(root)
+	if err != nil || loaded.Schema != result.Schema {
+		return
+	}
+	state := result.ReadTree(ctx, root)
+	fresh, reason := result.Verdict(loaded.Schema, loaded.Head, loaded.Status, loaded.Partial, loaded.Exit, state)
+	if fresh {
+		return
+	}
+	add(Finding{
+		Warn:  true,
+		Check: "result-not-fresh",
+		Where: loaded.Path,
+		What:  "the last result is no longer fresh",
+		Why:   resultWhy(reason),
+		Fix:   "run gate",
+	})
+}
+
+func resultWhy(reason string) string {
+	switch reason {
+	case "failed":
+		return "the stored run exited non-zero, so this tree has not passed"
+	case "partial":
+		return "only the named gates ran, so this is not a pass of the whole project"
+	default:
+		return "head or status no longer matches this tree, so the stored pass is about another tree"
+	}
 }
 
 // readFile is a convenience that treats an unreadable file as absent, since

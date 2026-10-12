@@ -1894,6 +1894,48 @@ func TestDoctorJSONCarriesWhatTheReportDoes(t *testing.T) {
 	qt.Check(t, qt.StringContains(text, f.What))
 }
 
+func TestDoctorJSONIncludesAStaleResult(t *testing.T) {
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "test:\n\ttrue\n")
+	testutil.Write(t, root, ".github/workflows/ci.yml", "name: CI\njobs:\n  a:\n    steps:\n      - run: true\n")
+	committedRepo(t, root)
+	state := readTree(context.Background(), root)
+	qt.Assert(t, qt.IsTrue(state.ok))
+
+	qt.Assert(t, qt.IsNil(writeRecord(record{
+		Schema: recordSchema,
+		Root:   canonicalRoot(root),
+		Head:   "0000000000000000000000000000000000000000",
+		Status: state.status,
+		Exit:   0,
+	})))
+	stdout, stderr, code := runGateTest(t, "-C", root, "--json", "doctor")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	var got doctorReport
+	qt.Assert(t, qt.IsNil(json.Unmarshal([]byte(stdout), &got)), qt.Commentf("stdout = %q", stdout))
+	var found *reportedFinding
+	for i := range got.Findings {
+		if got.Findings[i].Check == "result-not-fresh" {
+			found = &got.Findings[i]
+			break
+		}
+	}
+	qt.Assert(t, qt.IsNotNil(found), qt.Commentf("findings = %+v", got.Findings))
+	qt.Check(t, qt.Equals(found.Fix, "run gate"))
+
+	qt.Assert(t, qt.IsNil(writeRecord(record{
+		Schema: recordSchema,
+		Root:   canonicalRoot(root),
+		Head:   state.head,
+		Dirty:  state.dirty,
+		Status: state.status,
+		Exit:   0,
+	})))
+	stdout, _, code = runGateTest(t, "-C", root, "--json", "doctor")
+	qt.Assert(t, qt.Equals(code, Success))
+	qt.Check(t, qt.Not(qt.StringContains(stdout, "result-not-fresh")), qt.Commentf("stdout = %q", stdout))
+}
+
 // No findings is an empty list, never null: a consumer must not have to tell
 // "nothing to suggest" from "nothing reported".
 func TestDoctorJSONReportsNoFindingsAsAnEmptyList(t *testing.T) {

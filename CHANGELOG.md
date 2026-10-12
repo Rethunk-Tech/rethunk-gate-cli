@@ -10,6 +10,8 @@ Notable changes to `gate`. The format follows
 
 - `gate --json record` adds `current` (`head`, `status`, `dirty`) from the tree just read, beside the stored record. `fresh` and `reason` stay. The stored record stays schema 2. `gate record` without `--json` stays text. Docs: docs/USAGE.md, Result record.
 
+- `gate doctor` flags a schema-2 result that is not fresh (`stale`, `partial`, or `failed`). A missing record stays quiet. The fix is `run gate`. `gate --json doctor` includes the finding. Docs: docs/USAGE.md, `gate doctor`.
+
 - `gate --json doctor` includes `warnings`, the same CI tool warning strings a no-run `gate --json` listing reports. The text report is unchanged. Docs: docs/USAGE.md, `gate doctor`.
 
 - `gate --json record` adds `fresh` and `reason` (`missing`, `stale`, `partial`, `failed`, or null when the record is fresh). The stored record stays schema 2. `gate record` without `--json` stays text. Docs: docs/USAGE.md, Result record.

@@ -709,6 +709,7 @@ for d in ~/src/*/; do gate -C "$d" --json doctor | jq -r --arg d "$d" '.findings
 | `superseded-tooling` | eslint, mypy or black where the fleet moved on |
 | `missing-gate-*` | No test or typecheck gate declared or inferable |
 | `next-build-typecheck-race` | A Next project runs build and typecheck concurrently |
+| `result-not-fresh` | A schema-2 result exists and is not fresh (stale, partial, or failed). A missing record stays quiet |
 
 Judgements are repository-wide where that is what matters: a release workflow
 omitting `run-govulncheck` while CI enables it is not a gap.
@@ -751,6 +752,7 @@ gate --json fix
 | `missing-gate-*` | skip — adding a script is ambiguous |
 | `ci-no-final-gate` | skip — an aggregating job is a design |
 | `superseded-tooling` | skip — Fix and Path do not uniquely name a file move |
+| `result-not-fresh` | skip — running gate is not a repo edit |
 
 A program named `fix` is still `gate -- fix`.
 

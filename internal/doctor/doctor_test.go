@@ -1,15 +1,19 @@
 package doctor
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/result"
 	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/testutil"
 	"github.com/go-quicktest/qt"
 )
@@ -550,4 +554,97 @@ func TestNpxInPackageScriptsFiresOnlyOnInvocations(t *testing.T) {
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.IsFalse(reported(findings, "npx-in-bun-workspace")),
 		qt.Commentf("an npx outside a bun workspace was flagged: %v", checkNames(findings)))
+}
+
+func TestStaleResultIsAFindingAndAFreshOneIsNot(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	dir := t.TempDir()
+	testutil.Write(t, dir, "Makefile", "test:\n\ttrue\n")
+	testutil.Write(t, dir, ".github/workflows/ci.yml", "name: CI\njobs:\n  a:\n    steps:\n      - run: true\n")
+	commitFixture(t, dir)
+	state := result.ReadTree(t.Context(), dir)
+	qt.Assert(t, qt.IsTrue(state.OK))
+
+	findings, err := Run(t.Context(), dir)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsFalse(reported(findings, "result-not-fresh")),
+		qt.Commentf("a missing record was flagged: %v", checkNames(findings)))
+
+	stale := resultRecord(state)
+	stale["head"] = "0000000000000000000000000000000000000000"
+	writeFixtureRecord(t, dir, stale)
+	findings, err = Run(t.Context(), dir)
+	qt.Assert(t, qt.IsNil(err))
+	f, ok := findingNamed(findings, "result-not-fresh")
+	qt.Assert(t, qt.IsTrue(ok), qt.Commentf("findings = %v", checkNames(findings)))
+	qt.Check(t, qt.IsTrue(f.Warn))
+	qt.Check(t, qt.Equals(f.Fix, "run gate"))
+	qt.Check(t, qt.Not(qt.Equals(f.Why, "")))
+
+	partial := resultRecord(state)
+	partial["partial"] = true
+	writeFixtureRecord(t, dir, partial)
+	findings, err = Run(t.Context(), dir)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsTrue(reported(findings, "result-not-fresh")),
+		qt.Commentf("a partial record was quiet: %v", checkNames(findings)))
+
+	failed := resultRecord(state)
+	failed["exit"] = 2
+	writeFixtureRecord(t, dir, failed)
+	findings, err = Run(t.Context(), dir)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsTrue(reported(findings, "result-not-fresh")),
+		qt.Commentf("a failed record was quiet: %v", checkNames(findings)))
+
+	writeFixtureRecord(t, dir, resultRecord(state))
+	findings, err = Run(t.Context(), dir)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsFalse(reported(findings, "result-not-fresh")),
+		qt.Commentf("a fresh record was flagged: %v", checkNames(findings)))
+
+	old := resultRecord(state)
+	old["schema"] = 1
+	writeFixtureRecord(t, dir, old)
+	findings, err = Run(t.Context(), dir)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsFalse(reported(findings, "result-not-fresh")),
+		qt.Commentf("a schema-1 record was flagged: %v", checkNames(findings)))
+}
+
+func resultRecord(state result.State) map[string]any {
+	return map[string]any{
+		"schema":  result.Schema,
+		"head":    state.Head,
+		"status":  state.Status,
+		"dirty":   state.Dirty,
+		"partial": false,
+		"exit":    0,
+	}
+}
+
+func writeFixtureRecord(t *testing.T, root string, rec map[string]any) {
+	t.Helper()
+	path, err := result.Path(result.Canonical(root))
+	qt.Assert(t, qt.IsNil(err))
+	qt.Assert(t, qt.IsNil(os.MkdirAll(filepath.Dir(path), 0o700)))
+	data, err := json.Marshal(rec)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Assert(t, qt.IsNil(os.WriteFile(path, append(data, '\n'), 0o600)))
+}
+
+func commitFixture(t *testing.T, root string) {
+	t.Helper()
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.CommandContext(context.Background(), "git", append([]string{"-c", "user.name=t", "-c", "user.email=t@t"}, args...)...) //nolint:gosec // test repository commands are fixed git operations
+		cmd.Dir = root
+		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Skipf("git %v: %v: %s", args, err, out)
+		}
+	}
+	git("init", "--quiet")
+	git("add", ".")
+	git("commit", "--quiet", "-m", "first")
 }
