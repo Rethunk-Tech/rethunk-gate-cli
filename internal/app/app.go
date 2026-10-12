@@ -47,6 +47,7 @@ const gateHelp = `usage: gate [-C <path>] [flags] [<command> [args...]]
        gate [-C <path>] [flags] run <name>...
        gate [-C <path>] doctor
        gate [-C <path>] [--json] fix [--dry-run]
+       gate [-C <path>] [--json] record
 
 gate runs a project's gates, keeps their complete output in a log, and prints
 one line. The command's exit status is the verdict, passed through unchanged --
@@ -62,6 +63,7 @@ Commands:
                 test, vuln, and any others .gate.toml declares
   doctor        report what is cheap to fix here (read-only)
   fix           apply doctor findings that name a closed mechanical remedy
+  record        print the last result record, and whether it is still true
 
 Global flags (before everything else):
   -C <path>     run as if gate had been started in <path>
@@ -74,7 +76,7 @@ Flags:
                 (e2e gates are shown, marked skipped unless --e2e; a gate
                 repeating another's work is merged, dropped or split, noted)
   --json        the same listing as JSON, for a program to read
-                (with doctor or fix, the findings as JSON)
+                (with doctor, fix, or record, that report as JSON)
   --ndjson      stream one JSON line per gate as it finishes, and run them
   --profile     after the run, print wall time, summed gate time, and slowest gates
   --budget D    warn when a passing run takes longer than D (default 10s, 0
@@ -94,7 +96,7 @@ The first non-flag argument begins the command, and everything after it --
 including its own flags -- belongs to the command. 'gate test' runs the
 program, not the gate; 'gate run test' runs the gate. Use -- when the
 command's first token would otherwise look like a flag to gate, or when you
-mean a program named run, doctor, or fix: 'gate -- run x' runs a program called
+mean a program named run, doctor, fix, or record: 'gate -- run x' runs a program called
 run.
 
 Run 'gate doctor --help' for what doctor checks, 'gate fix --help' for apply.
@@ -255,9 +257,9 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		return InvalidUsage
 	}
 
-	// "doctor", "fix", and "run" are the only words gate treats as its own
-	// rather than as a command. A real program by any of those names is still
-	// reachable as `gate -- doctor`, which is what -- is for.
+	// "doctor", "fix", "record", and "run" are the only words gate treats as its
+	// own rather than as a command. A real program by any of those names is
+	// still reachable as `gate -- doctor`, which is what -- is for.
 	if !explicit && len(args) == 1 && args[0] == "doctor" {
 		// --ndjson streams what a run did, and doctor runs nothing. --json
 		// is served: findings are a list with a stable schema, and a sweep
@@ -296,6 +298,26 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 			return InvalidUsage
 		}
 		return runFix(ctx, dir, args[1:], opts.jsonList, stdout, stderr)
+	}
+
+	// record reads the last run. It takes no arguments; a program named record
+	// is `gate -- record`, and `gate record --help` is the only other spelling.
+	if !explicit && len(args) == 1 && args[0] == "record" {
+		if opts.ndjson {
+			fmt.Fprintln(stderr, "gate: --ndjson streams a run; record reads the last one")
+			fmt.Fprintln(stderr, "gate: run `gate --json record` for the record a program can read")
+			return InvalidUsage
+		}
+		if opts.profile {
+			fmt.Fprintln(stderr, "gate: --profile reports a run; record reads the last one")
+			return InvalidUsage
+		}
+		return runRecord(ctx, dir, opts.jsonList, stdout, stderr)
+	}
+	if !explicit && len(args) == 2 && args[0] == "record" &&
+		(args[1] == "-h" || args[1] == "--help") {
+		fmt.Fprint(stdout, recordHelp)
+		return Success
 	}
 
 	command := args

@@ -225,3 +225,182 @@ func TestUntrackedPathsSkipsRenameTargets(t *testing.T) {
 	status := []byte("R  old\x00new\x00?? note\x00 M tracked\x00?? sub/\x00")
 	qt.Check(t, qt.DeepEquals(untrackedPaths(status), []string{"note", "sub/"}))
 }
+
+func TestRecordReportsAFreshPass(t *testing.T) {
+	setLogDir(t)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "test:\n\ttrue\n")
+	head := committedRepo(t, root)
+
+	_, _, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Success))
+
+	stdout, stderr, code := runGateTest(t, "-C", root, "record")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.Equals(stderr, ""))
+	state := readTree(context.Background(), root)
+	qt.Assert(t, qt.IsTrue(state.ok))
+	qt.Check(t, qt.Equals(state.head, head))
+	qt.Check(t, qt.StringContains(stdout, state.head))
+	qt.Check(t, qt.StringContains(stdout, state.status))
+
+	js, stderr, code := runGateTest(t, "-C", root, "--json", "record")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	var rec record
+	qt.Assert(t, qt.IsNil(json.Unmarshal([]byte(js), &rec)), qt.Commentf("stdout = %q", js))
+	qt.Check(t, qt.Equals(rec.Schema, recordSchema))
+	qt.Check(t, qt.Equals(rec.Head, state.head))
+	qt.Check(t, qt.Equals(rec.Status, state.status))
+	qt.Check(t, qt.Equals(rec.Exit, 0))
+	qt.Check(t, qt.IsFalse(rec.Dirty))
+}
+
+func TestRecordSaysFailedAfterAFailedRun(t *testing.T) {
+	setLogDir(t)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "test:\n\texit 3\n")
+	committedRepo(t, root)
+
+	_, _, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Code(2)), qt.Commentf("make reports a recipe failure as 2, got %d", code))
+
+	stdout, stderr, code := runGateTest(t, "-C", root, "record")
+	qt.Check(t, qt.Equals(code, Code(2)))
+	qt.Check(t, qt.StringContains(stderr, "failed"))
+	qt.Check(t, qt.Not(qt.StringContains(stderr, "stale")))
+	qt.Check(t, qt.StringContains(stdout, "exit"))
+	state := readTree(context.Background(), root)
+	qt.Assert(t, qt.IsTrue(state.ok))
+	qt.Check(t, qt.StringContains(stdout, state.head))
+	qt.Check(t, qt.StringContains(stdout, state.status))
+}
+
+func TestRecordSaysStaleWhenTheTreeChanges(t *testing.T) {
+	setLogDir(t)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "test:\n\ttrue\n")
+	committedRepo(t, root)
+
+	_, _, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Success))
+
+	testutil.Write(t, root, "note", "x\n")
+	stdout, stderr, code := runGateTest(t, "-C", root, "record")
+	qt.Check(t, qt.Equals(code, recordNotFresh))
+	qt.Check(t, qt.StringContains(stderr, "stale"))
+	qt.Check(t, qt.StringContains(stdout, "head"))
+
+	js, stderr, code := runGateTest(t, "-C", root, "--json", "record")
+	qt.Check(t, qt.Equals(code, recordNotFresh))
+	qt.Check(t, qt.StringContains(stderr, "stale"))
+	var rec record
+	qt.Assert(t, qt.IsNil(json.Unmarshal([]byte(js), &rec)), qt.Commentf("stdout = %q", js))
+	state := readTree(context.Background(), root)
+	qt.Check(t, qt.Not(qt.Equals(rec.Status, state.status)))
+}
+
+// A pass recorded for a dirty tree stays fresh until the tree changes again.
+func TestRecordTrustsTheDirtyTreeItRecorded(t *testing.T) {
+	setLogDir(t)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "test:\n\ttrue\n")
+	committedRepo(t, root)
+	testutil.Write(t, root, "note", "x\n")
+
+	_, _, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Success))
+	_, stderr, code := runGateTest(t, "-C", root, "record")
+	qt.Check(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+}
+
+func TestRecordStaleWhenHeadOrSchemaDiffer(t *testing.T) {
+	setLogDir(t)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "test:\n\ttrue\n")
+	committedRepo(t, root)
+	_, _, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Success))
+
+	rec := readRecord(t, root)
+	rec.Head = "0000000000000000000000000000000000000000"
+	qt.Assert(t, qt.IsNil(writeRecord(rec)))
+	_, stderr, code := runGateTest(t, "-C", root, "record")
+	qt.Check(t, qt.Equals(code, recordNotFresh))
+	qt.Check(t, qt.StringContains(stderr, "stale"))
+
+	state := readTree(context.Background(), root)
+	qt.Assert(t, qt.IsTrue(state.ok))
+	rec = readRecord(t, root)
+	rec.Head = state.head
+	rec.Schema = 1
+	qt.Assert(t, qt.IsNil(writeRecord(rec)))
+	_, stderr, code = runGateTest(t, "-C", root, "record")
+	qt.Check(t, qt.Equals(code, recordNotFresh))
+	qt.Check(t, qt.StringContains(stderr, "stale"))
+}
+
+func TestRecordMissing(t *testing.T) {
+	setLogDir(t)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "test:\n\ttrue\n")
+	committedRepo(t, root)
+
+	_, stderr, code := runGateTest(t, "-C", root, "record")
+	qt.Check(t, qt.Equals(code, recordNotFresh))
+	qt.Check(t, qt.StringContains(stderr, "missing"))
+}
+
+// A command named directly writes no record, so the reader has nothing to trust.
+func TestRecordAfterADirectCommandIsMissing(t *testing.T) {
+	setLogDir(t)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "test:\n\ttrue\n")
+	committedRepo(t, root)
+
+	_, _, code := runGateTest(t, "-C", root, "true")
+	qt.Assert(t, qt.Equals(code, Success))
+	_, stderr, code := runGateTest(t, "-C", root, "record")
+	qt.Check(t, qt.Equals(code, recordNotFresh))
+	qt.Check(t, qt.StringContains(stderr, "missing"))
+}
+
+func TestRecordHelp(t *testing.T) {
+	stdout, _, code := runGateTest(t, "record", "--help")
+	qt.Assert(t, qt.Equals(code, Success))
+	qt.Check(t, qt.Equals(stdout, recordHelp))
+	qt.Check(t, qt.StringContains(stdout, "schema 2"))
+	if len(stdout) >= len(gateHelp) {
+		t.Errorf("record help is %d bytes; top-level help is %d", len(stdout), len(gateHelp))
+	}
+	top, _, topCode := runGateTest(t, "--help")
+	qt.Assert(t, qt.Equals(topCode, Success))
+	qt.Check(t, qt.StringContains(top, "record"))
+}
+
+func TestRecordRefusesAStream(t *testing.T) {
+	_, stderr, code := runGateTest(t, "--ndjson", "record")
+	qt.Check(t, qt.Equals(code, InvalidUsage))
+	qt.Check(t, qt.StringContains(stderr, "--json record"))
+
+	_, stderr, code = runGateTest(t, "--profile", "record")
+	qt.Check(t, qt.Equals(code, InvalidUsage))
+	qt.Check(t, qt.StringContains(stderr, "record reads the last one"))
+}
+
+// Only the bare word is gate's. A program named record stays reachable.
+func TestOnlyBareRecordIsClaimed(t *testing.T) {
+	_, stderr, code := runGateTest(t, "--log", tempLog(t), "record", "--dry-run")
+	qt.Check(t, qt.Not(qt.Equals(code, Success)))
+	qt.Check(t, qt.Not(qt.StringContains(stderr, "result record")))
+
+	_, stderr, code = runGateTest(t, "--log", tempLog(t), "--", "record")
+	qt.Check(t, qt.Not(qt.Equals(code, Success)))
+	qt.Check(t, qt.Not(qt.StringContains(stderr, "result record")))
+}

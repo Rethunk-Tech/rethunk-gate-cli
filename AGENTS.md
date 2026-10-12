@@ -30,10 +30,10 @@ is not.
 
 ### The words gate claims
 
-Exactly three: **`doctor`**, **`run`**, and **`fix`**. A bare word cannot name a
+Exactly four: **`doctor`**, **`run`**, **`fix`**, and **`record`**. A bare word cannot name a
 gate — project gate names are arbitrary. `run` takes gate names; `fix` takes
-`--dry-run`. Programs of those names remain reachable as `gate -- run x`,
-`gate -- doctor`, `gate -- fix`.
+`--dry-run`; `record` takes none. Programs of those names remain reachable as
+`gate -- run x`, `gate -- doctor`, `gate -- fix`, `gate -- record`.
 
 A name that resolves to no gate fails the whole run rather than the one name.
 
@@ -225,7 +225,9 @@ verdict goes.
 ## State
 
 Logs, and one result record per project root (`record.go`; format in
-[docs/USAGE.md](docs/USAGE.md#result-record)). `status` hashes the porcelain
+[docs/USAGE.md](docs/USAGE.md#result-record)). `gate record` prints it and
+exits 0 only while schema, head, and status still match and the run exited 0.
+`status` hashes the porcelain
 status, the diff against HEAD, and each untracked file, so two dirty trees at
 one commit do not share a pass. The record's git read runs
 beside the gates rather than before them, so a run pays no extra wall time for

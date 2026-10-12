@@ -103,8 +103,8 @@ under `--e2e`. A project whose every gate is e2e refuses a bare run rather
 than pass having run nothing.
 
 `--json` names the gate listing, so it applies to `--list` and to a bare run.
-With `doctor` or `fix` it names that report instead — see [`gate doctor`](#gate-doctor)
-and [`gate fix`](#gate-fix).
+With `doctor`, `fix`, or `record` it names that report instead — see [`gate doctor`](#gate-doctor),
+[`gate fix`](#gate-fix), and [Result record](#result-record).
 
 ### Frozen install
 
@@ -185,7 +185,7 @@ same numbers read after the fact rather than as they arrive, so the stream's
 arrival-order contract is unchanged and stdout stays machine-only — combine
 the two freely. A gate that never ran has no time to report and is left out
 of both the sum and the ranking, for the same reason it carries no `ms` in
-the stream. `--profile` beside `--list`, `--json`, `doctor` or `fix` is
+the stream. `--profile` beside `--list`, `--json`, `doctor`, `fix`, or `record` is
 refused: there is no run to measure.
 
 A passing run over its budget prints one line on stderr with the wall time
@@ -897,6 +897,28 @@ The record is true only of the commit and the tree `status` names. A reader
 trusts it only when the current HEAD equals `head` and a fresh hash equals
 `status`. `dirty` stays, and is not enough: two dirty trees at one HEAD do
 not share a pass.
+
+`gate record` is that reader. It prints the record for this project root.
+The exit status is 0 when `schema` is 2, `head` is the current HEAD, `status`
+equals a fresh hash of this tree (the same three git outputs the writer
+hashed), and `exit` is 0. A missing file exits 1 and says missing. A record
+that fails the comparison exits 1 and says stale. A fresh record whose run
+exited non-zero exits with that status and says failed. `gate --json record`
+prints the record as JSON; the missing, stale, or failed line is on stderr.
+
+```console
+$ gate record
+schema   2
+root     /usr/local/src/example
+head     35f23ab5255d6ac9e2804b7bc8ecea389a70aea6
+dirty    false
+status   e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+partial  false
+exit     0
+started  2026-09-23T10:00:00.123456789-07:00
+finished 2026-09-23T10:00:04.5-07:00
+test     ok
+```
 
 ## Exit codes
 

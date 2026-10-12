@@ -7,16 +7,41 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/detect"
 )
 
 // recordSchema is bumped on any change a reader must know about. See
 // docs/USAGE.md, Result record.
 const recordSchema = 2
+
+// recordNotFresh is the exit for a missing record or one that is not true of
+// this tree. A fresh record whose run failed returns that run's own exit.
+const recordNotFresh Code = 1
+
+// recordHelp must not outgrow the top-level help. A subcommand whose help
+// outgrows the tool's own stops being read.
+const recordHelp = `usage: gate [-C <path>] [--json] record
+
+Prints the last result record for this project. Exits 0 only when that
+record is schema 2, names the current HEAD and this tree's status hash, and
+the run exited 0. A missing record, a stale tree, or a failed run exits
+non-zero.
+
+gate --json record prints the record as JSON. The missing, stale, or failed
+line is on stderr.
+
+Read-only. It never runs a gate.
+
+Full reference: docs/USAGE.md
+`
 
 // record is the last run's outcome for one project root, kept so a tool that
 // did not start the run -- a dashboard, an agent picking up work -- can tell
@@ -238,4 +263,106 @@ func writeRecord(rec record) error {
 		return err
 	}
 	return nil
+}
+
+// readResultFile reads the record at path. The directory is opened as a root
+// and the base name is opened inside it, so the lookup stays the one file
+// recordPath computed.
+func readResultFile(path string) ([]byte, error) {
+	dir, name := filepath.Split(path)
+	fsys, err := os.OpenRoot(filepath.Clean(dir))
+	if err != nil {
+		return nil, err
+	}
+	f, err := fsys.Open(name)
+	if err != nil {
+		return nil, errors.Join(err, fsys.Close())
+	}
+	data, rerr := io.ReadAll(f)
+	return data, errors.Join(rerr, f.Close(), fsys.Close())
+}
+
+// loadRecord reads the record written for root, keyed the same way writeRecord
+// keys it.
+func loadRecord(root string) (record, error) {
+	path, err := recordPath(canonicalRoot(root))
+	if err != nil {
+		return record{}, err
+	}
+	data, err := readResultFile(path)
+	if err != nil {
+		return record{}, err
+	}
+	var rec record
+	if err := json.Unmarshal(data, &rec); err != nil {
+		return record{}, err
+	}
+	return rec, nil
+}
+
+// recordFresh reports whether rec is schema 2 for the tree state names. state
+// comes from readTree, which is the hash writeRecord stored.
+func recordFresh(rec record, state treeState) bool {
+	return state.ok && rec.Schema == recordSchema && rec.Head == state.head && rec.Status == state.status
+}
+
+func writeRecordText(w io.Writer, rec record) {
+	fmt.Fprintf(w, "%-9s%d\n", "schema", rec.Schema)
+	fmt.Fprintf(w, "%-9s%s\n", "root", rec.Root)
+	fmt.Fprintf(w, "%-9s%s\n", "head", rec.Head)
+	fmt.Fprintf(w, "%-9s%t\n", "dirty", rec.Dirty)
+	fmt.Fprintf(w, "%-9s%s\n", "status", rec.Status)
+	fmt.Fprintf(w, "%-9s%t\n", "partial", rec.Partial)
+	fmt.Fprintf(w, "%-9s%d\n", "exit", rec.Exit)
+	fmt.Fprintf(w, "%-9s%s\n", "started", rec.Started.Format(time.RFC3339Nano))
+	fmt.Fprintf(w, "%-9s%s\n", "finished", rec.Finished.Format(time.RFC3339Nano))
+	for _, g := range rec.Gates {
+		name := g.Name
+		if name == "" {
+			name = g.Display
+		}
+		fmt.Fprintf(w, "%-9s%s\n", name, g.Status)
+	}
+}
+
+func writeRecordJSON(w io.Writer, rec record) error {
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(rec)
+}
+
+// runRecord prints the last result for the project at dir. The exit is 0 only
+// when that record is fresh for the current tree and the run itself exited 0.
+func runRecord(ctx context.Context, dir string, asJSON bool, stdout, stderr io.Writer) Code {
+	proj, err := detect.Detect(ctx, dir)
+	if err != nil {
+		fmt.Fprintf(stderr, "gate: cannot inspect this directory: %v\n", err)
+		return Fatal
+	}
+	rec, err := loadRecord(proj.Root)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			fmt.Fprintln(stderr, "gate: result record missing")
+			return recordNotFresh
+		}
+		fmt.Fprintf(stderr, "gate: cannot read the result record: %v\n", err)
+		return Fatal
+	}
+	if asJSON {
+		if err := writeRecordJSON(stdout, rec); err != nil {
+			fmt.Fprintf(stderr, "gate: cannot write the record: %v\n", err)
+			return Fatal
+		}
+	} else {
+		writeRecordText(stdout, rec)
+	}
+	if !recordFresh(rec, readTree(ctx, proj.Root)) {
+		fmt.Fprintln(stderr, "gate: result record stale")
+		return recordNotFresh
+	}
+	if rec.Exit != 0 {
+		fmt.Fprintln(stderr, "gate: result record failed")
+		return Code(rec.Exit)
+	}
+	return Success
 }
