@@ -226,6 +226,21 @@ func TestUntrackedPathsSkipsRenameTargets(t *testing.T) {
 	qt.Check(t, qt.DeepEquals(untrackedPaths(status), []string{"note", "sub/"}))
 }
 
+func assertCurrentTree(t *testing.T, js, head, status string, dirty bool) {
+	t.Helper()
+	var got struct {
+		Current struct {
+			Head   string `json:"head"`
+			Status string `json:"status"`
+			Dirty  bool   `json:"dirty"`
+		} `json:"current"`
+	}
+	qt.Assert(t, qt.IsNil(json.Unmarshal([]byte(js), &got)), qt.Commentf("stdout = %q", js))
+	qt.Check(t, qt.Equals(got.Current.Head, head))
+	qt.Check(t, qt.Equals(got.Current.Status, status))
+	qt.Check(t, qt.Equals(got.Current.Dirty, dirty))
+}
+
 func assertRecordView(t *testing.T, js string, fresh bool, reason string) {
 	t.Helper()
 	var got struct {
@@ -273,6 +288,12 @@ func TestRecordReportsAFreshPass(t *testing.T) {
 	qt.Check(t, qt.Equals(rec.Exit, 0))
 	qt.Check(t, qt.IsFalse(rec.Dirty))
 	assertRecordView(t, js, true, "")
+	assertCurrentTree(t, js, state.head, state.status, false)
+	var view struct {
+		Head string `json:"head"`
+	}
+	qt.Assert(t, qt.IsNil(json.Unmarshal([]byte(js), &view)))
+	qt.Check(t, qt.Equals(view.Head, state.head))
 }
 
 func TestRecordSaysPartialAfterANamedRun(t *testing.T) {
@@ -386,17 +407,29 @@ func TestRecordStaleWhenHeadOrSchemaDiffer(t *testing.T) {
 	rec := readRecord(t, root)
 	rec.Head = "0000000000000000000000000000000000000000"
 	qt.Assert(t, qt.IsNil(writeRecord(rec)))
-	_, stderr, code := runGateTest(t, "-C", root, "record")
+	stdout, stderr, code := runGateTest(t, "-C", root, "record")
 	qt.Check(t, qt.Equals(code, recordNotFresh))
 	qt.Check(t, qt.StringContains(stderr, "stale"))
+	qt.Check(t, qt.Not(qt.StringContains(stdout, "current")))
 
 	state := readTree(context.Background(), root)
 	qt.Assert(t, qt.IsTrue(state.ok))
+	js, stderr, code := runGateTest(t, "-C", root, "--json", "record")
+	qt.Check(t, qt.Equals(code, recordNotFresh))
+	qt.Check(t, qt.StringContains(stderr, "stale"))
+	assertRecordView(t, js, false, "stale")
+	assertCurrentTree(t, js, state.head, state.status, state.dirty)
+	var view struct {
+		Head string `json:"head"`
+	}
+	qt.Assert(t, qt.IsNil(json.Unmarshal([]byte(js), &view)))
+	qt.Check(t, qt.Not(qt.Equals(view.Head, state.head)))
+
 	rec = readRecord(t, root)
 	rec.Head = state.head
 	rec.Schema = 1
 	qt.Assert(t, qt.IsNil(writeRecord(rec)))
-	js, stderr, code := runGateTest(t, "-C", root, "--json", "record")
+	js, stderr, code = runGateTest(t, "-C", root, "--json", "record")
 	qt.Check(t, qt.Equals(code, recordNotFresh))
 	qt.Check(t, qt.StringContains(stderr, "stale"))
 	assertRecordView(t, js, false, "stale")
@@ -417,6 +450,7 @@ func TestRecordMissing(t *testing.T) {
 	qt.Check(t, qt.Equals(code, recordNotFresh))
 	qt.Check(t, qt.Equals(stderr, "gate: result record missing\n"))
 	assertRecordView(t, js, false, "missing")
+	qt.Check(t, qt.Not(qt.StringContains(js, `"current"`)))
 }
 
 // A command named directly writes no record, so the reader has nothing to trust.

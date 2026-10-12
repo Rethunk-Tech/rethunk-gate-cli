@@ -36,7 +36,8 @@ the run exited 0, and partial is false. A missing record, a stale tree, a
 partial run, or a failed run exits non-zero.
 
 gate --json record prints the record as JSON with fresh and reason
-(missing, stale, partial, failed, or null). That line stays on stderr.
+(missing, stale, partial, failed, or null) and current (head, status,
+dirty) for the tree just read. That line stays on stderr.
 
 Read-only. It never runs a gate.
 
@@ -348,10 +349,19 @@ func recordVerdict(rec record, state treeState) (fresh bool, reason string) {
 	return true, ""
 }
 
+// currentTree is the tree readTree just returned, beside the stored record
+// so a reader can see which head the verdict compared.
+type currentTree struct {
+	Head   string `json:"head"`
+	Status string `json:"status"`
+	Dirty  bool   `json:"dirty"`
+}
+
 // writeRecordView prints the stored record plus whether it is fresh. A nil
 // record is a missing file: only fresh and reason, so a zero record is not
-// invented. reason is null when the record is fresh.
-func writeRecordView(w io.Writer, rec *record, fresh bool, reason string) error {
+// invented. reason is null when the record is fresh. current is the tree
+// the verdict used, and it is not stored.
+func writeRecordView(w io.Writer, rec *record, state treeState, fresh bool, reason string) error {
 	var reasonVal any
 	if reason != "" {
 		reasonVal = reason
@@ -366,9 +376,15 @@ func writeRecordView(w io.Writer, rec *record, fresh bool, reason string) error 
 	}
 	return enc.Encode(struct {
 		record
-		Fresh  bool `json:"fresh"`
-		Reason any  `json:"reason"`
-	}{record: *rec, Fresh: fresh, Reason: reasonVal})
+		Fresh   bool        `json:"fresh"`
+		Reason  any         `json:"reason"`
+		Current currentTree `json:"current"`
+	}{
+		record:  *rec,
+		Fresh:   fresh,
+		Reason:  reasonVal,
+		Current: currentTree{Head: state.head, Status: state.status, Dirty: state.dirty},
+	})
 }
 
 // runRecord prints the last result for the project at dir. The exit is 0 only
@@ -384,7 +400,7 @@ func runRecord(ctx context.Context, dir string, asJSON bool, stdout, stderr io.W
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			if asJSON {
-				if err := writeRecordView(stdout, nil, false, "missing"); err != nil {
+				if err := writeRecordView(stdout, nil, treeState{}, false, "missing"); err != nil {
 					fmt.Fprintf(stderr, "gate: cannot write the record: %v\n", err)
 					return Fatal
 				}
@@ -398,7 +414,7 @@ func runRecord(ctx context.Context, dir string, asJSON bool, stdout, stderr io.W
 	state := readTree(ctx, proj.Root)
 	fresh, reason := recordVerdict(rec, state)
 	if asJSON {
-		if err := writeRecordView(stdout, &rec, fresh, reason); err != nil {
+		if err := writeRecordView(stdout, &rec, state, fresh, reason); err != nil {
 			fmt.Fprintf(stderr, "gate: cannot write the record: %v\n", err)
 			return Fatal
 		}
