@@ -274,7 +274,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 			fmt.Fprintln(stderr, "gate: --profile reports a run; doctor runs nothing")
 			return InvalidUsage
 		}
-		return runDoctor(ctx, dir, opts.jsonList, stdout, stderr)
+		return runDoctor(ctx, dir, opts.jsonList, opts.forceCache, stdout, stderr)
 	}
 	// Only these two spellings are gate's; `gate doctor <anything else>` still
 	// means the program named doctor, reachable as `gate -- doctor` too.

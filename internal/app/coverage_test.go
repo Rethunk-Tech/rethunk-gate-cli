@@ -33,6 +33,31 @@ func TestListingWarnsOfAToolCIRunsAndNoGateDoes(t *testing.T) {
 	qt.Check(t, qt.HasLen(listed.Warnings, 1))
 }
 
+func TestDoctorJSONIncludesCIToolWarnings(t *testing.T) {
+	root := ciCoverageProject(t)
+
+	listedOut, _, listedCode := runGateTest(t, "-C", root, "--json")
+	qt.Assert(t, qt.Equals(listedCode, Success))
+	var listed struct {
+		Warnings []string `json:"warnings"`
+	}
+	qt.Assert(t, qt.IsNil(json.Unmarshal([]byte(listedOut), &listed)))
+	qt.Assert(t, qt.Not(qt.HasLen(listed.Warnings, 0)))
+
+	out, stderr, code := runGateTest(t, "-C", root, "--json", "doctor")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	var doc struct {
+		Warnings []string `json:"warnings"`
+	}
+	qt.Assert(t, qt.IsNil(json.Unmarshal([]byte(out), &doc)), qt.Commentf("stdout = %q", out))
+	qt.Check(t, qt.DeepEquals(doc.Warnings, listed.Warnings))
+	qt.Check(t, qt.StringContains(doc.Warnings[0], "CI runs `osv-scanner --lockfile=bun.lock`"))
+
+	text, _, textCode := runGateTest(t, "-C", root, "doctor")
+	qt.Assert(t, qt.Equals(textCode, Success))
+	qt.Check(t, qt.Not(qt.StringContains(text, "osv-scanner")))
+}
+
 func TestRunStartWarnsButDoesNotFail(t *testing.T) {
 	root := ciCoverageProject(t)
 	t.Setenv("TMPDIR", t.TempDir())

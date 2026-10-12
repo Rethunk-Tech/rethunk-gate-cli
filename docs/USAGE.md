@@ -687,8 +687,10 @@ repository, the string the text report shows) and `path` (absolute, which is
 what a consumer acting on a finding has to resolve). The same split the gate
 listing makes between a display and a resolved argv. No findings is `[]`, never
 `null`, so "nothing to suggest" never has to be told apart from "nothing
-reported". `--ndjson` is refused here: it streams what a run did, and doctor
-runs nothing.
+reported". It also includes `warnings`, the same strings a no-run `gate --json`
+listing reports when CI runs a known tool no gate runs. No warnings is `[]`.
+The text report does not include them. `--ndjson` is refused here: it streams
+what a run did, and doctor runs nothing.
 
 ```bash
 for d in ~/src/*/; do gate -C "$d" --json doctor | jq -r --arg d "$d" '.findings[] | "\($d)\t\(.check)\t\(.where)"'; done
