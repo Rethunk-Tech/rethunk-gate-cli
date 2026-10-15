@@ -130,8 +130,7 @@ func TestGoConventionLosingToAMakefileIsNotRunBesideIt(t *testing.T) {
 }
 
 // The apply-kit shape on a fresh clone: no node_modules, a second tsconfig for
-// the extension, knip declared, and bun tests with no test script. Every one
-// of them used to vanish until an install had happened.
+// the extension, knip declared, and bun tests with no test script.
 func TestNodeToolsDeclaredButNotInstalledAreStillDetected(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
