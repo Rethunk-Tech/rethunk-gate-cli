@@ -62,45 +62,10 @@ type record struct {
 	Gates []result `json:"gates"`
 }
 
-// treeState is HEAD, whether the work tree differs from it, and the status
-// hash of that tree. ok is false where root is not a git work tree with a
-// commit, or the tree could not be hashed.
-type treeState struct {
-	head   string
-	dirty  bool
-	status string
-	ok     bool
-}
-
-// readTree asks git for HEAD and the working tree. The read itself lives in
-// internal/result, which doctor uses for the same comparison.
-func readTree(ctx context.Context, root string) treeState {
-	s := stored.ReadTree(ctx, root)
-	return treeState{head: s.Head, dirty: s.Dirty, status: s.Status, ok: s.OK}
-}
-
-// untrackedPaths reads porcelain v1 -z records. A rename or copy occupies two
-// NUL-terminated paths; neither is untracked.
-func untrackedPaths(status []byte) []string {
-	return stored.UntrackedPaths(status)
-}
-
-// canonicalRoot resolves symlinks so the key does not depend on which path
-// the caller happened to cd through.
-func canonicalRoot(root string) string {
-	return stored.Canonical(root)
-}
-
-// recordPath is where root's record lives: the hex SHA-256 of the canonical
-// root, so any path maps to one flat file name.
-func recordPath(root string) (string, error) {
-	return stored.Path(root)
-}
-
 // writeRecord replaces root's record atomically: a reader polling the file
 // sees the previous run or this one, never half of either.
 func writeRecord(rec record) error {
-	path, err := recordPath(rec.Root)
+	path, err := stored.Path(rec.Root)
 	if err != nil {
 		return err
 	}
@@ -164,13 +129,11 @@ func writeRecordText(w io.Writer, rec record) {
 // runRecord decides the exit: a tree or schema mismatch is stale even when
 // the run failed, a failed run is failed even when partial, and partial is
 // only the remaining case. An empty reason means fresh.
-func recordVerdict(rec record, state treeState) (fresh bool, reason string) {
-	return stored.Verdict(rec.Schema, rec.Head, rec.Status, rec.Partial, rec.Exit, stored.State{
-		Head: state.head, Dirty: state.dirty, Status: state.status, OK: state.ok,
-	})
+func recordVerdict(rec record, state stored.State) (fresh bool, reason string) {
+	return stored.Verdict(rec.Schema, rec.Head, rec.Status, rec.Partial, rec.Exit, state)
 }
 
-// currentTree is the tree readTree just returned, beside the stored record
+// currentTree is the tree stored.ReadTree just returned, beside the stored record
 // so a reader can see which head the verdict compared.
 type currentTree struct {
 	Head   string `json:"head"`
@@ -182,7 +145,7 @@ type currentTree struct {
 // record is a missing file: only fresh and reason, so a zero record is not
 // invented. reason is null when the record is fresh. current is the tree
 // the verdict used, and it is not stored.
-func writeRecordView(w io.Writer, rec *record, state treeState, fresh bool, reason string) error {
+func writeRecordView(w io.Writer, rec *record, state stored.State, fresh bool, reason string) error {
 	var reasonVal any
 	if reason != "" {
 		reasonVal = reason
@@ -204,7 +167,7 @@ func writeRecordView(w io.Writer, rec *record, state treeState, fresh bool, reas
 		record:  *rec,
 		Fresh:   fresh,
 		Reason:  reasonVal,
-		Current: currentTree{Head: state.head, Status: state.status, Dirty: state.dirty},
+		Current: currentTree{Head: state.Head, Status: state.Status, Dirty: state.Dirty},
 	})
 }
 
@@ -221,7 +184,7 @@ func runRecord(ctx context.Context, dir string, asJSON bool, stdout, stderr io.W
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			if asJSON {
-				if err := writeRecordView(stdout, nil, treeState{}, false, "missing"); err != nil {
+				if err := writeRecordView(stdout, nil, stored.State{}, false, "missing"); err != nil {
 					fmt.Fprintf(stderr, "gate: cannot write the record: %v\n", err)
 					return Fatal
 				}
@@ -232,7 +195,7 @@ func runRecord(ctx context.Context, dir string, asJSON bool, stdout, stderr io.W
 		fmt.Fprintf(stderr, "gate: cannot read the result record: %v\n", err)
 		return Fatal
 	}
-	state := readTree(ctx, proj.Root)
+	state := stored.ReadTree(ctx, proj.Root)
 	fresh, reason := recordVerdict(rec, state)
 	if asJSON {
 		if err := writeRecordView(stdout, &rec, state, fresh, reason); err != nil {

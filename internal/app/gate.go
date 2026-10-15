@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	stored "github.com/Rethunk-Tech/rethunk-gate-cli/internal/result"
 )
 
 // activeRootsVar names the project roots gate is already running gates for,
@@ -291,9 +293,9 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 	// Read beside the gates rather than before them: it costs a git spawn or
 	// two, and the median run is short enough for that to show. A gate that
 	// rewrites the tree within those milliseconds is the ceiling.
-	tree := make(chan treeState, 1)
+	tree := make(chan stored.State, 1)
 	if opts.root != "" {
-		go func() { tree <- readTree(ctx, opts.root) }()
+		go func() { tree <- stored.ReadTree(ctx, opts.root) }()
 	}
 	var wg sync.WaitGroup
 	for _, group := range schedule(opts.gates, opts.serial) {
@@ -360,9 +362,9 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 			wall.Round(time.Millisecond), opts.budget, slowest)
 	}
 	if opts.root != "" {
-		if state := <-tree; state.ok {
+		if state := <-tree; state.OK {
 			rec := record{
-				Schema: recordSchema, Root: canonicalRoot(opts.root), Head: state.head, Dirty: state.dirty, Status: state.status,
+				Schema: recordSchema, Root: stored.Canonical(opts.root), Head: state.Head, Dirty: state.Dirty, Status: state.Status,
 				Partial: opts.partial, Started: started, Finished: started.Add(wall), Exit: int(code),
 				Gates: make([]result, 0, len(results)),
 			}

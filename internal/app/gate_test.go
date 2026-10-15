@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/detect"
+	stored "github.com/Rethunk-Tech/rethunk-gate-cli/internal/result"
 	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/testutil"
 	"github.com/go-quicktest/qt"
 )
@@ -1899,14 +1900,14 @@ func TestDoctorJSONIncludesAStaleResult(t *testing.T) {
 	testutil.Write(t, root, "Makefile", "test:\n\ttrue\n")
 	testutil.Write(t, root, ".github/workflows/ci.yml", "name: CI\njobs:\n  a:\n    steps:\n      - run: true\n")
 	committedRepo(t, root)
-	state := readTree(context.Background(), root)
-	qt.Assert(t, qt.IsTrue(state.ok))
+	state := stored.ReadTree(context.Background(), root)
+	qt.Assert(t, qt.IsTrue(state.OK))
 
 	qt.Assert(t, qt.IsNil(writeRecord(record{
 		Schema: recordSchema,
-		Root:   canonicalRoot(root),
+		Root:   stored.Canonical(root),
 		Head:   "0000000000000000000000000000000000000000",
-		Status: state.status,
+		Status: state.Status,
 		Exit:   0,
 	})))
 	stdout, stderr, code := runGateTest(t, "-C", root, "--json", "doctor")
@@ -1925,10 +1926,10 @@ func TestDoctorJSONIncludesAStaleResult(t *testing.T) {
 
 	qt.Assert(t, qt.IsNil(writeRecord(record{
 		Schema: recordSchema,
-		Root:   canonicalRoot(root),
-		Head:   state.head,
-		Dirty:  state.dirty,
-		Status: state.status,
+		Root:   stored.Canonical(root),
+		Head:   state.Head,
+		Dirty:  state.Dirty,
+		Status: state.Status,
 		Exit:   0,
 	})))
 	stdout, _, code = runGateTest(t, "-C", root, "--json", "doctor")
