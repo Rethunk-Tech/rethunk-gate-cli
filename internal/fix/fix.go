@@ -141,6 +141,10 @@ func writeFile(path, body string) error {
 // be added here, or this applier misreads a file using it as unmechanical
 // and skips a fix it could have applied.
 type tomlFile struct {
+	Budget *string `toml:"budget"`
+	Detect struct {
+		Exclude []string `toml:"exclude"`
+	} `toml:"detect"`
 	Gates map[string]struct {
 		Run          string            `toml:"run"`
 		Serial       *bool             `toml:"serial"`
@@ -148,6 +152,7 @@ type tomlFile struct {
 		Env          map[string]string `toml:"env"`
 		Dir          *string           `toml:"dir"`
 		AllowFailure *bool             `toml:"allow-failure"`
+		E2E          *bool             `toml:"e2e"`
 	} `toml:"gates"`
 }
 

@@ -390,7 +390,7 @@ func TestSerialApplierKeepsNewConfigKeys(t *testing.T) {
 	testutil.Write(t, dir, "package.json",
 		`{"dependencies":{"next":"15.0.0"},"scripts":{"build":"true","typecheck":"true"}}`)
 	testutil.Write(t, dir, ".gate.toml",
-		"[gates.build]\ntimeout = \"5m\"\nallow-failure = true\n\n[gates.build.env]\nFOO = \"bar\"\n")
+		"budget = \"30s\"\n\n[detect]\nexclude = [\"docs\"]\n\n[gates.build]\ntimeout = \"5m\"\nallow-failure = true\ne2e = false\n\n[gates.build.env]\nFOO = \"bar\"\n")
 
 	applyNamed(t, dir, "next-build-typecheck-race", false)
 
@@ -401,6 +401,9 @@ func TestSerialApplierKeepsNewConfigKeys(t *testing.T) {
 	qt.Check(t, qt.StringContains(got, `timeout = "5m"`))
 	qt.Check(t, qt.StringContains(got, "allow-failure = true"))
 	qt.Check(t, qt.StringContains(got, `FOO = "bar"`))
+	qt.Check(t, qt.StringContains(got, `budget = "30s"`))
+	qt.Check(t, qt.StringContains(got, `exclude = ["docs"]`))
+	qt.Check(t, qt.StringContains(got, "e2e = false"))
 }
 
 // The package.json finding clears through the same verb: dry-run reports
