@@ -617,3 +617,24 @@ func commitFixture(t *testing.T, root string) {
 	git("add", ".")
 	git("commit", "--quiet", "-m", "first")
 }
+
+func TestParseTag(t *testing.T) {
+	for _, tc := range []struct {
+		ref          string
+		major, minor int
+		ok           bool
+	}{
+		{"v1.2", 1, 2, true},
+		{"v1.2.3", 1, 2, true},
+		{"v1.2-rc1", 1, 2, true},
+		{"0123456789abcdef0123456789abcdef01234567", 0, 0, false},
+		{"main", 0, 0, false},
+	} {
+		major, minor, ok := ParseTag(tc.ref)
+		qt.Check(t, qt.Equals(ok, tc.ok), qt.Commentf("%s", tc.ref))
+		if ok {
+			qt.Check(t, qt.Equals(major, tc.major), qt.Commentf("%s", tc.ref))
+			qt.Check(t, qt.Equals(minor, tc.minor), qt.Commentf("%s", tc.ref))
+		}
+	}
+}

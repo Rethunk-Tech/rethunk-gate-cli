@@ -429,7 +429,7 @@ type actionRef struct{ ref, hint string }
 // only version there is.
 //
 // A sha with no such comment therefore judges as the empty string, which
-// parseTag rejects, and is silent. That is the decision: the sha alone is not
+// ParseTag rejects, and is silent. That is the decision: the sha alone is not
 // evidence of anything, and guessing would flag the strictest pin available as
 // a problem.
 func (r actionRef) version() string {
@@ -441,7 +441,7 @@ func (r actionRef) version() string {
 
 // actionRefs pulls the @ref off every Rethunk-Tech/gh-actions use. The ref ends
 // at the first whitespace or "#" so a finding names the pin rather than the
-// sentence beside it -- parseTag's Sscanf skips leading space rather than
+// sentence beside it -- ParseTag's Sscanf skips leading space rather than
 // rejecting it, so an uncut "v1.2 # pinned deliberately" would be judged as
 // v1.2 and then quoted back, comment and all.
 //
@@ -481,7 +481,7 @@ func versionHint(comment string) string {
 		return ""
 	}
 	for word := range strings.FieldsSeq(after) {
-		if _, _, ok := parseTag(word); ok {
+		if _, _, ok := ParseTag(word); ok {
 			return word
 		}
 	}
@@ -515,11 +515,11 @@ func floatingRef(ref string) bool {
 // cannot parse -- a commit sha, an unusual scheme -- is left alone rather than
 // guessed at.
 func olderThanKnownGood(ref string) bool {
-	major, minor, ok := parseTag(ref)
+	major, minor, ok := ParseTag(ref)
 	if !ok {
 		return false
 	}
-	goodMajor, goodMinor, ok := parseTag(knownGoodActionsTag)
+	goodMajor, goodMinor, ok := ParseTag(knownGoodActionsTag)
 	if !ok {
 		return false
 	}
@@ -529,10 +529,10 @@ func olderThanKnownGood(ref string) bool {
 	return minor < goodMinor
 }
 
-// parseTag reads a leading vMAJOR.MINOR. Anything after the minor is ignored,
+// ParseTag reads a leading vMAJOR.MINOR. Anything after the minor is ignored,
 // so v1.2.3 and v1.2-rc1 both compare as 1.2; a ref with no such prefix at all
 // -- a commit sha, a moving ref -- fails to parse and is left alone.
-func parseTag(ref string) (major, minor int, ok bool) {
+func ParseTag(ref string) (major, minor int, ok bool) {
 	_, err := fmt.Sscanf(ref, "v%d.%d", &major, &minor)
 	return major, minor, err == nil
 }

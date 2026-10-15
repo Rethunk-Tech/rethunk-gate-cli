@@ -557,7 +557,7 @@ func namedActionRef(what string) string {
 func tagFromFix(fix string) string {
 	for w := range strings.FieldsSeq(fix) {
 		w = strings.Trim(w, ",.")
-		if isTag(w) {
+		if _, _, ok := doctor.ParseTag(w); ok {
 			return w
 		}
 	}
@@ -579,7 +579,7 @@ func rewriteRef(line, oldRef, tag string) (string, bool) {
 	if strings.HasPrefix(trimmed, "#") {
 		comment := strings.TrimSpace(trimmed[1:])
 		word, more, _ := strings.Cut(comment, " ")
-		if isTag(word) && more == "" {
+		if _, _, ok := doctor.ParseTag(word); ok && more == "" {
 			rest = ""
 		}
 	}
@@ -588,10 +588,4 @@ func rewriteRef(line, oldRef, tag string) (string, bool) {
 
 func refBoundary(c byte) bool {
 	return c == ' ' || c == '\t' || c == '#'
-}
-
-func isTag(s string) bool {
-	var major, minor int
-	_, err := fmt.Sscanf(s, "v%d.%d", &major, &minor)
-	return err == nil
 }
