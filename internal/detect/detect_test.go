@@ -1220,6 +1220,23 @@ func TestCIScriptStepsReadAChainAsWorkDoes(t *testing.T) {
 	}
 }
 
+// A Makefile line is a rule head by one reading, whether the gate list or the
+// recipe walker asks: `build lint:` declares both, and an assignment declares
+// nothing, however it is spelled.
+func TestMakefileRuleHeadsAreReadOnce(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "test:=bar\nvuln::=x\nbuild lint:\n\tgo build ./...\n")
+
+	var names []string
+	for _, g := range makefileGates(root) {
+		names = append(names, g.Name)
+	}
+	qt.Check(t, qt.DeepEquals(names, []string{"build", "lint"}))
+	qt.Check(t, qt.Equals(makeRecipes(root, "lint"), "\tgo build ./..."))
+	qt.Check(t, qt.Equals(makeRecipes(root, "test"), ""))
+}
+
 // A declined aggregate whose script pipes is one command: its parts are not
 // read, so no gate appears for what they would have run.
 func TestCIScriptStepsDoNotExpandPipelines(t *testing.T) {

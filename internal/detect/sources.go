@@ -54,10 +54,23 @@ const (
 // receive Detect's project; readers that only inspect files take the minimal
 // paths they need.
 
-// makefileTarget matches a target definition at the start of a line. Targets
-// are read textually rather than by asking make: this must never run anything,
-// and `make -p` would evaluate the file.
-var makefileTarget = regexp.MustCompile(`(?m)^([a-zA-Z][a-zA-Z0-9_-]*):`)
+// makeRuleHead reads one Makefile line that is not a recipe as a rule head,
+// `targets: prerequisites [; recipe]`. Targets are read textually rather than
+// by asking make: this must never run anything, and `make -p` would evaluate
+// the file. An assignment (`FOO:=bar`, `FOO::=bar`), a comment and a line with
+// no colon are no rule.
+func makeRuleHead(line string) (targets []string, prereqs string, ok bool) {
+	head, rest, found := strings.Cut(line, ":")
+	if !found || strings.ContainsAny(head, "=#$") || strings.TrimSpace(head) == "" {
+		return nil, "", false
+	}
+	rest = strings.TrimPrefix(rest, ":")
+	if strings.HasPrefix(rest, "=") {
+		return nil, "", false
+	}
+	prereqs, _, _ = strings.Cut(rest, ";")
+	return strings.Fields(head), prereqs, true
+}
 
 // makefileGates reads targets a project declares in its Makefile.
 //
@@ -73,8 +86,14 @@ func makefileGates(root string) []Gate {
 	}
 
 	declared := map[string]bool{}
-	for _, m := range makefileTarget.FindAllStringSubmatch(string(data), -1) {
-		declared[m[1]] = true
+	for line := range strings.SplitSeq(strings.ReplaceAll(string(data), "\\\n", " "), "\n") {
+		if strings.HasPrefix(line, "\t") {
+			continue
+		}
+		targets, _, _ := makeRuleHead(line)
+		for _, t := range targets {
+			declared[t] = true
+		}
 	}
 	var gates []Gate
 	for _, name := range collectedNames {
@@ -995,13 +1014,12 @@ func makeRecipes(root, target string) string {
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			continue
 		}
-		head, rest, ok := strings.Cut(line, ":")
-		if !ok || strings.HasPrefix(rest, "=") || strings.ContainsAny(head, "=#$") || strings.TrimSpace(head) == "" {
+		targets, deps, ok := makeRuleHead(line)
+		if !ok {
 			current = nil
 			continue
 		}
-		deps, _, _ := strings.Cut(strings.TrimPrefix(rest, ":"), ";")
-		current = strings.Fields(head)
+		current = targets
 		for _, t := range current {
 			prereqs[t] = append(prereqs[t], strings.Fields(strings.ReplaceAll(deps, "|", " "))...)
 		}
