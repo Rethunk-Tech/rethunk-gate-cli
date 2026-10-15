@@ -137,25 +137,6 @@ func writeFile(path, body string) error {
 
 // --- next-build-typecheck-race ---
 
-// Mirrors config's on-disk shape for decoding only: a key added there must
-// be added here, or this applier misreads a file using it as unmechanical
-// and skips a fix it could have applied.
-type tomlFile struct {
-	Budget *string `toml:"budget"`
-	Detect struct {
-		Exclude []string `toml:"exclude"`
-	} `toml:"detect"`
-	Gates map[string]struct {
-		Run          string            `toml:"run"`
-		Serial       *bool             `toml:"serial"`
-		Timeout      *string           `toml:"timeout"`
-		Env          map[string]string `toml:"env"`
-		Dir          *string           `toml:"dir"`
-		AllowFailure *bool             `toml:"allow-failure"`
-		E2E          *bool             `toml:"e2e"`
-	} `toml:"gates"`
-}
-
 func applySerialTOML(f doctor.Finding, dryRun bool) (Result, error) {
 	path := filepath.Join(filepath.Dir(f.Path), config.ProjectFile)
 	var body string
@@ -187,12 +168,12 @@ func applySerialTOML(f doctor.Finding, dryRun bool) (Result, error) {
 	return done(f, false), nil
 }
 
-func decodeGateTOML(body string) (tomlFile, bool) {
-	var f tomlFile
+func decodeGateTOML(body string) (config.File, bool) {
+	var f config.File
 	dec := toml.NewDecoder(bytes.NewReader([]byte(body)))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&f); err != nil {
-		return tomlFile{}, false
+		return config.File{}, false
 	}
 	return f, true
 }
@@ -213,7 +194,7 @@ func setSerial(body string, names []string) (string, bool) {
 	return out, true
 }
 
-func ensureSerial(body, name string, parsed tomlFile) (string, bool) {
+func ensureSerial(body, name string, parsed config.File) (string, bool) {
 	header := "[gates." + name + "]"
 	lines := splitLines(body)
 	start := -1

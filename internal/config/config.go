@@ -104,7 +104,7 @@ type Config struct {
 	Exclude []string
 }
 
-// file is the on-disk shape. Both optional settings are pointers so an absent
+// File is the on-disk shape. Both optional settings are pointers so an absent
 // key is distinguishable from a deliberate false or 0, which is what lets a
 // project turn off a user-level default. Timeout stays a string here so a
 // malformed duration is reported like an unknown key rather than decoded into
@@ -113,7 +113,7 @@ type Config struct {
 // `dir` and `allow-failure` are the only spellings: a retired alias such as
 // `workdir` or `continue-on-error` is refused as an unknown key by
 // DisallowUnknownFields, the same as any typo, rather than silently accepted.
-type file struct {
+type File struct {
 	Budget *string `toml:"budget"`
 	Detect struct {
 		Exclude []string `toml:"exclude"`
@@ -191,7 +191,7 @@ func userPath() string {
 
 // merge layers one file's settings over what is already there.
 func (c *Config) merge(path string, data []byte) error {
-	var f file
+	var f File
 	dec := toml.NewDecoder(bytes.NewReader(data))
 	// Errors rather than warns, and names every unknown key in one pass:
 	// `timout = "10m"` silently ignored is the failure this guards against,
