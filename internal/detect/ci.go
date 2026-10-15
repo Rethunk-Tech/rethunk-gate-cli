@@ -22,7 +22,7 @@ type ciStep struct {
 }
 
 var (
-	scriptStep = regexp.MustCompile(`^(?:bun|npm|pnpm|yarn) run ([A-Za-z0-9_:.@/-]+)$`)
+	scriptStep = regexp.MustCompile(`^(?:` + strings.Join(packageRunners, "|") + `) run ([A-Za-z0-9_:.@/-]+)$`)
 	// A workspace package's script: `bun run --filter '@app/mobile' check`.
 	filteredScriptStep = regexp.MustCompile(`^bun run --filter[= ]'?([^' ]+)'? ([A-Za-z0-9_:.@/-]+)$`)
 	yamlKey            = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_-]*$`)

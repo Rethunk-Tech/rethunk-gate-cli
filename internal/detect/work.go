@@ -99,11 +99,8 @@ type runCall struct {
 
 // scriptName is the one script a package runner's `run` names, or "".
 func (c runCall) scriptName() string {
-	switch c.tool {
-	case "bun", "npm", "pnpm", "yarn":
-		if c.words == 1 && len(c.names) == 1 {
-			return c.names[0]
-		}
+	if slices.Contains(packageRunners, c.tool) && c.words == 1 && len(c.names) == 1 {
+		return c.names[0]
 	}
 	return ""
 }
@@ -195,7 +192,7 @@ func (w walker) leaf(text string, inScript bool) Step {
 		if len(key) == 0 && strings.ContainsRune(t, '/') && (filepath.IsAbs(t) || strings.Contains(t, "node_modules")) {
 			t = filepath.Base(t)
 		}
-		if len(key) == 1 && t == "run" && slices.Contains([]string{"bun", "npm", "pnpm", "yarn"}, key[0]) {
+		if len(key) == 1 && t == "run" && slices.Contains(packageRunners, key[0]) {
 			key[0] = "run"
 			continue
 		}
