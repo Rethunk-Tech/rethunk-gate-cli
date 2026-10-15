@@ -1047,7 +1047,7 @@ func TestCIScriptStepsGateWhatNoRoleCovers(t *testing.T) {
 	t.Setenv("PATH", filepath.Join(root, "no-such-bin"))
 	testutil.Write(t, root, "package.json", `{"scripts":{
 		"build":"vite build","lint":"biome check .","test":"vitest run",
-		"ci":"turbo run lint test build validate --filter=x && bun run pagefind",
+		"ci":"turbo run lint test build validate && bun run pagefind",
 		"validate":"tsx v.ts","pagefind":"pagefind","knip":"knip","e2e":"playwright test",
 		"db:test":"supabase test db","a11y":"node a11y.mjs","sub":"x","manual":"x"}}`)
 	testutil.Write(t, root, "bun.lock", "")
@@ -1102,8 +1102,7 @@ jobs:
 	qt.Check(t, qt.DeepEquals(knip.Argv, []string{"bun", "run", "knip"}))
 	qt.Check(t, qt.IsTrue(knip.Serial))
 	qt.Check(t, qt.DeepEquals(knip.Env, map[string]string{"SHARED": "job", "CI": "true"}))
-	qt.Check(t, qt.DeepEquals(gateNamed(t, proj, "validate").Argv, []string{turbo, "run", "validate"}),
-		qt.Commentf("a turbo flag is not a task"))
+	qt.Check(t, qt.DeepEquals(gateNamed(t, proj, "validate").Argv, []string{turbo, "run", "validate"}))
 	qt.Check(t, qt.StringContains(gateNamed(t, proj, "pagefind").Source, "CI step `bun run ci` (ci.yml job verify), package.json scripts.pagefind"))
 	qt.Check(t, qt.DeepEquals(gateNamed(t, proj, "e2e").Env, map[string]string{"SHARED": "step", "CONFIG": "examples/min.yaml", "CI": "true"}))
 
@@ -1178,6 +1177,47 @@ jobs:
 
 	g := gateNamed(t, detect(t, root), "check:native-config")
 	qt.Check(t, qt.DeepEquals(g.Argv, []string{"bun", "run", "--filter", "@app/mobile", "check:native-config"}))
+}
+
+// A declined aggregate's chain is read by the parser Work uses: a turbo
+// segment holding a flag stays one step no gate is named for, a quoted script
+// name is the script, and a resolved turbo path is turbo.
+func TestCIScriptStepsReadAChainAsWorkDoes(t *testing.T) {
+	cases := []struct {
+		name  string
+		chain string
+		gate  string
+		want  []string // argv of the gate, nil for none
+	}{
+		{"flagged turbo segment", "turbo run lint validate --filter=x", "validate", nil},
+		{"quoted script", `bun run "pagefind"`, "pagefind", []string{"bun", "run", "pagefind"}},
+		{"resolved turbo path", "./node_modules/.bin/turbo run validate", "validate", []string{"TURBO", "run", "validate"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			root := t.TempDir()
+			t.Setenv("PATH", filepath.Join(root, "no-such-bin"))
+			testutil.Write(t, root, "package.json", `{"scripts":{"build":"vite build","lint":"biome check .","test":"vitest run",
+				"validate":"tsx v.ts","pagefind":"pagefind","ci":"`+strings.ReplaceAll(c.chain, `"`, `\"`)+`"}}`)
+			testutil.Write(t, root, "bun.lock", "")
+			testutil.Write(t, root, "turbo.json", `{"tasks":{"build":{},"lint":{},"test":{},"validate":{}}}`)
+			turbo := testutil.WriteExecutable(t, root, "node_modules/.bin/turbo")
+			testutil.Write(t, root, ".github/workflows/ci.yml", "on: [push, pull_request]\njobs:\n  a:\n    steps:\n      - run: bun run ci\n")
+
+			want := slices.Clone(c.want)
+			if len(want) > 0 && want[0] == "TURBO" {
+				want[0] = turbo
+			}
+			proj := detect(t, root)
+			i := slices.IndexFunc(proj.Gates, func(g Gate) bool { return g.Name == c.gate })
+			if want == nil {
+				qt.Assert(t, qt.IsTrue(i < 0), qt.Commentf("gates = %v", proj.Gates))
+				return
+			}
+			qt.Assert(t, qt.IsTrue(i >= 0), qt.Commentf("gates = %v", proj.Gates))
+			qt.Check(t, qt.DeepEquals(proj.Gates[i].Argv, want))
+		})
+	}
 }
 
 // A declined aggregate whose script pipes is one command: its parts are not

@@ -89,7 +89,35 @@ func (w walker) steps(command string, inScript bool, seen []string) []Step {
 	return out
 }
 
-func (w walker) segment(seg string, inScript bool, seen []string) []Step {
+// runCall is a segment shaped `[bunx|npx] <tool> run <words...>`.
+type runCall struct {
+	head  []string // the segment up to and including `run`
+	tool  string   // base name of the tool, so a resolved path matches
+	names []string // the words after `run` that are not flags, unquoted
+	words int      // every word after `run`; fewer names than words means flags
+}
+
+// scriptName is the one script a package runner's `run` names, or "".
+func (c runCall) scriptName() string {
+	switch c.tool {
+	case "bun", "npm", "pnpm", "yarn":
+		if c.words == 1 && len(c.names) == 1 {
+			return c.names[0]
+		}
+	}
+	return ""
+}
+
+// tasks is the task list of a bare `turbo run`. Flags change what a task run
+// means, so a flagged call is not taken apart.
+func (c runCall) tasks() []string {
+	if c.tool != "turbo" || len(c.names) != c.words {
+		return nil
+	}
+	return c.names
+}
+
+func parseRun(seg string) (runCall, bool) {
 	f := strings.Fields(seg)
 	lead := 0
 	if len(f) > 1 && (f[0] == "bunx" || f[0] == "npx") {
@@ -97,29 +125,29 @@ func (w walker) segment(seg string, inScript bool, seen []string) []Step {
 	}
 	cmd := f[lead:]
 	if len(cmd) < 3 || cmd[1] != "run" {
+		return runCall{}, false
+	}
+	return runCall{head: f[:lead+2], tool: filepath.Base(cmd[0]), names: runTargets(cmd[1:]), words: len(cmd) - 2}, true
+}
+
+func (w walker) segment(seg string, inScript bool, seen []string) []Step {
+	c, ok := parseRun(seg)
+	if !ok {
 		return []Step{w.leaf(seg, inScript)}
 	}
-	names := runTargets(cmd[1:])
-	switch filepath.Base(cmd[0]) {
-	case "bun", "npm", "pnpm", "yarn":
-		if len(cmd) == 3 && len(names) == 1 {
-			if s := w.script(names[0], seen); s != nil {
-				return s
-			}
+	if name := c.scriptName(); name != "" {
+		if s := w.script(name, seen); s != nil {
+			return s
 		}
-	case "turbo":
-		// Flags change what a task run means, so only a bare task list is
-		// taken apart.
-		if len(names) != len(cmd)-2 {
-			break
-		}
+	}
+	if tasks := c.tasks(); tasks != nil {
 		var out []Step
-		for _, task := range names {
+		for _, task := range tasks {
 			if s := w.task(task, seen); s != nil {
 				out = append(out, s...)
 				continue
 			}
-			out = append(out, w.leaf(strings.Join(append(slices.Clone(f[:lead+2]), task), " "), inScript))
+			out = append(out, w.leaf(strings.Join(append(slices.Clone(c.head), task), " "), inScript))
 		}
 		return out
 	}

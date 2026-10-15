@@ -107,25 +107,20 @@ func ciScriptGates(proj *Project) {
 			return
 		}
 		for _, seg := range segs {
-			f := strings.Fields(seg)
-			if len(f) > 1 && (f[0] == "bunx" || f[0] == "npx") {
-				f = f[1:]
+			c, ok := parseRun(seg)
+			if !ok {
+				continue
 			}
-			switch {
-			case len(f) > 2 && f[0] == "turbo" && f[1] == "run":
-				for _, task := range f[2:] {
-					if strings.HasPrefix(task, "-") {
-						break
-					}
-					name := strings.TrimPrefix(task, "//#")
-					if turbo != "" {
-						add(name, []string{turbo, "run", task}, st, ", turbo task "+task)
-					} else if _, ok := pkg.Scripts[name]; ok {
-						add(name, append(slices.Clone(runner), name), st, ", "+packageSource+name)
-					}
+			for _, task := range c.tasks() {
+				name := strings.TrimPrefix(task, "//#")
+				if turbo != "" {
+					add(name, []string{turbo, "run", task}, st, ", turbo task "+task)
+				} else if _, ok := pkg.Scripts[name]; ok {
+					add(name, append(slices.Clone(runner), name), st, ", "+packageSource+name)
 				}
-			case len(f) == 3 && f[1] == "run" && scriptStep.MatchString(strings.Join(f, " ")):
-				expand(f[2], st, seen)
+			}
+			if name := c.scriptName(); name != "" {
+				expand(name, st, seen)
 			}
 		}
 	}
