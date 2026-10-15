@@ -124,19 +124,7 @@ func runFix(ctx context.Context, dir string, args []string, asJSON bool, stdout,
 
 	fmt.Fprintf(stdout, "gate fix: %d finding(s)\n", len(results))
 	for _, r := range results {
-		f := r.Finding
-		where := f.Where
-		if where != "" {
-			where = "  " + where
-		}
-		severity := "advice"
-		if f.Warn {
-			severity = "warn"
-		}
-		fmt.Fprintf(stdout, "\n[%s] %s%s\n", severity, f.Check, where)
-		fmt.Fprintf(stdout, "  what  %s\n", f.What)
-		fmt.Fprintf(stdout, "  why   %s\n", f.Why)
-		fmt.Fprintf(stdout, "  fix   %s\n", f.Fix)
+		writeFinding(stdout, r.Finding)
 		if r.Reason != "" {
 			fmt.Fprintf(stdout, "  apply %s  %s\n", r.Outcome, r.Reason)
 			continue

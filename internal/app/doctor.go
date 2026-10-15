@@ -106,18 +106,22 @@ func runDoctor(ctx context.Context, dir string, asJSON, forceCache bool, stdout,
 
 	fmt.Fprintf(stdout, "gate doctor: %d finding(s), most costly first\n", len(findings))
 	for _, f := range findings {
-		where := f.Where
-		if where != "" {
-			where = "  " + where
-		}
-		severity := "advice"
-		if f.Warn {
-			severity = "warn"
-		}
-		fmt.Fprintf(stdout, "\n[%s] %s%s\n", severity, f.Check, where)
-		fmt.Fprintf(stdout, "  what  %s\n", f.What)
-		fmt.Fprintf(stdout, "  why   %s\n", f.Why)
-		fmt.Fprintf(stdout, "  fix   %s\n", f.Fix)
+		writeFinding(stdout, f)
 	}
 	return Success
+}
+
+func writeFinding(w io.Writer, f doctor.Finding) {
+	where := f.Where
+	if where != "" {
+		where = "  " + where
+	}
+	severity := "advice"
+	if f.Warn {
+		severity = "warn"
+	}
+	fmt.Fprintf(w, "\n[%s] %s%s\n", severity, f.Check, where)
+	fmt.Fprintf(w, "  what  %s\n", f.What)
+	fmt.Fprintf(w, "  why   %s\n", f.Why)
+	fmt.Fprintf(w, "  fix   %s\n", f.Fix)
 }
