@@ -72,8 +72,12 @@ func covered(dir string, pkg packageJSON, s Step, lines [][]string, seen []strin
 		return false
 	}
 	seen = append(slices.Clone(seen), name)
-	for part := range strings.SplitSeq(body, "&&") {
-		for _, sub := range Work(dir, strings.TrimSpace(part)) {
+	parts, ok := andChain(body)
+	if !ok {
+		return false
+	}
+	for _, part := range parts {
+		for _, sub := range Work(dir, part) {
 			if !covered(dir, pkg, sub, lines, seen) {
 				return false
 			}
@@ -153,8 +157,10 @@ func (r *scriptReader) line(raw string, depth int) {
 		body, ok := r.pkg.Scripts[line[i+1]]
 		if key := "script:" + line[i+1]; ok && !r.seen[key] && depth < scriptDepth {
 			r.seen[key] = true
-			for part := range strings.SplitSeq(body, "&&") {
-				r.line(part, depth+1)
+			if parts, ok := andChain(body); ok {
+				for _, part := range parts {
+					r.line(part, depth+1)
+				}
 			}
 		}
 	}

@@ -102,7 +102,11 @@ func ciScriptGates(proj *Project) {
 			return
 		}
 		seen = append(seen, script)
-		for seg := range strings.SplitSeq(body, "&&") {
+		segs, ok := andChain(body)
+		if !ok {
+			return
+		}
+		for _, seg := range segs {
 			f := strings.Fields(seg)
 			if len(f) > 1 && (f[0] == "bunx" || f[0] == "npx") {
 				f = f[1:]

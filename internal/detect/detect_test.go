@@ -1179,3 +1179,17 @@ jobs:
 	g := gateNamed(t, detect(t, root), "check:native-config")
 	qt.Check(t, qt.DeepEquals(g.Argv, []string{"bun", "run", "--filter", "@app/mobile", "check:native-config"}))
 }
+
+// A declined aggregate whose script pipes is one command: its parts are not
+// read, so no gate appears for what they would have run.
+func TestCIScriptStepsDoNotExpandPipelines(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("PATH", filepath.Join(root, "no-such-bin"))
+	testutil.Write(t, root, "package.json", `{"scripts":{"build":"vite build","ci":"vite build | cat && bun run extra","extra":"x"}}`)
+	testutil.Write(t, root, "bun.lock", "")
+	testutil.Write(t, root, ".github/workflows/ci.yml", "on: [push, pull_request]\njobs:\n  a:\n    steps:\n      - run: bun run ci\n")
+
+	proj := detect(t, root)
+	qt.Check(t, qt.IsFalse(slices.ContainsFunc(proj.Gates, func(g Gate) bool { return g.Name == "extra" })),
+		qt.Commentf("gates = %v", proj.Gates))
+}

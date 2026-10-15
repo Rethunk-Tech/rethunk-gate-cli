@@ -77,3 +77,21 @@ func TestStepInstrumented(t *testing.T) {
 		qt.Check(t, qt.Equals(how, c.how), qt.Commentf("%s", c.key))
 	}
 }
+
+// A package script is taken apart only at an `&&` outside quotes; a pipeline
+// is one command, so what it names is neither followed nor counted as run.
+func TestScriptReadersLeaveNonChainScriptsWhole(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	testutil.Write(t, dir, "package.json", `{"scripts":{"quoted":"echo \"a && b\"","piped":"tsc | tee out && vitest run"}}`)
+	testutil.Write(t, dir, "scripts/gate.sh", "#!/bin/sh\nbun run quoted\nbun run piped\n")
+
+	lines, ok := ScriptLines(dir, Step{Text: "scripts/gate.sh"})
+	qt.Assert(t, qt.IsTrue(ok))
+	qt.Check(t, qt.DeepEquals(lines, [][]string{
+		{"bun", "run", "quoted"}, {"echo", "a", "&&", "b"}, {"bun", "run", "piped"},
+	}))
+
+	run := [][]string{{"tsc", "tee", "out"}, {"vitest", "run"}}
+	qt.Check(t, qt.IsFalse(Covered(dir, Step{Key: "run piped"}, run)))
+}
