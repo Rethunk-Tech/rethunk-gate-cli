@@ -141,9 +141,10 @@ run = "bun run unit:coverage"
 }
 
 // A gate running one script file cannot be split, so the steps its lines run
-// leave the other gates instead: through a package script it runs, an `&&`
-// part of a script that has a pipe, and an env prefix. A step it only names
-// in a comment, or never names, still runs.
+// leave the other gates instead: through a package script it runs, and an env
+// prefix. A pipe means the package script is not an and-chain, so its steps
+// are not claimed. A step it only names in a comment, or never names, still
+// runs.
 func TestDedupeScriptFileClaimsTheStepsItRuns(t *testing.T) {
 	root := dedupeProject(t,
 		`"gate":"scripts/gate.sh","bindings":"gen bindings","typecheck":"bun run bindings && tsc --noEmit",`+
@@ -175,7 +176,8 @@ step lint bash -c "biome check . && tool-x --a | tee out"
 	qt.Check(t, qt.StringContains(out, "gate       bun run gate"))
 	qt.Check(t, qt.StringContains(out, "build      go build ./..."))
 	qt.Check(t, qt.StringContains(out, "note: dropped typecheck (`bun run typecheck`): gate already runs everything it does"))
-	qt.Check(t, qt.StringContains(out, "note: dropped lint (`bun run lint`): gate already runs everything it does"))
+	qt.Check(t, qt.StringContains(out, "lint       bun run lint"))
+	qt.Check(t, qt.Not(qt.StringContains(out, "note: dropped lint")))
 	qt.Check(t, qt.StringContains(out, "test       tool-y"))
 	qt.Check(t, qt.StringContains(out, "note: split test to `tool-y`: gate already runs the rest"))
 }
