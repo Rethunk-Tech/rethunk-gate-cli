@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"cmp"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -236,8 +237,8 @@ func applyForceCache(spec *gateSpec) {
 	// A go test behind make or a script never reaches the argv rewrite below,
 	// and make -B does not clear Go's test cache. GOFLAGS reaches it through
 	// any wrapper; the go command ignores a GOFLAGS flag a subcommand lacks.
-	spec.env["GOFLAGS"] = strings.TrimSpace(firstNonEmpty(spec.env["GOFLAGS"], os.Getenv("GOFLAGS")) + " -count=1")
-	spec.env["MAKEFLAGS"] = withAlwaysMake(firstNonEmpty(spec.env["MAKEFLAGS"], os.Getenv("MAKEFLAGS")))
+	spec.env["GOFLAGS"] = strings.TrimSpace(cmp.Or(spec.env["GOFLAGS"], os.Getenv("GOFLAGS")) + " -count=1")
+	spec.env["MAKEFLAGS"] = withAlwaysMake(cmp.Or(spec.env["MAKEFLAGS"], os.Getenv("MAKEFLAGS")))
 
 	if len(spec.argv) == 0 {
 		return
@@ -284,13 +285,4 @@ func makeflagsForcesRebuild(flags string) bool {
 		}
 	}
 	return false
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, v := range values {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
 }
