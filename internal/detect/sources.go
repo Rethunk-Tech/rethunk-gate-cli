@@ -867,10 +867,6 @@ func declaresPytest(root string) bool {
 	return false
 }
 
-// workingDirectory matches a workflow's working-directory key, on a step or in
-// a defaults block. Textual, like every other manifest read here.
-var workingDirectory = regexp.MustCompile(`(?m)^[\s-]*working-directory:\s*["']?([^"'#\s]+)`)
-
 // ciPackageDirs lists the subdirectories the repository's CI workflows run
 // commands in, relative to root and sorted.
 func ciPackageDirs(root string) []string {
@@ -881,9 +877,9 @@ func ciPackageDirs(root string) []string {
 		if err != nil {
 			continue
 		}
-		for _, m := range workingDirectory.FindAllStringSubmatch(string(data), -1) {
-			rel := filepath.Clean(m[1])
-			if strings.Contains(m[1], "${{") || rel == "." || !filepath.IsLocal(rel) || slices.Contains(dirs, rel) {
+		for _, dir := range workingDirectories(string(data)) {
+			rel := filepath.Clean(dir)
+			if strings.Contains(dir, "${{") || rel == "." || !filepath.IsLocal(rel) || slices.Contains(dirs, rel) {
 				continue
 			}
 			dirs = append(dirs, rel)

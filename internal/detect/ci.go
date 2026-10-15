@@ -276,6 +276,19 @@ func jobSteps(lines []string, job int, where string) []ciStep {
 	return out
 }
 
+// workingDirectories lists every working-directory value in a workflow, on a
+// step or in a defaults block, wherever the key sits.
+func workingDirectories(workflow string) []string {
+	var dirs []string
+	for line := range strings.SplitSeq(workflow, "\n") {
+		line = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "- "))
+		if value, ok := strings.CutPrefix(line, "working-directory:"); ok {
+			dirs = append(dirs, unquote(stripComment(strings.TrimSpace(value))))
+		}
+	}
+	return dirs
+}
+
 // topLevel finds `key:` at column zero.
 func topLevel(lines []string, key string) (int, bool) {
 	for i, line := range lines {

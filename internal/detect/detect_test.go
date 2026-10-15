@@ -880,6 +880,19 @@ func TestCIRunPackageInASubdirectoryIsOneGate(t *testing.T) {
 	qt.Check(t, qt.Equals(gateNamed(t, proj, "lint").Argv[0], "uv"), qt.Commentf("the root's own gates are unchanged"))
 }
 
+func TestCIPackageDirsReadsQuotedAndHashedValues(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, ".github/workflows/ci.yml", `jobs:
+  a:
+    steps:
+      - working-directory: "my dir" # a space inside quotes stays whole
+      - working-directory: pkg#1
+      - working-directory: web # trailing comment
+`)
+	qt.Check(t, qt.DeepEquals(ciPackageDirs(root), []string{"my dir", "pkg#1", "web"}))
+}
+
 // A package that delegates to turbo keeps one turbo run, so turbo's own
 // concurrency and cache still apply.
 func TestCIRunPackageWithTurboIsOneTurboRun(t *testing.T) {
