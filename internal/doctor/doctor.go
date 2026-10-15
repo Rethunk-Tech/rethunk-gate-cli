@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -94,6 +95,7 @@ func Run(ctx context.Context, dir string) ([]Finding, error) {
 
 	checkSupersededTooling(root, add)
 	checkGoVuln(root, proj, add)
+	checkGoRace(root, proj, add)
 	checkNoCI(proj, cfg, add)
 	checkWorkflows(proj, add)
 	checkNpxInPackageScripts(root, proj, add)
@@ -237,6 +239,87 @@ func checkGoVuln(root string, proj detect.Project, add func(Finding)) {
 			Fix:   "go install golang.org/x/vuln/cmd/govulncheck@latest",
 		})
 	}
+}
+
+// raceMarker is `-race` as its own word, or the shared setup-go action's
+// run-test-race input switched on.
+var raceMarker = regexp.MustCompile(`(?m)(^|\s)-race\b|run-test-race:\s*["']?true\b`)
+
+// gateFiles are the files that define what a gate runs. They are read as text:
+// doctor executes nothing, so a make target's body is only visible this way.
+var gateFiles = []string{
+	"Makefile", "makefile", "GNUmakefile", "Taskfile.yml", "Taskfile.yaml",
+	"justfile", "Justfile", ".gate.toml", "azure-pipelines.yml",
+}
+
+// checkGoRace reports a Go module whose gate definitions never pass -race.
+// Comment lines are dropped, so a note about -race is not mistaken for a step
+// that runs it. The repository root is read as well as the module, since CI
+// and the Makefile usually live there.
+func checkGoRace(root string, proj detect.Project, add func(Finding)) {
+	if !exists(filepath.Join(root, "go.mod")) {
+		return
+	}
+	// Detection's own Go test gate passes -race, so it counts as one.
+	if slices.ContainsFunc(proj.Gates, func(g detect.Gate) bool { return slices.Contains(g.Argv, "-race") }) {
+		return
+	}
+	dirs := []string{root}
+	if repo, ok := repoRoot(root); ok && repo != root {
+		dirs = append(dirs, repo)
+	}
+	var text strings.Builder
+	for _, dir := range dirs {
+		for _, name := range gateFiles {
+			text.WriteString(readFile(filepath.Join(dir, name)))
+			text.WriteByte('\n')
+		}
+		text.WriteString(packageScripts(dir))
+		for _, wd := range []string{".github/workflows", ".azuredevops/pipelines"} {
+			entries, _ := os.ReadDir(filepath.Join(dir, wd))
+			for _, e := range entries {
+				if !e.IsDir() && isYAML(e.Name()) {
+					text.WriteString(readFile(filepath.Join(dir, wd, e.Name())))
+					text.WriteByte('\n')
+				}
+			}
+		}
+	}
+	var gate strings.Builder
+	for line := range strings.SplitSeq(text.String(), "\n") {
+		if !strings.HasPrefix(strings.TrimSpace(line), "#") {
+			gate.WriteString(line)
+			gate.WriteByte('\n')
+		}
+	}
+	if raceMarker.MatchString(gate.String()) {
+		return
+	}
+	add(Finding{
+		Warn:  true,
+		Check: "go-test-no-race",
+		Where: filepath.Join(root, "go.mod"),
+		What:  "no gate definition runs go test -race for this Go module",
+		Why:   "a plain go test passes data races that the shared setup-go run-test-race step and `go test -race` fail in CI",
+		Fix:   "run `go test -race ./...` in the test target, or set run-test-race: \"true\" on the setup-go step",
+	})
+}
+
+// packageScripts joins a package.json's script bodies, leaving out its
+// dependency names and description.
+func packageScripts(dir string) string {
+	var pkg struct {
+		Scripts map[string]string `json:"scripts"`
+	}
+	if json.Unmarshal([]byte(readFile(filepath.Join(dir, "package.json"))), &pkg) != nil {
+		return ""
+	}
+	var b strings.Builder
+	for _, v := range pkg.Scripts {
+		b.WriteString(v)
+		b.WriteByte('\n')
+	}
+	return b.String()
 }
 
 // checkNoCI reports a repository with no workflows at all.

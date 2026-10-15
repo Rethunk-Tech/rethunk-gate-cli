@@ -54,6 +54,46 @@ func TestGoModuleWithoutGovulncheckIsReported(t *testing.T) {
 	qt.Check(t, qt.Not(qt.Equals(f.Fix, "")), qt.Commentf("finding = %+v", f))
 }
 
+func TestGoTestWithoutRaceIsReported(t *testing.T) {
+	isolatePath(t)
+	dir := t.TempDir()
+	testutil.Write(t, dir, "go.mod", "module demo\n\ngo 1.26\n")
+	testutil.Write(t, dir, "Makefile", "# go test -race ./... is what CI wants\ntest:\n\tgo test ./...\n")
+
+	findings, err := Run(t.Context(), dir)
+	qt.Assert(t, qt.IsNil(err))
+	f, ok := findingNamed(findings, "go-test-no-race")
+	qt.Assert(t, qt.IsTrue(ok), qt.Commentf("findings = %v, want go-test-no-race", checkNames(findings)))
+	qt.Check(t, qt.IsTrue(f.Warn))
+	qt.Check(t, qt.Equals(f.Where, "go.mod"))
+	qt.Check(t, qt.Not(qt.Equals(f.Why, "")))
+	qt.Check(t, qt.Not(qt.Equals(f.Fix, "")))
+}
+
+func TestGoTestWithRaceIsSilent(t *testing.T) {
+	for name, plant := range map[string]func(t *testing.T, dir string){
+		"make target": func(t *testing.T, dir string) {
+			testutil.Write(t, dir, "Makefile", "test:\n\tgo test -race ./...\n")
+		},
+		"workflow input": func(t *testing.T, dir string) {
+			testutil.Write(t, dir, ".github/workflows/ci.yml",
+				"jobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-go@v1.7\n        with:\n          run-test-race: \"true\"\n")
+		},
+		"convention gate": func(*testing.T, string) {},
+	} {
+		t.Run(name, func(t *testing.T) {
+			isolatePath(t)
+			dir := t.TempDir()
+			testutil.Write(t, dir, "go.mod", "module demo\n\ngo 1.26\n")
+			plant(t, dir)
+
+			findings, err := Run(t.Context(), dir)
+			qt.Assert(t, qt.IsNil(err))
+			qt.Check(t, qt.IsFalse(reported(findings, "go-test-no-race")), qt.Commentf("findings = %v", checkNames(findings)))
+		})
+	}
+}
+
 // The guarantee doctor rests on: it advises, it does not act.
 func TestDoctorLeavesTheRepositoryByteIdentical(t *testing.T) {
 	isolatePath(t)
