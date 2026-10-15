@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/testutil"
 )
 
 func TestDotnetConvention(t *testing.T) {
@@ -106,21 +108,13 @@ func TestDotnetConvention(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			root := t.TempDir()
 			for name, body := range tt.files {
-				p := filepath.Join(root, name)
-				if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
-					t.Fatal(err)
-				}
+				testutil.Write(t, root, name, body)
 			}
 			bin := t.TempDir()
 			if tt.dotnet {
 				// Windows finds a command by extension and has no /bin/true.
 				if runtime.GOOS == "windows" {
-					if err := os.WriteFile(filepath.Join(bin, "dotnet.exe"), nil, 0o600); err != nil {
-						t.Fatal(err)
-					}
+					testutil.Write(t, bin, "dotnet.exe", "")
 				} else if err := os.Symlink("/bin/true", filepath.Join(bin, "dotnet")); err != nil {
 					t.Fatal(err)
 				}
