@@ -5,7 +5,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 )
@@ -171,33 +170,16 @@ func embedsGenerated(root string) bool {
 	return false
 }
 
-// ciToolchainCommands are the commands whose appearance in a workflow means CI
-// runs that toolchain.
-var ciToolchainCommands = map[string]*regexp.Regexp{
-	"go":     regexp.MustCompile(`\bgo (build|test|vet)\b|golangci-lint|govulncheck`),
-	"python": regexp.MustCompile(`\buv run\b|\bpytest\b|\bruff\b`),
-	"rust":   regexp.MustCompile(`\bcargo (build|test|clippy|audit)\b`),
-	"dotnet": regexp.MustCompile(`\bdotnet (build|test)\b`),
-}
-
 // ciRunsToolchain reports whether the project's workflows run chain's tools,
 // so a toolchain a package script wrapper already hides behind (a `gate`
 // script that CI calls) is not run again on gate's own say-so. A project
 // without workflows has nothing to contradict.
 func ciRunsToolchain(root, chain string) bool {
 	files, _ := filepath.Glob(filepath.Join(root, ".github", "workflows", "*.y*ml"))
-	if len(files) == 0 {
+	if len(files) == 0 || !slices.ContainsFunc(ciTools, func(t ciTool) bool { return t.toolchain == chain }) {
 		return true
 	}
-	re, ok := ciToolchainCommands[chain]
-	if !ok {
-		return true
-	}
-	for _, f := range files {
-		data, err := os.ReadFile(f) //nolint:gosec // files come from the fixed workflow glob under the project root
-		if err == nil && re.Match(data) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(ciInvocations(root), func(step ciInvocation) bool {
+		return step.chain == chain
+	})
 }

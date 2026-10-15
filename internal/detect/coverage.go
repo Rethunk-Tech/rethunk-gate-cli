@@ -20,36 +20,48 @@ type ciTool struct {
 	// coveredBy names other tools whose presence in a gate also covers this
 	// one: golangci-lint runs go vet.
 	coveredBy []string
+
+	// toolchain is the shadowed-toolchain gate (go, python, rust, dotnet)
+	// whose CI presence this command shows.
+	toolchain string
+
+	// quiet keeps the tool out of CIGaps: it says which toolchain CI runs,
+	// but a project's own `uv run` or `cargo build` is not a gap to name.
+	quiet bool
 }
 
 var ciTools = []ciTool{
-	{name: "go test", re: regexp.MustCompile(`\bgo test\b`)},
-	{name: "go vet", re: regexp.MustCompile(`\bgo vet\b`), coveredBy: []string{"golangci-lint"}},
-	{name: "go build", re: regexp.MustCompile(`\bgo build\b`)},
-	{name: "go mod tidy", re: regexp.MustCompile(`\bgo mod tidy\b`)},
+	{name: "go test", re: regexp.MustCompile(`\bgo test\b`), toolchain: "go"},
+	{name: "go vet", re: regexp.MustCompile(`\bgo vet\b`), coveredBy: []string{"golangci-lint"}, toolchain: "go"},
+	{name: "go build", re: regexp.MustCompile(`\bgo build\b`), toolchain: "go"},
+	{name: "go mod tidy", re: regexp.MustCompile(`\bgo mod tidy\b`), toolchain: "go"},
 	{name: "go mod verify", re: regexp.MustCompile(`\bgo mod verify\b`)},
-	{name: "golangci-lint", re: regexp.MustCompile(`\bgolangci-lint\b`)},
-	{name: "govulncheck", re: regexp.MustCompile(`\bgovulncheck\b`)},
-	{name: "pytest", re: regexp.MustCompile(`\bpytest\b`)},
-	{name: "ruff", re: regexp.MustCompile(`\bruff\b`)},
-	{name: "pyrefly", re: regexp.MustCompile(`\bpyrefly\b`)},
+	{name: "golangci-lint", re: regexp.MustCompile(`\bgolangci-lint\b`), toolchain: "go"},
+	{name: "govulncheck", re: regexp.MustCompile(`\bgovulncheck\b`), toolchain: "go"},
+	{name: "pytest", re: regexp.MustCompile(`\bpytest\b`), toolchain: "python"},
+	{name: "ruff", re: regexp.MustCompile(`\bruff\b`), toolchain: "python"},
+	{name: "pyrefly", re: regexp.MustCompile(`\bpyrefly\b`), toolchain: "python"},
 	{name: "mypy", re: regexp.MustCompile(`\bmypy\b`)},
 	{name: "bun test", re: regexp.MustCompile(`\bbun test\b`)},
 	{name: "vitest", re: regexp.MustCompile(`\bvitest\b`)},
 	{name: "knip", re: regexp.MustCompile(`\bknip\b`)},
 	{name: "biome", re: regexp.MustCompile(`\bbiome\b`)},
 	{name: "tsc", re: regexp.MustCompile(`\btsc\b`)},
-	{name: "cargo test", re: regexp.MustCompile(`\bcargo test\b`)},
-	{name: "cargo clippy", re: regexp.MustCompile(`\bcargo clippy\b`)},
-	{name: "dotnet build", re: regexp.MustCompile(`\bdotnet build\b`)},
-	{name: "dotnet test", re: regexp.MustCompile(`\bdotnet test\b`)},
+	{name: "cargo test", re: regexp.MustCompile(`\bcargo test\b`), toolchain: "rust"},
+	{name: "cargo clippy", re: regexp.MustCompile(`\bcargo clippy\b`), toolchain: "rust"},
+	{name: "dotnet build", re: regexp.MustCompile(`\bdotnet build\b`), toolchain: "dotnet"},
+	{name: "dotnet test", re: regexp.MustCompile(`\bdotnet test\b`), toolchain: "dotnet"},
 	{name: "vsce", re: regexp.MustCompile(`\bvsce\b`)},
 	{name: "osv-scanner", re: regexp.MustCompile(`\bosv-scanner\b`)},
 	{name: "actionlint", re: regexp.MustCompile(`\bactionlint\b`)},
 	{name: "shellcheck", re: regexp.MustCompile(`\bshellcheck\b`)},
 	// Two words, so `uv run` and `cargo test` do not count as the audit.
 	{name: "uv audit", re: regexp.MustCompile(`\buv audit\b`)},
-	{name: "cargo audit", re: regexp.MustCompile(`\bcargo audit\b`)},
+	{name: "cargo audit", re: regexp.MustCompile(`\bcargo audit\b`), toolchain: "rust"},
+
+	// Only a toolchain's evidence, never a gap.
+	{name: "uv run", re: regexp.MustCompile(`\buv run\b`), toolchain: "python", quiet: true},
+	{name: "cargo build", re: regexp.MustCompile(`\bcargo build\b`), toolchain: "rust", quiet: true},
 }
 
 // raceFlag marks a CI `go test` that runs under the race detector, which a gate
@@ -60,6 +72,8 @@ var raceFlag = regexp.MustCompile(`(^|\s)-race(\s|$)`)
 type ciInvocation struct {
 	tool    string
 	race    bool
+	quiet   bool
+	chain   string // the tool's toolchain, empty where it names none
 	command string
 	file    string
 	line    int
@@ -127,7 +141,7 @@ func invocationsIn(line, file string, number int) []ciInvocation {
 		for _, tool := range ciTools {
 			if tool.re.MatchString(command) {
 				steps = append(steps, ciInvocation{
-					tool: tool.name, race: tool.name == "go test" && raceFlag.MatchString(command),
+					tool: tool.name, quiet: tool.quiet, chain: tool.toolchain, race: tool.name == "go test" && raceFlag.MatchString(command),
 					command: command, file: file, line: number,
 				})
 			}
@@ -178,6 +192,9 @@ func CIGaps(root string, gateTexts []string) []string {
 	var warnings []string
 	seen := map[string]bool{}
 	for _, step := range steps {
+		if step.quiet {
+			continue
+		}
 		key := step.tool
 		if step.race {
 			key += " -race"

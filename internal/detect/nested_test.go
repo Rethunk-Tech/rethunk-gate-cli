@@ -196,6 +196,37 @@ func TestGoBesideAPackageJSONIsLeftAloneWhenCINeverRunsGo(t *testing.T) {
 	qt.Check(t, qt.IsTrue(hasNote(proj, "but CI never runs go")))
 }
 
+// A workflow runs a toolchain when a command in a `run:` step says so, read by
+// the scan CI gap detection uses: a comment, or a mention outside a command,
+// is not CI running it.
+func TestCIRunsToolchainReadsRunCommands(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name  string
+		chain string
+		run   string
+		want  bool
+	}{
+		{"uv run is python", "python", "      - run: uv run script.py\n", true},
+		{"cargo build is rust", "rust", "      - run: cargo build --release\n", true},
+		{"pyrefly is python", "python", "      - run: pyrefly check\n", true},
+		{"go mod tidy is go", "go", "      - run: go mod tidy\n", true},
+		{"block scalar line", "go", "      - run: |\n          make setup\n          go vet ./...\n", true},
+		{"a comment is not a command", "go", "      - run: bun run gate # go test ./...\n", false},
+		{"a comment line in a block is not a command", "go", "      - run: |\n          # go test ./...\n          bun run gate\n", false},
+		{"a step name is not a command", "go", "      - name: go test ./...\n        run: bun run gate\n", false},
+		{"another toolchain", "rust", "      - run: go test ./...\n", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			root := t.TempDir()
+			testutil.Write(t, root, ".github/workflows/ci.yml", c.run)
+			qt.Check(t, qt.Equals(ciRunsToolchain(root, c.chain), c.want))
+		})
+	}
+}
+
 // knip run from a package script is that script's, so declaring it as a
 // devDependency does not run it twice.
 func TestKnipAlreadyRunByAScriptIsNotAddedAgain(t *testing.T) {
