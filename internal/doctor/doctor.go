@@ -260,8 +260,12 @@ func checkGoRace(root string, proj detect.Project, add func(Finding)) {
 	if !exists(filepath.Join(root, "go.mod")) {
 		return
 	}
-	// Detection's own Go test gate passes -race, so it counts as one.
-	if slices.ContainsFunc(proj.Gates, func(g detect.Gate) bool { return slices.Contains(g.Argv, "-race") }) {
+	// A convention gate does not satisfy -race. A declared gate whose argv
+	// contains -race does. Otherwise the gate files decide, and a module with
+	// none of them is the convention command, which passes -race.
+	if slices.ContainsFunc(proj.Gates, func(g detect.Gate) bool {
+		return !strings.HasPrefix(g.Source, "convention:") && slices.Contains(g.Argv, "-race")
+	}) {
 		return
 	}
 	dirs := []string{root}
@@ -269,18 +273,24 @@ func checkGoRace(root string, proj detect.Project, add func(Finding)) {
 		dirs = append(dirs, repo)
 	}
 	var text strings.Builder
+	defined := false
+	take := func(body string) {
+		if body != "" {
+			defined = true
+		}
+		text.WriteString(body)
+		text.WriteByte('\n')
+	}
 	for _, dir := range dirs {
 		for _, name := range gateFiles {
-			text.WriteString(readFile(filepath.Join(dir, name)))
-			text.WriteByte('\n')
+			take(readFile(filepath.Join(dir, name)))
 		}
-		text.WriteString(packageScripts(dir))
+		take(packageScripts(dir))
 		for _, wd := range []string{".github/workflows", ".azuredevops/pipelines"} {
 			entries, _ := os.ReadDir(filepath.Join(dir, wd))
 			for _, e := range entries {
 				if !e.IsDir() && isYAML(e.Name()) {
-					text.WriteString(readFile(filepath.Join(dir, wd, e.Name())))
-					text.WriteByte('\n')
+					take(readFile(filepath.Join(dir, wd, e.Name())))
 				}
 			}
 		}
@@ -292,7 +302,7 @@ func checkGoRace(root string, proj detect.Project, add func(Finding)) {
 			gate.WriteByte('\n')
 		}
 	}
-	if raceMarker.MatchString(gate.String()) {
+	if raceMarker.MatchString(gate.String()) || !defined {
 		return
 	}
 	add(Finding{

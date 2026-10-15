@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/detect"
 	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/result"
 	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/testutil"
 	"github.com/go-quicktest/qt"
@@ -68,6 +69,33 @@ func TestGoTestWithoutRaceIsReported(t *testing.T) {
 	qt.Check(t, qt.Equals(f.Where, "go.mod"))
 	qt.Check(t, qt.Not(qt.Equals(f.Why, "")))
 	qt.Check(t, qt.Not(qt.Equals(f.Fix, "")))
+}
+
+func TestConventionRaceDoesNotStandInForAGateFile(t *testing.T) {
+	proj := detect.Project{Gates: []detect.Gate{{
+		Name:   "test",
+		Argv:   []string{"go", "test", "-race", "./..."},
+		Source: "convention: go",
+	}}}
+	for _, tc := range []struct {
+		name     string
+		makefile string
+		want     bool
+	}{
+		{name: "makefile without -race", makefile: "test:\n\tgo test ./...\n", want: true},
+		{name: "makefile recipe", makefile: "test:\n\tgo test -race ./...\n", want: false},
+		{name: "comment only", makefile: "# go test -race ./...\n", want: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			testutil.Write(t, dir, "go.mod", "module demo\n\ngo 1.26\n")
+			testutil.Write(t, dir, "Makefile", tc.makefile)
+			var findings []Finding
+			checkGoRace(dir, proj, func(f Finding) { findings = append(findings, f) })
+			qt.Check(t, qt.Equals(reported(findings, "go-test-no-race"), tc.want),
+				qt.Commentf("findings = %v", checkNames(findings)))
+		})
+	}
 }
 
 func TestGoTestWithRaceIsSilent(t *testing.T) {
