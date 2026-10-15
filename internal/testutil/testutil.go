@@ -7,10 +7,44 @@
 package testutil
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 )
+
+// TreeDigest hashes every file's path and contents under root, so any edit,
+// addition or deletion changes the result.
+func TreeDigest(t *testing.T, root string) string {
+	t.Helper()
+	var entries []string
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		data, err := os.ReadFile(path) //nolint:gosec // path comes from the temporary fixture walk
+		if err != nil {
+			return err
+		}
+		sum := sha256.Sum256(data)
+		rel, _ := filepath.Rel(root, path)
+		entries = append(entries, rel+":"+hex.EncodeToString(sum[:]))
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	slices.Sort(entries)
+	sum := sha256.Sum256([]byte(strings.Join(entries, "\n")))
+	return hex.EncodeToString(sum[:])
+}
 
 // Write creates a fixture file at dir/name, making its parents.
 func Write(t *testing.T, dir, name, body string) {

@@ -2,14 +2,10 @@ package doctor
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 
@@ -68,38 +64,11 @@ func TestDoctorLeavesTheRepositoryByteIdentical(t *testing.T) {
 		"name: CI\njobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-go@v1.2\n")
 	testutil.Write(t, dir, "Makefile", "test:\n\ttouch SHOULD-NOT-EXIST\n")
 
-	before := treeDigest(t, dir)
+	before := testutil.TreeDigest(t, dir)
 	_, err := Run(t.Context(), dir)
 	qt.Assert(t, qt.IsNil(err))
-	qt.Assert(t, qt.Equals(treeDigest(t, dir), before),
+	qt.Assert(t, qt.Equals(testutil.TreeDigest(t, dir), before),
 		qt.Commentf("doctor modified the repository"))
-}
-
-// treeDigest hashes every file's path and contents, so any edit, addition or
-// deletion changes the result.
-func treeDigest(t *testing.T, root string) string {
-	t.Helper()
-	var entries []string
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
-		data, err := os.ReadFile(path) //nolint:gosec // path comes from the temporary fixture walk
-		if err != nil {
-			return err
-		}
-		sum := sha256.Sum256(data)
-		rel, _ := filepath.Rel(root, path)
-		entries = append(entries, rel+":"+hex.EncodeToString(sum[:]))
-		return nil
-	})
-	qt.Assert(t, qt.IsNil(err))
-	slices.Sort(entries)
-	sum := sha256.Sum256([]byte(strings.Join(entries, "\n")))
-	return hex.EncodeToString(sum[:])
 }
 
 // govulncheck is judged across the repository, not per workflow. A release

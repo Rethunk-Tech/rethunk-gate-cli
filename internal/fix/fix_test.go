@@ -1,13 +1,9 @@
 package fix
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
-	"io/fs"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 
@@ -28,31 +24,6 @@ func findingNamed(findings []doctor.Finding, check string) (doctor.Finding, bool
 		}
 	}
 	return doctor.Finding{}, false
-}
-
-func treeDigest(t *testing.T, root string) string {
-	t.Helper()
-	var entries []string
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
-		data, err := os.ReadFile(path) //nolint:gosec // path comes from the temporary fixture walk
-		if err != nil {
-			return err
-		}
-		sum := sha256.Sum256(data)
-		rel, _ := filepath.Rel(root, path)
-		entries = append(entries, rel+":"+hex.EncodeToString(sum[:]))
-		return nil
-	})
-	qt.Assert(t, qt.IsNil(err))
-	slices.Sort(entries)
-	sum := sha256.Sum256([]byte(strings.Join(entries, "\n")))
-	return hex.EncodeToString(sum[:])
 }
 
 func applyNamed(t *testing.T, dir, check string, dryRun bool) doctor.Finding {
@@ -192,11 +163,11 @@ func TestDryRunWritesNothing(t *testing.T) {
 	isolatePath(t)
 	dir := t.TempDir()
 	bunWorkflow(t, dir)
-	before := treeDigest(t, dir)
+	before := testutil.TreeDigest(t, dir)
 	for _, check := range []string{"corepack-with-setup-bun", "npx-in-bun-workspace", "actions-floating-ref"} {
 		applyNamed(t, dir, check, true)
 	}
-	qt.Assert(t, qt.Equals(treeDigest(t, dir), before))
+	qt.Assert(t, qt.Equals(testutil.TreeDigest(t, dir), before))
 }
 
 func TestUnappliableSkips(t *testing.T) {
