@@ -250,13 +250,13 @@ func ensureSerial(body, name string, parsed tomlFile) (string, bool) {
 		}
 		indent := lines[i][:len(lines[i])-len(strings.TrimLeft(lines[i], " \t"))]
 		lines[i] = indent + "serial = true"
-		return joinLines(lines), true
+		return strings.Join(lines, "\n"), true
 	}
 	insert := make([]string, 0, len(lines)+1)
 	insert = append(insert, lines[:start+1]...)
 	insert = append(insert, "serial = true")
 	insert = append(insert, lines[start+1:]...)
-	return joinLines(insert), true
+	return strings.Join(insert, "\n"), true
 }
 
 func sectionEnd(lines []string, start int) int {
@@ -290,10 +290,6 @@ func splitLines(body string) []string {
 		return nil
 	}
 	return strings.Split(body, "\n")
-}
-
-func joinLines(lines []string) string {
-	return strings.Join(lines, "\n")
 }
 
 // --- workflow edits ---
@@ -330,7 +326,7 @@ func enableGovulncheck(body string) (string, string) {
 	if !changed {
 		return body, ""
 	}
-	return joinLines(lines), ""
+	return strings.Join(lines, "\n"), ""
 }
 
 func addGovulncheck(lines []string, usesAt int) ([]string, []string, bool) {
@@ -468,7 +464,7 @@ func dropCorepack(body string) (string, string) {
 			out = append(out, line)
 		}
 	}
-	return joinLines(out), ""
+	return strings.Join(out, "\n"), ""
 }
 
 func isCorepackEnable(line string) bool {
@@ -561,7 +557,7 @@ func pinSharedAction(f doctor.Finding) func(string) (string, string) {
 		if !changed {
 			return body, "named shared-action ref not found"
 		}
-		return joinLines(lines), ""
+		return strings.Join(lines, "\n"), ""
 	}
 }
 
