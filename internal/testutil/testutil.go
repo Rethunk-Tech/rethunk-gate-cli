@@ -62,6 +62,26 @@ func WriteExecutable(t *testing.T, dir, relPath string) string {
 	return path
 }
 
+// BunWorkflow plants a Bun project whose CI workflow has the gaps doctor
+// reports and fix repairs: corepack beside setup-bun, npx in a Bun workspace,
+// a floating action ref, and no final gate job.
+func BunWorkflow(t *testing.T, dir string) {
+	t.Helper()
+	Write(t, dir, "package.json", `{"name":"demo"}`)
+	Write(t, dir, "bun.lock", "")
+	Write(t, dir, ".github/workflows/ci.yml", strings.Join([]string{
+		"jobs:",
+		"  a:",
+		"    strategy:",
+		"      matrix:",
+		"        include: []",
+		"    steps:",
+		"      - uses: Rethunk-Tech/gh-actions/setup-bun@main",
+		"      - run: corepack enable",
+		"      - run: npx tsc",
+	}, "\n")+"\n")
+}
+
 func writeFile(t *testing.T, path, body string, perm os.FileMode) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {

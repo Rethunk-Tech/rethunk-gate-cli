@@ -91,19 +91,7 @@ func TestGovulncheckIsJudgedAcrossAllWorkflows(t *testing.T) {
 func TestWorkflowGapsAreReported(t *testing.T) {
 	isolatePath(t)
 	dir := t.TempDir()
-	testutil.Write(t, dir, "package.json", `{"name":"demo"}`)
-	testutil.Write(t, dir, "bun.lock", "")
-	testutil.Write(t, dir, ".github/workflows/ci.yml", strings.Join([]string{
-		"jobs:",
-		"  a:",
-		"    strategy:",
-		"      matrix:",
-		"        include: []",
-		"    steps:",
-		"      - uses: Rethunk-Tech/gh-actions/setup-bun@main",
-		"      - run: corepack enable",
-		"      - run: npx tsc",
-	}, "\n"))
+	testutil.BunWorkflow(t, dir)
 
 	findings, err := Run(t.Context(), dir)
 	qt.Assert(t, qt.IsNil(err))
@@ -126,19 +114,7 @@ func TestWorkflowGapsAreJudgedFromTheRepositoryRoot(t *testing.T) {
 	isolatePath(t)
 	repo := t.TempDir()
 	testutil.Write(t, repo, ".git/HEAD", "ref: refs/heads/main\n")
-	testutil.Write(t, repo, "package.json", `{"name":"root"}`)
-	testutil.Write(t, repo, "bun.lock", "")
-	testutil.Write(t, repo, ".github/workflows/ci.yml", strings.Join([]string{
-		"jobs:",
-		"  a:",
-		"    strategy:",
-		"      matrix:",
-		"        include: []",
-		"    steps:",
-		"      - uses: Rethunk-Tech/gh-actions/setup-bun@main",
-		"      - run: corepack enable",
-		"      - run: npx tsc",
-	}, "\n"))
+	testutil.BunWorkflow(t, repo)
 	member := filepath.Join(repo, "packages", "web")
 	testutil.Write(t, member, "package.json", `{"name":"web"}`)
 

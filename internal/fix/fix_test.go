@@ -82,7 +82,7 @@ func TestApplyClearsTheNamedDoctorCheck(t *testing.T) {
 		},
 		{
 			check: "corepack-with-setup-bun",
-			plant: bunWorkflow,
+			plant: testutil.BunWorkflow,
 			after: func(t *testing.T, dir string) {
 				body, err := os.ReadFile(filepath.Join(dir, ".github/workflows/ci.yml")) //nolint:gosec // path is a temporary workflow fixture
 				qt.Assert(t, qt.IsNil(err))
@@ -91,7 +91,7 @@ func TestApplyClearsTheNamedDoctorCheck(t *testing.T) {
 		},
 		{
 			check: "npx-in-bun-workspace",
-			plant: bunWorkflow,
+			plant: testutil.BunWorkflow,
 			after: func(t *testing.T, dir string) {
 				body, err := os.ReadFile(filepath.Join(dir, ".github/workflows/ci.yml")) //nolint:gosec // path is a temporary workflow fixture
 				qt.Assert(t, qt.IsNil(err))
@@ -101,7 +101,7 @@ func TestApplyClearsTheNamedDoctorCheck(t *testing.T) {
 		},
 		{
 			check: "actions-floating-ref",
-			plant: bunWorkflow,
+			plant: testutil.BunWorkflow,
 			after: func(t *testing.T, dir string) {
 				body, err := os.ReadFile(filepath.Join(dir, ".github/workflows/ci.yml")) //nolint:gosec // path is a temporary workflow fixture
 				qt.Assert(t, qt.IsNil(err))
@@ -142,27 +142,10 @@ func TestApplyClearsTheNamedDoctorCheck(t *testing.T) {
 	}
 }
 
-func bunWorkflow(t *testing.T, dir string) {
-	t.Helper()
-	testutil.Write(t, dir, "package.json", `{"name":"demo"}`)
-	testutil.Write(t, dir, "bun.lock", "")
-	testutil.Write(t, dir, ".github/workflows/ci.yml", strings.Join([]string{
-		"jobs:",
-		"  a:",
-		"    strategy:",
-		"      matrix:",
-		"        include: []",
-		"    steps:",
-		"      - uses: Rethunk-Tech/gh-actions/setup-bun@main",
-		"      - run: corepack enable",
-		"      - run: npx tsc",
-	}, "\n")+"\n")
-}
-
 func TestDryRunWritesNothing(t *testing.T) {
 	isolatePath(t)
 	dir := t.TempDir()
-	bunWorkflow(t, dir)
+	testutil.BunWorkflow(t, dir)
 	before := testutil.TreeDigest(t, dir)
 	for _, check := range []string{"corepack-with-setup-bun", "npx-in-bun-workspace", "actions-floating-ref"} {
 		applyNamed(t, dir, check, true)
