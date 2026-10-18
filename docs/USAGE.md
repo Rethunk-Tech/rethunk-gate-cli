@@ -13,6 +13,9 @@ refused.
 for d in ~/src/*/; do gate -C "$d" --quiet || echo "FAIL $d"; done
 ```
 
+`-q` is `--quiet`: a pass prints nothing, a failure still narrates. There is
+no `-v` / `--verbose`; `--profile` and the failure log are the extra detail.
+
 Missing directory argument: 129. Unenterable: 128. A relative `--log` resolves
 against it. Detected gates run at the project root; a command you name runs in
 the `-C` directory.
@@ -20,9 +23,10 @@ the `-C` directory.
 ## Bare `gate`
 
 `--list` shows the decision and runs nothing. `--json` is the same listing for
-a program: each gate's `name`, resolved `argv`, `display`, `source`, `shadows`,
-`group`; plus `root`, `config`, `notes`, `warnings`. Gates sharing a `group`
-run serially; groups run concurrently.
+a program: `"schema": 1`, then each gate's `name`, resolved `argv`, `display`,
+`source`, `shadows`, `group`; plus `root`, `config`, `notes`, `warnings`. Gates
+sharing a `group` run serially; groups run concurrently. `--json` is global:
+`gate doctor --json` is the same document as `gate --json doctor`.
 
 A scalar with nothing to say is omitted (a wrapped command has no `root` /
 `name` / `source`; `workspace` only when it differs from `root`). Collections
@@ -55,7 +59,9 @@ and `--json` never install.
 ### `--ndjson`
 
 `--json` is what *would* run. `--ndjson` writes one JSON line per gate as it
-finishes, **arrival order**. Text on stderr stays declaration order.
+finishes, **arrival order**. Text on stderr stays declaration order. Each line
+is the same object a result record stores under `gates`, so it has no
+`schema` of its own.
 
 `status` is a word, never a code: `ok`, `fail`, `timeout`, `interrupted`,
 `not-found`, `error`, `skipped`. A command exiting 124 is not a timeout.
@@ -313,9 +319,9 @@ do not change the exit status.
 
 ## `gate doctor`
 
-Read-only; exits 0 either way. `--json` findings: `check`, `warn`, `what`,
-`why`, `fix`, `where` (relative), `path` (absolute), plus `warnings` (`[]` if
-none). Text omits `warnings`. `--ndjson` refused.
+Read-only; exits 0 either way. `--json` is `"schema": 1` then findings:
+`check`, `warn`, `what`, `why`, `fix`, `where` (relative), `path` (absolute),
+plus `warnings` (`[]` if none). Text omits `warnings`. `--ndjson` refused.
 
 | Check | Fires when |
 | --- | --- |
@@ -339,10 +345,10 @@ while CI enables it is not a gap). `gate --fix` as a flag is refused.
 ## `gate fix`
 
 Doctor stays read-only. `fix` applies findings that can prove a post-state
-from `path` + `fix`. `--dry-run` writes nothing. `--json` adds `outcome`
-(`applied`, `skipped`, `dry-run`) and `reason` when skipped. `--ndjson`
-refused. Exit 0 if nothing to apply or every finding was applied/skipped; a
-failed write is a failure.
+from `path` + `fix`. `--dry-run` writes nothing. `--json` is `"schema": 1`
+then findings, each with `outcome` (`applied`, `skipped`, `dry-run`) and
+`reason` when skipped. `--ndjson` refused. Exit 0 if nothing to apply or every
+finding was applied/skipped; a failed write is a failure.
 
 | Check | Apply |
 | --- | --- |
@@ -448,7 +454,7 @@ is false, and `exit` is 0. Missing → 1 "missing". Tree/schema mismatch → 1
 (`missing`/`stale`/`partial`/`failed`/`null`), and `current`
 `{head, status, dirty}` (not stored; schema stays 2). Order: stale even if
 the run failed; failed even if partial; else partial. Missing `--json` is
-only `fresh` and `reason`. Text:
+`schema` 2, `fresh`, and `reason`. Text:
 
 ```console
 $ gate record

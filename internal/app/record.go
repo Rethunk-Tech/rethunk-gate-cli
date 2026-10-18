@@ -171,9 +171,10 @@ func writeRecordView(w io.Writer, rec *record, state stored.State, fresh bool, r
 	enc.SetIndent("", "  ")
 	if rec == nil {
 		return enc.Encode(struct {
+			Schema int  `json:"schema"`
 			Fresh  bool `json:"fresh"`
 			Reason any  `json:"reason"`
-		}{fresh, reasonVal})
+		}{recordSchema, fresh, reasonVal})
 	}
 	return enc.Encode(struct {
 		record

@@ -3,6 +3,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"flag"
@@ -89,7 +90,7 @@ Flags:
   --tail N      trailing lines to quote on failure (default 40)
   --log PATH    write this one file instead of the default location
                 (refused when several gates run; set TMPDIR for those)
-  --quiet       print nothing when the gates pass
+  -q, --quiet   print nothing when the gates pass
   --version     print the version and the settings in force, then exit
   -h, --help    show this help and exit
 
@@ -161,11 +162,13 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	}
 
 	flags := flag.NewFlagSet("gate", flag.ContinueOnError)
-	flags.SetOutput(stderr)
+	var flagOut bytes.Buffer
+	flags.SetOutput(&flagOut)
 	// flag would print the usage itself, to the same writer as the error. Help
 	// asked for is not a refusal and belongs on stdout, so both are printed
 	// here instead.
 	flags.Usage = func() {}
+	flags.BoolVar(&opts.quiet, "q", false, "")
 	flags.BoolVar(&opts.quiet, "quiet", false, "")
 	flags.BoolVar(&opts.serial, "serial", false, "")
 	flags.BoolVar(&opts.list, "list", false, "")
@@ -213,7 +216,11 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 			fmt.Fprint(stdout, gateHelp)
 			return Success
 		}
-		// flag has already named the offending flag on stderr.
+		msg := strings.TrimSpace(flagOut.String())
+		if msg == "" {
+			msg = err.Error()
+		}
+		fmt.Fprintf(stderr, "gate: %s\n", msg)
 		fmt.Fprint(stderr, gateHelp)
 		return InvalidUsage
 	}
@@ -226,6 +233,16 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	// which is the parser this replaced.
 	args = flags.Args()
 	explicit := len(args) < len(argv) && argv[len(argv)-len(args)-1] == "--"
+	// --json is global, so `gate doctor --json` is the same listing as
+	// `gate --json doctor`. Only the words gate claims are scanned: a
+	// wrapped command keeps its own flags, and `gate -- doctor --json`
+	// still runs a program called doctor.
+	if !explicit && len(args) > 0 {
+		switch args[0] {
+		case "doctor", "fix", "record", "run":
+			args = peelJSON(args, &opts.jsonList)
+		}
+	}
 
 	// Resolved after the flag loop rather than inside it, so
 	// `gate --timeout 5m --version` reports 5m instead of the default it
@@ -719,6 +736,22 @@ func configEnters(cfg config.Config, root string, g detect.Gate) string {
 		}
 	}
 	return ""
+}
+
+// peelJSON lifts --json from after a reserved word so `gate doctor --json`
+// is the same document as `gate --json doctor`. A wrapped command keeps its
+// own flags: this runs only when the first leftover word is one gate claims.
+func peelJSON(args []string, jsonList *bool) []string {
+	out := []string{args[0]}
+	for _, a := range args[1:] {
+		switch a {
+		case "--json", "-json":
+			*jsonList = true
+		default:
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 func resolveGateDir(value, root string) (string, error) {

@@ -453,6 +453,17 @@ func TestRecordMissing(t *testing.T) {
 	qt.Check(t, qt.Equals(stderr, "gate: result record missing\n"))
 	assertRecordView(t, js, false, "missing")
 	qt.Check(t, qt.Not(qt.StringContains(js, `"current"`)))
+	var missing struct {
+		Schema int `json:"schema"`
+	}
+	qt.Assert(t, qt.IsNil(json.Unmarshal([]byte(js), &missing)))
+	qt.Check(t, qt.Equals(missing.Schema, recordSchema))
+
+	after, afterErr, afterCode := runGateTest(t, "-C", root, "record", "--json")
+	qt.Check(t, qt.Equals(afterCode, recordNotFresh))
+	qt.Check(t, qt.Equals(afterErr, stderr))
+	qt.Check(t, qt.Equals(after, js),
+		qt.Commentf("record --json must be the same document as --json record"))
 }
 
 // A command named directly writes no record, so the reader has nothing to trust.

@@ -15,6 +15,7 @@ import (
 // has to grep findings out of a layout written for a person, and that layout
 // is free to change.
 type doctorReport struct {
+	Schema   int               `json:"schema"`
 	Findings []reportedFinding `json:"findings"`
 
 	// Warnings are tools CI runs that no gate does: the same strings a
@@ -44,6 +45,7 @@ type reportedFinding struct {
 // can read. Output only, and read-only like everything else doctor does.
 func writeDoctorJSON(w io.Writer, findings []doctor.Finding, warnings []string) error {
 	out := doctorReport{
+		Schema:   jsonSchema,
 		Findings: make([]reportedFinding, 0, len(findings)),
 		Warnings: array(warnings),
 	}

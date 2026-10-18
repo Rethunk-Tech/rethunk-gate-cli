@@ -11,6 +11,11 @@ import (
 	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/detect"
 )
 
+// jsonSchema is the --json document envelope for listing, doctor, and fix.
+// Bumped when a reader must distinguish shapes. --ndjson lines are the same
+// objects a result record stores per gate, so they stay unversioned here.
+const jsonSchema = 1
+
 // listing is the machine-readable form of what writeListing prints. It exists
 // because a consumer that has to column-parse the text layout is broken by any
 // cosmetic change to it, and the text is written for a person.
@@ -21,6 +26,7 @@ import (
 // exception -- they are always present, so "none" never has to be told apart
 // from "not reported".
 type listing struct {
+	Schema    int          `json:"schema"`
 	Root      string       `json:"root,omitempty"`
 	Workspace string       `json:"workspace,omitempty"`
 	Gates     []listedGate `json:"gates"`
@@ -94,6 +100,7 @@ type listedGate struct {
 // the exit status.
 func writeListingJSON(w io.Writer, project detect.Project, files []string, opts options) error {
 	out := listing{
+		Schema:   jsonSchema,
 		Root:     project.Root,
 		Gates:    make([]listedGate, 0, len(opts.gates)),
 		Config:   array(files),

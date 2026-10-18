@@ -280,8 +280,12 @@ func TestRunUsage(t *testing.T) {
 
 	t.Run("unrecognized gate flag", func(t *testing.T) {
 		t.Parallel()
-		_, _, code := runGateTest(t, "--nope", "true")
+		_, stderr, code := runGateTest(t, "--nope", "true")
 		qt.Assert(t, qt.Equals(code, InvalidUsage))
+		qt.Check(t, qt.StringContains(stderr, "gate: "),
+			qt.Commentf("usage error missing gate: prefix: %q", stderr))
+		qt.Check(t, qt.Not(qt.StringContains(stderr, "error:")),
+			qt.Commentf("usage error used error: prefix: %q", stderr))
 	})
 
 	t.Run("--tail wants a number", func(t *testing.T) {
@@ -319,6 +323,11 @@ func TestRunQuietSuppressesOnlyThePassLine(t *testing.T) {
 	qt.Assert(t, qt.Equals(code, Success))
 	qt.Check(t, qt.Equals(stdout, ""), qt.Commentf("a quiet pass wrote to stdout"))
 	qt.Check(t, qt.Equals(stderr, ""), qt.Commentf("a quiet pass wrote to stderr"))
+
+	stdout, stderr, code = runGateTest(t, "-q", "--log", tempLog(t), "true")
+	qt.Assert(t, qt.Equals(code, Success))
+	qt.Check(t, qt.Equals(stdout, ""), qt.Commentf("-q pass wrote to stdout"))
+	qt.Check(t, qt.Equals(stderr, ""), qt.Commentf("-q pass wrote to stderr"))
 
 	_, stderr, code = runGateTest(t, "--quiet", "--log", tempLog(t), "sh", "-c", "echo bad >&2; exit 2")
 	qt.Assert(t, qt.Equals(code, Code(2)))
@@ -624,9 +633,12 @@ func TestJSONListingCarriesWhatListDoes(t *testing.T) {
 	stdout, stderr, code := runGateTest(t, "-C", root, "--json")
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("gate --json = %d, stderr = %q", code, stderr))
 	qt.Check(t, qt.Equals(stderr, ""), qt.Commentf("--json wrote to stderr: %q", stderr))
+	qt.Check(t, qt.IsTrue(strings.HasPrefix(strings.TrimSpace(stdout), "{\n  \"schema\":")),
+		qt.Commentf("--json must open with schema, got %q", stdout[:min(len(stdout), 80)]))
 
 	var got listing
 	qt.Assert(t, qt.IsNil(json.Unmarshal([]byte(stdout), &got)), qt.Commentf("stdout is not JSON: %q", stdout))
+	qt.Check(t, qt.Equals(got.Schema, jsonSchema))
 
 	qt.Assert(t, qt.Equals(got.Root, root))
 	var names []string
@@ -1920,6 +1932,9 @@ func TestDoctorJSONCarriesWhatTheReportDoes(t *testing.T) {
 
 	var got doctorReport
 	qt.Assert(t, qt.IsNil(json.Unmarshal([]byte(stdout), &got)), qt.Commentf("stdout is not JSON: %q", stdout))
+	qt.Check(t, qt.Equals(got.Schema, jsonSchema))
+	qt.Check(t, qt.IsTrue(strings.HasPrefix(strings.TrimSpace(stdout), "{\n  \"schema\":")),
+		qt.Commentf("--json doctor must open with schema, got %q", stdout[:min(len(stdout), 80)]))
 	qt.Assert(t, qt.Equals(len(got.Findings), 1), qt.Commentf("findings = %+v", got.Findings))
 
 	f := got.Findings[0]
@@ -1937,6 +1952,11 @@ func TestDoctorJSONCarriesWhatTheReportDoes(t *testing.T) {
 	text, _, _ := runGateTest(t, "-C", root, "doctor")
 	qt.Check(t, qt.StringContains(text, f.Check))
 	qt.Check(t, qt.StringContains(text, f.What))
+
+	after, afterErr, afterCode := runGateTest(t, "-C", root, "doctor", "--json")
+	qt.Assert(t, qt.Equals(afterCode, Success), qt.Commentf("stderr = %q", afterErr))
+	qt.Check(t, qt.Equals(after, stdout),
+		qt.Commentf("doctor --json must be the same document as --json doctor"))
 }
 
 func TestDoctorJSONIncludesAStaleResult(t *testing.T) {
@@ -2180,7 +2200,13 @@ func TestFixDryRunWritesNothingAndJSONNamesTheOutcome(t *testing.T) {
 
 	var got fixReport
 	qt.Assert(t, qt.IsNil(json.Unmarshal([]byte(stdout), &got)), qt.Commentf("stdout = %q", stdout))
+	qt.Check(t, qt.Equals(got.Schema, jsonSchema))
 	qt.Assert(t, qt.Not(qt.Equals(len(got.Findings), 0)), qt.Commentf("stdout = %q", stdout))
+
+	jsonAfter, jsonErr, jsonCode := runGateTest(t, "-C", root, "fix", "--json", "--dry-run")
+	qt.Assert(t, qt.Equals(jsonCode, Success), qt.Commentf("stderr = %q", jsonErr))
+	qt.Check(t, qt.Equals(jsonAfter, stdout),
+		qt.Commentf("fix --json must be the same document as --json fix"))
 
 	var sawDry, sawSkip bool
 	for _, f := range got.Findings {

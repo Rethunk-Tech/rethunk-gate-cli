@@ -36,6 +36,7 @@ Full reference: docs/USAGE.md
 // fixReport is the machine-readable form of what runFix prints. Same findings
 // doctor reports, plus whether each one was applied.
 type fixReport struct {
+	Schema   int            `json:"schema"`
 	Findings []fixedFinding `json:"findings"`
 }
 
@@ -69,7 +70,7 @@ func parseFixArgs(args []string, stderr io.Writer) (dryRun, ok, help bool) {
 }
 
 func writeFixJSON(w io.Writer, results []fix.Result) error {
-	out := fixReport{Findings: make([]fixedFinding, 0, len(results))}
+	out := fixReport{Schema: jsonSchema, Findings: make([]fixedFinding, 0, len(results))}
 	for _, r := range results {
 		f := r.Finding
 		out.Findings = append(out.Findings, fixedFinding{
