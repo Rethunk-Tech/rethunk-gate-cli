@@ -6,6 +6,8 @@ Notable changes to `gate`. The format follows
 
 ## [Unreleased]
 
+## [0.6.7] - 2026-10-18
+
 ### Added
 
 - `--list` and `--json` name a gate's configured `timeout` where the file set one, including `off` for `timeout = "0"`. A gate that never set the key stays quiet. Docs: docs/USAGE.md, configuration listing.
@@ -15,6 +17,8 @@ Notable changes to `gate`. The format follows
 - `gate doctor` flags a schema-2 result that is not fresh (`stale`, `partial`, or `failed`). A missing record stays quiet. The fix is `run gate`. `gate --json doctor` includes the finding. Docs: docs/USAGE.md, `gate doctor`.
 
 - `gate --json doctor` includes `warnings`, the same CI tool warning strings a no-run `gate --json` listing reports. The text report is unchanged. Docs: docs/USAGE.md, `gate doctor`.
+
+- `gate doctor` flags a Go test gate that does not run `-race`. A convention `go test` does not satisfy it. Docs: docs/USAGE.md, `gate doctor`.
 
 - `gate record` prints the last result record for this project and exits 0 only when it is schema 2, `head` is the current HEAD, `status` matches this tree, `partial` is false, and the run exited 0. A missing record exits 1. A stale tree exits 1 and says stale. A fresh record whose run failed exits with that status and says failed. A matching record with `partial` true exits 1 and says partial. `gate --json record` prints the record as JSON. Docs: docs/USAGE.md, Result record.
 
@@ -26,9 +30,13 @@ Notable changes to `gate`. The format follows
 
 - The result record is schema 2. `status` is the SHA-256 of `git status --porcelain=v1 -z`, then `git diff HEAD`, then `git hash-object` (no `-w`) of each untracked path, so two dirty trees at one HEAD do not share a pass. A clean tree hashes empty status and an empty diff. `head` and `dirty` stay. A direct `gate <cmd>` still writes no record. Docs: docs/USAGE.md, Result record.
 
+- Install documents Homebrew (`rethunk-tech/tap/gate`) and Scoop (`rethunk` bucket), beside `go install` and GitHub Releases.
+
 ### Fixed
 
 - `--version` names the budget in force (`budget 15s`, `budget off`), next to timeout. Docs: docs/USAGE.md, Logs.
+
+- Reserved commands accept `--json` after the verb. Listing, doctor, and fix documents open with `schema`. Usage errors are `gate:`-prefixed. `-q` is the quiet short flag.
 
 - `gate fix` replaces `npx` only in `package.json` `scripts` values, so a description that mentions npx is left alone.
 
