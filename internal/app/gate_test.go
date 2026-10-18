@@ -1565,6 +1565,8 @@ func TestHelpSpellingsAgreeAndDoctorHasItsOwn(t *testing.T) {
 
 	doctorText, _, code := runGateTest(t, "doctor", "--help")
 	qt.Assert(t, qt.Equals(code, Success))
+	qt.Check(t, qt.StringContains(short, "[--json] doctor"), qt.Commentf("top-level usage omits --json on doctor: %q", short))
+	qt.Check(t, qt.StringContains(doctorText, "[--json]"), qt.Commentf("doctor help omits --json: %q", doctorText))
 	qt.Check(t, qt.StringContains(doctorText, "Read-only"), qt.Commentf("doctor help does not state its central guarantee: %q", doctorText))
 	qt.Check(t, qt.StringContains(doctorText, "no-ci"), qt.Commentf("doctor help does not name check slugs: %q", doctorText))
 	qt.Check(t, qt.StringContains(doctorText, "next-build-typecheck-race"), qt.Commentf("doctor help does not name check slugs: %q", doctorText))

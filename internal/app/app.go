@@ -45,7 +45,7 @@ const (
 
 const gateHelp = `usage: gate [-C <path>] [flags] [<command> [args...]]
        gate [-C <path>] [flags] run <name>...
-       gate [-C <path>] doctor
+       gate [-C <path>] [--json] doctor
        gate [-C <path>] [--json] fix [--dry-run]
        gate [-C <path>] [--json] record
 
@@ -105,7 +105,7 @@ Full reference: docs/USAGE.md
 
 // doctorHelp must not outgrow the top-level help. A subcommand whose help
 // outgrows the tool's own stops being read.
-const doctorHelp = `usage: gate [-C <path>] doctor
+const doctorHelp = `usage: gate [-C <path>] [--json] doctor
 
 Reports things about this project that are cheap to detect and worth fixing:
 missing vulnerability gates, CI gaps, superseded tooling and stale action
