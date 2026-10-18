@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -455,7 +456,7 @@ func conventionGates(ctx context.Context, root string, proj *Project) ([]Gate, [
 			gates = append(gates, Gate{
 				// -x: without it every `source "$dir/lib.sh"` is an SC1091 info
 				// finding, which exits 1 and fails the gate on correct code.
-				Name: "shell", Argv: append([]string{bin, "-x"}, scripts...),
+				Name: "shell", Argv: append([]string{bin, "-x", "--"}, scripts...),
 				Source:  "convention: shell scripts",
 				Summary: fmt.Sprintf("shellcheck (%d script%s)", len(scripts), plural(len(scripts))),
 			})
@@ -638,18 +639,31 @@ func gitFiles(ctx context.Context, root string) ([]string, bool) {
 		"-c", "core.fsmonitor=",
 		"ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "*")
 	cmd.Dir = root
+	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, false
 	}
 	var found []string
 	for name := range strings.SplitSeq(string(out), "\x00") {
-		if name != "" {
-			found = append(found, filepath.ToSlash(name))
+		if slash := filepath.ToSlash(name); repoPath(slash) {
+			found = append(found, slash)
 		}
 	}
 	slices.Sort(found)
 	return found, true
+}
+
+// repoPath reports a git or walk path that stays inside the project. An
+// absolute name, a NUL, or a `..` component would otherwise reach shellcheck
+// as a file outside the tree -- or, for a name starting with a dash, as a
+// flag. `--` in the argv is what stops the flag case; this is the rest.
+func repoPath(name string) bool {
+	if name == "" || strings.ContainsRune(name, 0) || filepath.IsAbs(name) || filepath.IsAbs(filepath.FromSlash(name)) {
+		return false
+	}
+	clean := path.Clean(name)
+	return clean != ".." && !strings.HasPrefix(clean, "../")
 }
 
 // gitDeadline bounds the one program detection runs. Detection is meant to be
@@ -675,7 +689,9 @@ func walkScripts(root string) []string {
 			return nil
 		}
 		if rel, err := filepath.Rel(root, path); err == nil {
-			found = append(found, filepath.ToSlash(rel))
+			if slash := filepath.ToSlash(rel); repoPath(slash) {
+				found = append(found, slash)
+			}
 		}
 		return nil
 	}); err != nil {

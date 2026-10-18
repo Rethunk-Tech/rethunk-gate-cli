@@ -672,8 +672,21 @@ func TestShellScriptsGetAShellGate(t *testing.T) {
 	gate := gateNamed(t, proj, "shell")
 	// Relative and sorted, so two runs produce the same command and the line
 	// stays readable.
-	qt.Check(t, qt.DeepEquals(gate.Argv, []string{shellcheck, "-x", "build.sh", "scripts/deploy.sh"}))
+	qt.Check(t, qt.DeepEquals(gate.Argv, []string{shellcheck, "-x", "--", "build.sh", "scripts/deploy.sh"}))
 	qt.Check(t, qt.Equals(gate.Source, "convention: shell scripts"))
+}
+
+// A script whose name looks like a flag must still be a file. Without `--`,
+// shellcheck would treat `-e.sh` as options.
+func TestShellcheckTreatsDashNamedScriptsAsFiles(t *testing.T) {
+	dir := t.TempDir()
+	shellcheck := testutil.WriteExecutable(t, dir, filepath.Join("node_modules", ".bin", "shellcheck"))
+	testutil.Write(t, dir, "package.json", `{"name":"app"}`)
+	testutil.Write(t, dir, "-e.sh", "#!/bin/sh\ntrue\n")
+
+	proj, err := Detect(t.Context(), dir)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.DeepEquals(gateNamed(t, proj, "shell").Argv, []string{shellcheck, "-x", "--", "-e.sh"}))
 }
 
 // A gate that cannot run is a note naming its install, never a lesser check.
@@ -779,7 +792,7 @@ func TestIgnoredScriptsAreNotTheProjectsOwn(t *testing.T) {
 	// Untracked but not ignored still counts: a script written a minute ago
 	// is the project's, and waiting for a commit to check it is the wrong
 	// moment to start.
-	qt.Check(t, qt.DeepEquals(gate.Argv[2:], []string{"scripts/real.sh"}),
+	qt.Check(t, qt.DeepEquals(gate.Argv[2:], []string{"--", "scripts/real.sh"}),
 		qt.Commentf("argv = %v", gate.Argv))
 }
 
@@ -793,7 +806,7 @@ func TestScriptsAreWalkedOutsideARepository(t *testing.T) {
 	proj, err := Detect(t.Context(), dir)
 	qt.Assert(t, qt.IsNil(err))
 	gate := gateNamed(t, proj, "shell")
-	qt.Check(t, qt.DeepEquals(gate.Argv[2:], []string{"scripts/real.sh"}))
+	qt.Check(t, qt.DeepEquals(gate.Argv[2:], []string{"--", "scripts/real.sh"}))
 }
 
 // golangci-lint's default is a global file lock: a second instance exits
