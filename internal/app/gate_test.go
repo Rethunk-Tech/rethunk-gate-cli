@@ -2406,11 +2406,39 @@ func TestListingOmitsUnsetConfigKeys(t *testing.T) {
 	stdout, _, _ := runGateTest(t, "-C", root, "--list")
 	qt.Check(t, qt.Not(qt.StringContains(stdout, "dir ")), qt.Commentf("listing = %q", stdout))
 	qt.Check(t, qt.Not(qt.StringContains(stdout, "allow-failure")), qt.Commentf("listing = %q", stdout))
+	qt.Check(t, qt.Not(qt.StringContains(stdout, "timeout")), qt.Commentf("listing = %q", stdout))
 
 	jsonOut, _, _ := runGateTest(t, "-C", root, "--json")
-	for _, field := range []string{`"dir"`, `"env"`, `"allow_failure"`} {
+	for _, field := range []string{`"dir"`, `"env"`, `"allow_failure"`, `"timeout"`} {
 		qt.Check(t, qt.Not(qt.StringContains(jsonOut, field)), qt.Commentf("json = %q", jsonOut))
 	}
+}
+
+// A configured timeout is a key that differs from the default, including a
+// deliberate 0. The listing names it the way --version does; a gate that
+// never set the key stays quiet even though every gate takes some limit.
+func TestListingShowsConfiguredTimeout(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
+	testutil.Write(t, root, ".gate.toml",
+		"[gates.slow]\nrun = \"true\"\ntimeout = \"5m\"\n\n[gates.unbounded]\nrun = \"echo unbounded\"\ntimeout = \"0\"\n")
+
+	stdout, _, code := runGateTest(t, "-C", root, "--list")
+	qt.Assert(t, qt.Equals(code, Success))
+	qt.Check(t, qt.StringContains(stdout, "timeout "+describeTimeout(5*time.Minute)), qt.Commentf("listing = %q", stdout))
+	qt.Check(t, qt.StringContains(stdout, "timeout off"), qt.Commentf("listing = %q", stdout))
+
+	jsonOut, _, code := runGateTest(t, "-C", root, "--json")
+	qt.Assert(t, qt.Equals(code, Success))
+	var got listing
+	qt.Assert(t, qt.IsNil(json.Unmarshal([]byte(jsonOut), &got)), qt.Commentf("stdout is not JSON: %q", jsonOut))
+	byName := map[string]listedGate{}
+	for _, g := range got.Gates {
+		byName[g.Name] = g
+	}
+	qt.Check(t, qt.Equals(byName["slow"].Timeout, describeTimeout(5*time.Minute)))
+	qt.Check(t, qt.Equals(byName["unbounded"].Timeout, "off"))
 }
 
 // --profile names what the run cost without touching what it reports: the

@@ -8,6 +8,8 @@ Notable changes to `gate`. The format follows
 
 ### Added
 
+- `--list` and `--json` name a gate's configured `timeout` where the file set one, including `off` for `timeout = "0"`. A gate that never set the key stays quiet. Docs: docs/USAGE.md, configuration listing.
+
 - `gate --json record` adds `current` (`head`, `status`, `dirty`) from the tree just read, beside the stored record. `fresh` and `reason` stay. The stored record stays schema 2. `gate record` without `--json` stays text. Docs: docs/USAGE.md, Result record.
 
 - `gate doctor` flags a schema-2 result that is not fresh (`stale`, `partial`, or `failed`). A missing record stays quiet. The fix is `run gate`. `gate --json doctor` includes the finding. Docs: docs/USAGE.md, `gate doctor`.

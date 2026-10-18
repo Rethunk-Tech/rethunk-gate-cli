@@ -642,8 +642,9 @@ configuration rather than yours.
 
 `--list` and `--json` name the configured keys where they differ from the
 default — the resolved `dir`, the `env` variables in a stable order,
-`allow-failure` — and stay quiet about the rest, so a gate with nothing
-configured reads exactly as it always did.
+`allow-failure`, and a per-gate `timeout` (including `off` for a deliberate
+`0`) — and stay quiet about the rest, so a gate with nothing configured
+reads exactly as it always did.
 
 A file that cannot be understood is refused, never ignored — including a
 misspelled key, which would otherwise do nothing quietly. Every unknown key is

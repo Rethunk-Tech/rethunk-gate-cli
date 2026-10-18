@@ -72,6 +72,11 @@ type listedGate struct {
 	// unchanged.
 	AllowFailure bool `json:"allow_failure,omitempty"`
 
+	// Timeout is this gate's own limit when configuration set one, spelled
+	// the way --version spells it. Absent where the gate never set a key,
+	// even if --timeout applied to the whole run.
+	Timeout string `json:"timeout,omitempty"`
+
 	// E2E marks a browser e2e suite. Skipped says this invocation would
 	// not run it: a default run leaves e2e out unless --e2e or `run` asks.
 	// Both are absent for every other gate.
@@ -112,6 +117,7 @@ func writeListingJSON(w io.Writer, project detect.Project, files []string, opts 
 				Dir:          spec.listDir(),
 				Env:          spec.env,
 				AllowFailure: spec.allowFailure,
+				Timeout:      spec.listTimeout(),
 				E2E:          spec.e2e,
 				Skipped:      spec.e2e && opts.skipE2E,
 				Group:        group,
@@ -193,9 +199,11 @@ func writeListing(w io.Writer, project detect.Project, files []string, opts opti
 				for _, shadowed := range spec.shadowed {
 					fmt.Fprintf(w, "        shadows %s\n", shadowed)
 				}
-				// Configuration beyond run/serial/timeout, printed where it
-				// differs from the default. A gate without any of these
-				// prints exactly what it always did.
+				// Configuration beyond run/serial, printed where it differs
+				// from the default. A gate without any of these prints
+				// exactly what it always did. Timeout is here rather than
+				// with serial: grouping already shows order, and a limit
+				// has no other line.
 				if dir := spec.listDir(); dir != "" {
 					fmt.Fprintf(w, "        dir %s\n", dir)
 				}
@@ -204,6 +212,9 @@ func writeListing(w io.Writer, project detect.Project, files []string, opts opti
 				}
 				if spec.allowFailure {
 					fmt.Fprintf(w, "        allow-failure\n")
+				}
+				if timeout := spec.listTimeout(); timeout != "" {
+					fmt.Fprintf(w, "        timeout %s\n", timeout)
 				}
 				switch {
 				case spec.e2e && opts.skipE2E:
@@ -245,6 +256,17 @@ func (s gateSpec) listDir() string {
 		return ""
 	}
 	return s.dir
+}
+
+// listTimeout reports a configured per-gate limit, including a deliberate
+// 0. The run default stays off this line: printing it would put timeout on
+// every listing. A --timeout flag that beat the file still prints here,
+// because the file set a key and the value is whatever will actually run.
+func (s gateSpec) listTimeout() string {
+	if !s.hasTimeout {
+		return ""
+	}
+	return describeTimeout(s.timeout)
 }
 
 // formatEnv renders configured variables in a stable order, so two runs
