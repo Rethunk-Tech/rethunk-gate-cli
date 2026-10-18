@@ -8,6 +8,8 @@ Notable changes to `gate`. The format follows
 
 ### Added
 
+- Hidden `gate completion <bash|zsh|fish|pwsh>` and `gate man` print shell completions and a man page generated from the same `--help` text. Releases attach `gate-completions-man.tar.gz`.
+
 - `--list` and `--json` name a gate's configured `serial` where the file set it. A lone serial gate still lists under `-- all concurrent`; `--serial` does not print the key on gates the file left concurrent. Docs: docs/USAGE.md, configuration listing.
 
 - `gate doctor` warns for a missing Python audit, Rust clippy, or Bun audit the same way it already warns for Go: local `python-no-audit`, `rust-no-clippy`, `bun-no-audit`, and CI `ci-python-audit-off`, `ci-clippy-off`, `ci-bun-audit-off`. `run-audit` is attributed to the step that uses that action. `gate fix` skips the local checks and splices the CI inputs. Docs: docs/USAGE.md, `gate doctor`.

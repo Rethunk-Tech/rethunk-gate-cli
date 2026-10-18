@@ -24,9 +24,10 @@ reads the log's bytes for turbo / `go test` / `make` markers, then a label and
 an NDJSON `cache` field. It never sets a `Code`, never moves the aggregate, and
 is silent on unrecognised output. See cache.go's doc comment.
 
-Reserved words: **`doctor`**, **`run`**, **`fix`**, **`record`**. A bare word
+Reserved words: **`doctor`**, **`run`**, **`fix`**, **`record`**, **`completion`**, **`man`**. A bare word
 cannot name a gate. Those programs: `gate -- run x` (and the same for the
-others). An unknown `gate run` name fails the whole run.
+others). An unknown `gate run` name fails the whole run. `completion` and `man`
+are hidden: they are not in `--help`.
 
 ## Invariants in the capture path
 

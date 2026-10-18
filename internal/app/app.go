@@ -284,9 +284,32 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		return InvalidUsage
 	}
 
-	// "doctor", "fix", "record", and "run" are the only words gate treats as its
-	// own rather than as a command. A real program by any of those names is
-	// still reachable as `gate -- doctor`, which is what -- is for.
+	// "doctor", "fix", "record", "run", "completion", and "man" are the only
+	// words gate treats as its own rather than as a command. A real program
+	// by any of those names is still reachable as `gate -- doctor`, which is
+	// what -- is for. completion and man are hidden: they are not in --help.
+	if !explicit && len(args) > 0 && args[0] == "completion" {
+		if opts.ndjson {
+			fmt.Fprintln(stderr, "gate: --ndjson streams a run; completion is not a run")
+			return InvalidUsage
+		}
+		if opts.profile {
+			fmt.Fprintln(stderr, "gate: --profile reports a run; completion is not a run")
+			return InvalidUsage
+		}
+		return runCompletion(args[1:], stdout, stderr)
+	}
+	if !explicit && len(args) > 0 && args[0] == "man" {
+		if opts.ndjson {
+			fmt.Fprintln(stderr, "gate: --ndjson streams a run; man is not a run")
+			return InvalidUsage
+		}
+		if opts.profile {
+			fmt.Fprintln(stderr, "gate: --profile reports a run; man is not a run")
+			return InvalidUsage
+		}
+		return runMan(args[1:], stdout, stderr)
+	}
 	if !explicit && len(args) == 1 && args[0] == "doctor" {
 		// --ndjson streams what a run did, and doctor runs nothing. --json
 		// is served: findings are a list with a stable schema, and a sweep
