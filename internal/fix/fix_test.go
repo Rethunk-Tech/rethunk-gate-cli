@@ -412,3 +412,22 @@ func TestPackageScriptsNpxClearsThroughDoctor(t *testing.T) {
 	_, still := findingNamed(findings, "npx-in-bun-workspace")
 	qt.Check(t, qt.IsFalse(still), qt.Commentf("doctor still reports npx-in-bun-workspace: %v", findings))
 }
+
+// Doctor flags scripts only; a description that mentions npx is prose and
+// must survive the splice that clears the finding.
+func TestPackageScriptsNpxLeavesDescriptionProse(t *testing.T) {
+	isolatePath(t)
+	dir := t.TempDir()
+	testutil.Write(t, dir, "bun.lock", "")
+	testutil.Write(t, dir, "package.json",
+		`{"description":"run it with npx foo","scripts":{"typecheck":"npx tsc --noEmit"}}`)
+	path := filepath.Join(dir, "package.json")
+
+	applyNamed(t, dir, "npx-in-bun-workspace", false)
+	body, err := os.ReadFile(path) //nolint:gosec // path is a temporary package fixture
+	qt.Assert(t, qt.IsNil(err))
+	got := string(body)
+	qt.Check(t, qt.StringContains(got, `"description":"run it with npx foo"`))
+	qt.Check(t, qt.StringContains(got, "bunx tsc"))
+	qt.Check(t, qt.Not(qt.StringContains(got, `"typecheck":"npx `)))
+}

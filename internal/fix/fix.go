@@ -5,11 +5,13 @@ package fix
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/config"
@@ -286,7 +288,40 @@ func replaceNpx(body string) (string, string) {
 	if !strings.Contains(body, "npx ") {
 		return body, "named npx invocation not found"
 	}
+	if json.Valid([]byte(strings.TrimSpace(body))) {
+		return replaceNpxInScripts(body)
+	}
 	return strings.ReplaceAll(body, "npx ", "bunx "), ""
+}
+
+// replaceNpxInScripts splices script values only. Doctor flags npx inside
+// scripts, and a whole-file ReplaceAll would rewrite a description that
+// mentions the same words.
+func replaceNpxInScripts(body string) (string, string) {
+	var pkg struct {
+		Scripts map[string]string `json:"scripts"`
+	}
+	if err := json.Unmarshal([]byte(body), &pkg); err != nil {
+		return body, "named npx invocation not found"
+	}
+	next := body
+	changed := false
+	for _, script := range pkg.Scripts {
+		if !strings.Contains(script, "npx ") {
+			continue
+		}
+		replaced := strings.ReplaceAll(script, "npx ", "bunx ")
+		from, to := strconv.Quote(script), strconv.Quote(replaced)
+		if !strings.Contains(next, from) {
+			return body, "named npx invocation not found"
+		}
+		next = strings.ReplaceAll(next, from, to)
+		changed = true
+	}
+	if !changed {
+		return body, "named npx invocation not found"
+	}
+	return next, ""
 }
 
 func enableGovulncheck(body string) (string, string) {
