@@ -6,6 +6,8 @@ Notable changes to `gate`. The format follows
 
 ## [Unreleased]
 
+## [0.6.8] - 2026-10-18
+
 ### Added
 
 - `--jobs N` caps how many gates run at once (default: no cap, today's overlap; N>=1). Top-level `jobs = N` in `.gate.toml` is the same statement (flag wins). Serial groups and turbo/serial edges keep their order. A bad value is exit 129. Docs: docs/USAGE.md, `serial`.
