@@ -587,7 +587,7 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 	}
 
 	res.tracker = newLineTracker(opts.tail)
-	cache := newCacheScanner()
+	cache := &cacheScanner{}
 
 	runCtx := ctx
 	if spec.timeout > 0 {

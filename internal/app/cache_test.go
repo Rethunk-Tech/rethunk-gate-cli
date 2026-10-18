@@ -22,7 +22,7 @@ func feed(s *cacheScanner, lines ...string) {
 }
 
 func TestATurboSummaryLineIsAuthoritativeWhateverElseTheTaskGraphPrinted(t *testing.T) {
-	s := newCacheScanner()
+	s := &cacheScanner{}
 	feed(s,
 		"lint: cache miss, executing 1a2b3c4d",
 		"test:  Test Files  693 passed (693)",
@@ -34,7 +34,7 @@ func TestATurboSummaryLineIsAuthoritativeWhateverElseTheTaskGraphPrinted(t *test
 }
 
 func TestAFullyCachedTurboRunReportsCachedNotAFraction(t *testing.T) {
-	s := newCacheScanner()
+	s := &cacheScanner{}
 	feed(s, "Cached:    4 cached, 4 total", "  Time:    10ms >>> FULL TURBO")
 	v := s.verdict()
 	qt.Assert(t, qt.IsTrue(v.full()))
@@ -42,7 +42,7 @@ func TestAFullyCachedTurboRunReportsCachedNotAFraction(t *testing.T) {
 }
 
 func TestGoTestCountsCachedPackagesAgainstTheWholeSet(t *testing.T) {
-	s := newCacheScanner()
+	s := &cacheScanner{}
 	feed(s,
 		"?   \tgithub.com/example/cmd\t[no test files]",
 		"ok  \tgithub.com/example/a\t(cached)",
@@ -54,19 +54,19 @@ func TestGoTestCountsCachedPackagesAgainstTheWholeSet(t *testing.T) {
 }
 
 func TestGoTestAllCachedReportsFull(t *testing.T) {
-	s := newCacheScanner()
+	s := &cacheScanner{}
 	feed(s, "ok  \tgithub.com/example/a\t(cached)", "ok  \tgithub.com/example/b\t(cached)")
 	qt.Assert(t, qt.Equals(s.verdict().label(), "cached"))
 }
 
 func TestMakeReportsCachedOnlyWhenEveryLineWasItsOwnUpToDateMarker(t *testing.T) {
-	s := newCacheScanner()
+	s := &cacheScanner{}
 	feed(s, "make: 'test' is up to date.")
 	qt.Assert(t, qt.Equals(s.verdict().label(), "cached"))
 }
 
 func TestMakeStaysSilentWhenARecipeActuallyRanBesideAnUpToDateTarget(t *testing.T) {
-	s := newCacheScanner()
+	s := &cacheScanner{}
 	feed(s, "cc -o build build.c", "make: 'test' is up to date.")
 	// No count of how many targets make considered exists to weigh against
 	// the one recognised line, so this must not guess at a fraction --
@@ -75,7 +75,7 @@ func TestMakeStaysSilentWhenARecipeActuallyRanBesideAnUpToDateTarget(t *testing.
 }
 
 func TestAnUnrecognisedOutputShapeReportsNothing(t *testing.T) {
-	s := newCacheScanner()
+	s := &cacheScanner{}
 	feed(s, "running 4 tests", "test result: ok. 4 passed; 0 failed")
 	qt.Assert(t, qt.Equals(s.verdict().label(), ""))
 	qt.Assert(t, qt.IsFalse(s.verdict().full()))
@@ -83,7 +83,7 @@ func TestAnUnrecognisedOutputShapeReportsNothing(t *testing.T) {
 }
 
 func TestCacheScannerCapsAnOversizedLineLikeLineTrackerDoes(t *testing.T) {
-	s := newCacheScanner()
+	s := &cacheScanner{}
 	huge := make([]byte, maxTrackedLine*2)
 	for i := range huge {
 		huge[i] = 'x'

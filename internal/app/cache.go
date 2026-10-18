@@ -117,8 +117,6 @@ type cacheScanner struct {
 	nonBlankLines     int
 }
 
-func newCacheScanner() *cacheScanner { return &cacheScanner{} }
-
 // Write never reports an error, for the same reason lineTracker's does not:
 // a failure here must never abort the copy that feeds the log.
 func (s *cacheScanner) Write(p []byte) (int, error) {
