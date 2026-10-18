@@ -293,21 +293,11 @@ func Load(root string) (Loaded, error) {
 	}, nil
 }
 
-// fresh reports whether the record is schema 2 for the tree state names and
-// covers every gate. A partial run named only some gates, so it is not a pass
-// of this tree even when head, status, and exit agree.
-func fresh(schema int, head, status string, partial bool, state State) bool {
-	return state.OK &&
-		schema == Schema &&
-		head == state.Head &&
-		status == state.Status &&
-		!partial
-}
-
 // Verdict is why a loaded record is or is not fresh: a tree or schema
 // mismatch is stale even when the run failed, a failed run is failed even
 // when partial, and partial is only the remaining case. An empty reason
-// means fresh.
+// means fresh. A partial run named only some gates, so it is not a pass of
+// this tree even when head, status, and exit agree.
 func Verdict(schema int, head, status string, partial bool, exit int, state State) (bool, string) {
 	if !state.OK || schema != Schema || head != state.Head || status != state.Status {
 		return false, "stale"
@@ -315,7 +305,7 @@ func Verdict(schema int, head, status string, partial bool, exit int, state Stat
 	if exit != 0 {
 		return false, "failed"
 	}
-	if !fresh(schema, head, status, partial, state) {
+	if partial {
 		return false, "partial"
 	}
 	return true, ""
