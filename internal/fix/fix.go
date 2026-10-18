@@ -139,18 +139,29 @@ func applyWorkflow(f doctor.Finding, dryRun bool, edit func(string) (string, str
 	return done(f, false), nil
 }
 
-func writeFile(path, body string) error {
-	info, err := os.Lstat(path)
+// writeFile confines the write to the finding's own directory, so a crafted
+// path cannot climb out of it.
+func writeFile(path, body string) (err error) {
+	root, err := os.OpenRoot(filepath.Dir(path))
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if cerr := root.Close(); err == nil {
+			err = cerr
+		}
+	}()
+	name := filepath.Base(path)
+	info, err := root.Lstat(name)
 	switch {
 	case errors.Is(err, os.ErrNotExist):
-		mode := os.FileMode(0o644)
-		return os.WriteFile(path, []byte(body), mode) //nolint:gosec // path comes from a doctor finding resolved under the project root
+		return root.WriteFile(name, []byte(body), 0o644)
 	case err != nil:
 		return err
 	case info.Mode()&os.ModeSymlink != 0:
 		return fmt.Errorf("refusing to write through a symlink")
 	}
-	return os.WriteFile(path, []byte(body), info.Mode().Perm()) //nolint:gosec // path comes from a doctor finding resolved under the project root
+	return root.WriteFile(name, []byte(body), info.Mode().Perm())
 }
 
 // --- next-build-typecheck-race ---

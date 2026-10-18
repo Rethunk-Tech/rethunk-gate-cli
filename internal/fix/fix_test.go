@@ -275,7 +275,7 @@ func TestApplyRefusesToWriteThroughASymlink(t *testing.T) {
 	qt.Assert(t, qt.IsNotNil(err))
 	qt.Check(t, qt.StringContains(err.Error(), "symlink"))
 
-	got, err := os.ReadFile(target) //nolint:gosec // path is a temporary fixture the test owns
+	got, err := os.ReadFile(filepath.Clean(target))
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.Equals(string(got), body))
 }
