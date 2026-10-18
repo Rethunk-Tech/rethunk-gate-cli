@@ -28,6 +28,8 @@ Notable changes to `gate`. The format follows
 
 ### Fixed
 
+- `--version` names the budget in force (`budget 15s`, `budget off`), next to timeout. Docs: docs/USAGE.md, Logs.
+
 - `--budget` and a top-level `budget` in `.gate.toml` apply when e2e gates run, including `0` to silence the warning. The 2m default is only the fallback when neither was set. Docs: docs/USAGE.md, What a run cost.
 
 - `gate record` treats a schema-2 result with `partial: true` as not fresh. The exit is non-zero and stderr says partial, even when `exit` is 0 and head and status match. A full pass with `partial: false` still exits 0. Docs: docs/USAGE.md, Result record.

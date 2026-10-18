@@ -853,7 +853,8 @@ path cannot hold several logs — and points at `TMPDIR` instead. The file's
 parent is the caller's: created 0755 if missing, never chmod'd to 0700, and
 never swept.
 
-`gate --version` names the retention alongside the log directory. Logs older
+`gate --version` names the timeout and budget in force, the log directory, and
+the retention. Logs older
 than **14 days** are removed from gate's own directory. Nothing else
 does it, and the directory only grows: one operator's measured 811 logs in two
 days. Linux clears `/var/tmp` at 30 days, but the macOS and Windows temporary

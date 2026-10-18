@@ -231,7 +231,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	// `gate --timeout 5m --version` reports 5m instead of the default it
 	// would have printed had it exited on sight.
 	if showVersion {
-		writeVersion(stdout, version, timeout)
+		writeVersion(stdout, version, timeout, budget)
 		return Success
 	}
 

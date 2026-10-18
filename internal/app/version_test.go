@@ -10,9 +10,9 @@ import (
 )
 
 // version renders the version output for one set of settings.
-func version(ldflags string, timeout time.Duration) string {
+func version(ldflags string, timeout, budget time.Duration) string {
 	var out bytes.Buffer
-	writeVersion(&out, ldflags, timeout)
+	writeVersion(&out, ldflags, timeout, budget)
 	return out.String()
 }
 
@@ -21,7 +21,7 @@ func version(ldflags string, timeout time.Duration) string {
 // print the "dev" placeholder.
 func TestVersionNamesTheToolAndTheBuild(t *testing.T) {
 	t.Parallel()
-	first, _, _ := strings.Cut(version("v1.2.3", defaultTimeout), "\n")
+	first, _, _ := strings.Cut(version("v1.2.3", defaultTimeout, defaultBudget), "\n")
 
 	qt.Check(t, qt.IsTrue(strings.HasPrefix(first, "gate v1.2.3 ")),
 		qt.Commentf("version line = %q, want it to name the tool and version", first))
@@ -39,13 +39,17 @@ func TestVersionSettingsLineReflectsOverrides(t *testing.T) {
 	for _, c := range []struct {
 		name    string
 		timeout time.Duration
+		budget  time.Duration
 		want    string
 	}{
-		{name: "default", timeout: defaultTimeout, want: "timeout 1m"},
-		{name: "overridden", timeout: 5 * time.Minute, want: "timeout 5m"},
-		{name: "disabled", timeout: 0, want: "timeout off"},
+		{name: "default timeout", timeout: defaultTimeout, budget: defaultBudget, want: "timeout 1m"},
+		{name: "overridden timeout", timeout: 5 * time.Minute, budget: defaultBudget, want: "timeout 5m"},
+		{name: "disabled timeout", timeout: 0, budget: defaultBudget, want: "timeout off"},
+		{name: "default budget", timeout: defaultTimeout, budget: defaultBudget, want: "budget 10s"},
+		{name: "overridden budget", timeout: defaultTimeout, budget: 15 * time.Second, want: "budget 15s"},
+		{name: "disabled budget", timeout: defaultTimeout, budget: 0, want: "budget off"},
 	} {
-		got := version("v1", c.timeout)
+		got := version("v1", c.timeout, c.budget)
 		qt.Check(t, qt.StringContains(got, c.want), qt.Commentf("%s: %q", c.name, got))
 	}
 }
@@ -74,6 +78,6 @@ func TestResolveVersionPrefersLdflagsAndIsNeverEmpty(t *testing.T) {
 func TestVersionNamesLogRetention(t *testing.T) {
 	t.Parallel()
 	var out bytes.Buffer
-	writeVersion(&out, "v1.2.3", time.Minute)
+	writeVersion(&out, "v1.2.3", time.Minute, defaultBudget)
 	qt.Check(t, qt.StringContains(out.String(), "kept 14 days"), qt.Commentf("version = %q", out.String()))
 }

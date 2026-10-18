@@ -65,15 +65,15 @@ func resolveVersion(ldflags string) string {
 // "why did it do that", and every value on it can be moved by a flag or the
 // environment -- which is exactly what a bug report needs and what nobody
 // thinks to ask for.
-func writeVersion(w io.Writer, ldflags string, timeout time.Duration) {
+func writeVersion(w io.Writer, ldflags string, timeout, budget time.Duration) {
 	fmt.Fprintf(w, "gate %s (%s, %s/%s)\n",
 		resolveVersion(ldflags), runtime.Version(), runtime.GOOS, runtime.GOARCH)
 	// Retention is on this line because gate deletes files. Everything else
 	// here can be moved by a flag; this one cannot, and it is the only
 	// default that destroys something, so leaving it to the documentation
 	// makes the line say less than it claims to.
-	fmt.Fprintf(w, "defaults: timeout %s, logs %s (kept %d days)\n",
-		describeTimeout(timeout), logDir(), int(pruneAge.Hours()/24))
+	fmt.Fprintf(w, "defaults: timeout %s, budget %s, logs %s (kept %d days)\n",
+		describeTimeout(timeout), describeTimeout(budget), logDir(), int(pruneAge.Hours()/24))
 }
 
 func describeTimeout(timeout time.Duration) string {
