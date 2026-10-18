@@ -25,7 +25,7 @@ const emptyTreeStatus = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991
 // package: every detected run writes one, and a suite must never write into
 // the operator's own.
 func TestMain(m *testing.M) {
-	dir, err := os.MkdirTemp("", "gate-state-")
+	dir, err := packageScratch("gate-state-")
 	if err != nil {
 		panic(err)
 	}
@@ -35,6 +35,16 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 	_ = os.RemoveAll(dir)
 	os.Exit(code)
+}
+
+// packageScratch makes a directory under TMPDIR, or /var/tmp when TMPDIR is
+// unset. os.MkdirTemp("", ...) would land on /tmp, which is tmpfs here.
+func packageScratch(pattern string) (string, error) {
+	base := os.Getenv("TMPDIR")
+	if base == "" {
+		base = "/var/tmp"
+	}
+	return os.MkdirTemp(base, pattern)
 }
 
 // committedRepo is a repository at root with every file committed, under a
@@ -66,6 +76,23 @@ func readRecord(t *testing.T, root string) record {
 	var rec record
 	qt.Assert(t, qt.IsNil(json.Unmarshal(data, &rec)))
 	return rec
+}
+
+func TestPackageScratchHonoursTMPDIR(t *testing.T) {
+	want := t.TempDir()
+	t.Setenv("TMPDIR", want)
+	dir, err := packageScratch("gate-state-")
+	qt.Assert(t, qt.IsNil(err))
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	qt.Assert(t, qt.Equals(filepath.Dir(dir), want))
+}
+
+func TestPackageScratchAvoidsTmpWhenTMPDIRUnset(t *testing.T) {
+	t.Setenv("TMPDIR", "")
+	dir, err := packageScratch("gate-state-")
+	qt.Assert(t, qt.IsNil(err))
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	qt.Assert(t, qt.Equals(filepath.Dir(dir), "/var/tmp"))
 }
 
 func TestRunWritesARecordForTheHeadItTested(t *testing.T) {

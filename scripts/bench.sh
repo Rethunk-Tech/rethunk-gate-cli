@@ -13,12 +13,14 @@
 # Timing is best-of-N after a warmup.
 set -u
 
-OUT=${GATE_BENCH_OUT:-/var/tmp/gate-bench}
+: "${TMPDIR:=/var/tmp}"
+export TMPDIR
+export GOTMPDIR="$TMPDIR"
+OUT=${GATE_BENCH_OUT:-$TMPDIR/gate-bench}
 REPOS=${GATE_BENCH_REPOS:-$(dirname "$0")/bench-repos.txt}
 RUNS=${GATE_BENCH_RUNS:-3}
 REPEAT_UNDER_MS=${GATE_BENCH_REPEAT_UNDER_MS:-5000}
 TIMEOUT=${GATE_BENCH_TIMEOUT:-300}
-export GOTMPDIR=/var/tmp TMPDIR=/var/tmp
 mkdir -p "$OUT"
 
 now() { date +%s%N; }
