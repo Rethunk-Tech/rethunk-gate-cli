@@ -650,6 +650,9 @@ func TestJSONListingCarriesWhatListDoes(t *testing.T) {
 	// Gates sharing a group run one after another; groups run concurrently.
 	qt.Check(t, qt.Equals(got.Gates[0].Group, got.Gates[1].Group), qt.Commentf("the two serial gates were not grouped together"))
 	qt.Check(t, qt.Not(qt.Equals(got.Gates[2].Group, got.Gates[0].Group)), qt.Commentf("a gate that asked for no order joined the serial group"))
+	qt.Check(t, qt.IsTrue(got.Gates[0].Serial))
+	qt.Check(t, qt.IsTrue(got.Gates[1].Serial))
+	qt.Check(t, qt.IsFalse(got.Gates[2].Serial))
 
 	// The RESOLVED path is what execution uses, so it is what a consumer has
 	// to be given.
@@ -2449,9 +2452,10 @@ func TestListingOmitsUnsetConfigKeys(t *testing.T) {
 	qt.Check(t, qt.Not(qt.StringContains(stdout, "dir ")), qt.Commentf("listing = %q", stdout))
 	qt.Check(t, qt.Not(qt.StringContains(stdout, "allow-failure")), qt.Commentf("listing = %q", stdout))
 	qt.Check(t, qt.Not(qt.StringContains(stdout, "timeout")), qt.Commentf("listing = %q", stdout))
+	qt.Check(t, qt.Not(qt.StringContains(stdout, "        serial")), qt.Commentf("listing = %q", stdout))
 
 	jsonOut, _, _ := runGateTest(t, "-C", root, "--json")
-	for _, field := range []string{`"dir"`, `"env"`, `"allow_failure"`, `"timeout"`} {
+	for _, field := range []string{`"dir"`, `"env"`, `"allow_failure"`, `"timeout"`, `"serial"`} {
 		qt.Check(t, qt.Not(qt.StringContains(jsonOut, field)), qt.Commentf("json = %q", jsonOut))
 	}
 }
@@ -2481,6 +2485,55 @@ func TestListingShowsConfiguredTimeout(t *testing.T) {
 	}
 	qt.Check(t, qt.Equals(byName["slow"].Timeout, describeTimeout(5*time.Minute)))
 	qt.Check(t, qt.Equals(byName["unbounded"].Timeout, "off"))
+}
+
+// --list names serial the way it names allow-failure: a flag with no value
+// on a gate whose spec set the key. A lone serial gate still has an all-
+// concurrent header because groups are concurrent; --serial does not put
+// the key on gates the file left concurrent.
+func TestListingShowsConfiguredSerial(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
+	testutil.Write(t, root, ".gate.toml",
+		"[gates.a]\nrun = \"true\"\nserial = true\n\n[gates.b]\nrun = \"echo b\"\nserial = true\n\n[gates.c]\nrun = \"echo c\"\n")
+
+	stdout, _, code := runGateTest(t, "-C", root, "--list")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("listing = %q", stdout))
+	qt.Check(t, qt.StringContains(stdout, "then"), qt.Commentf("listing = %q", stdout))
+	qt.Check(t, qt.Equals(strings.Count(stdout, "        serial\n"), 2), qt.Commentf("listing = %q", stdout))
+	qt.Check(t, qt.StringContains(stdout, "c          echo c"), qt.Commentf("listing = %q", stdout))
+
+	jsonOut, _, code := runGateTest(t, "-C", root, "--json")
+	qt.Assert(t, qt.Equals(code, Success))
+	var got listing
+	qt.Assert(t, qt.IsNil(json.Unmarshal([]byte(jsonOut), &got)), qt.Commentf("stdout is not JSON: %q", jsonOut))
+	byName := map[string]listedGate{}
+	for _, g := range got.Gates {
+		byName[g.Name] = g
+	}
+	qt.Check(t, qt.Equals(byName["a"].Group, byName["b"].Group))
+	qt.Check(t, qt.IsTrue(byName["a"].Serial))
+	qt.Check(t, qt.IsTrue(byName["b"].Serial))
+	qt.Check(t, qt.IsFalse(byName["c"].Serial))
+	qt.Check(t, qt.Not(qt.Equals(byName["c"].Group, byName["a"].Group)))
+
+	lone := t.TempDir()
+	testutil.Write(t, lone, "Makefile", "help:\n\t@echo nothing to do\n")
+	testutil.Write(t, lone, ".gate.toml", "[gates.only]\nrun = \"true\"\nserial = true\n")
+	loneOut, _, code := runGateTest(t, "-C", lone, "--list")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("listing = %q", loneOut))
+	qt.Check(t, qt.StringContains(loneOut, "all concurrent"), qt.Commentf("listing = %q", loneOut))
+	qt.Check(t, qt.StringContains(loneOut, "        serial\n"), qt.Commentf("listing = %q", loneOut))
+	loneJSON, _, _ := runGateTest(t, "-C", lone, "--json")
+	qt.Check(t, qt.StringContains(loneJSON, `"serial": true`), qt.Commentf("json = %q", loneJSON))
+
+	flagRoot := t.TempDir()
+	testutil.Write(t, flagRoot, "Makefile", "help:\n\t@echo nothing to do\n")
+	testutil.Write(t, flagRoot, ".gate.toml", "[gates.a]\nrun = \"true\"\n\n[gates.b]\nrun = \"echo b\"\n")
+	flagOut, _, code := runGateTest(t, "-C", flagRoot, "--serial", "--list")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("listing = %q", flagOut))
+	qt.Check(t, qt.Not(qt.StringContains(flagOut, "        serial")), qt.Commentf("listing = %q", flagOut))
 }
 
 // --profile names what the run cost without touching what it reports: the

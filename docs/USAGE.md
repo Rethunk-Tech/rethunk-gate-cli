@@ -305,8 +305,9 @@ for want of a tool clears that missing-tool note.
 
 Merge **per key** (`env` per variable) from the *detected* project root.
 `--list` / `--json` name configured `dir`, stable-order `env`,
-`allow-failure`, and `timeout` (`off` for `0`) only where they differ from
-the default. Unreadable files are refused; every unknown key in one report.
+`allow-failure`, `serial`, and `timeout` (`off` for `0`) only where they
+differ from the default. Unreadable files are refused; every unknown key
+in one report.
 
 ## `serial`
 

@@ -93,6 +93,11 @@ type listedGate struct {
 	// Group is the scheduling group. Gates sharing a group run one after
 	// another; groups run concurrently.
 	Group int `json:"group"`
+
+	// Serial marks a gate the file asked to sequence with other serial
+	// ones. Absent where the gate never set the key, including a run
+	// under --serial: that flag is not spec.serial.
+	Serial bool `json:"serial,omitempty"`
 }
 
 // writeListingJSON prints the same facts writeListing does, in a shape a
@@ -129,6 +134,7 @@ func writeListingJSON(w io.Writer, project detect.Project, files []string, opts 
 				E2E:          spec.e2e,
 				Skipped:      spec.e2e && opts.skipE2E,
 				Group:        group,
+				Serial:       spec.serial,
 			})
 		}
 	}
@@ -207,11 +213,11 @@ func writeListing(w io.Writer, project detect.Project, files []string, opts opti
 				for _, shadowed := range spec.shadowed {
 					fmt.Fprintf(w, "        shadows %s\n", shadowed)
 				}
-				// Configuration beyond run/serial, printed where it differs
-				// from the default. A gate without any of these prints
-				// exactly what it always did. Timeout is here rather than
-				// with serial: grouping already shows order, and a limit
-				// has no other line.
+				// Configuration beyond run, printed where it differs from
+				// the default. A gate without any of these prints exactly
+				// what it always did. serial is a flag with no value, like
+				// allow-failure: grouping already shows order among more
+				// than one, but a lone serial gate has no then line.
 				if dir := spec.listDir(); dir != "" {
 					fmt.Fprintf(w, "        dir %s\n", dir)
 				}
@@ -220,6 +226,9 @@ func writeListing(w io.Writer, project detect.Project, files []string, opts opti
 				}
 				if spec.allowFailure {
 					fmt.Fprintf(w, "        allow-failure\n")
+				}
+				if spec.serial {
+					fmt.Fprintf(w, "        serial\n")
 				}
 				if timeout := spec.listTimeout(); timeout != "" {
 					fmt.Fprintf(w, "        timeout %s\n", timeout)
