@@ -23,7 +23,8 @@ const emptyTreeStatus = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991
 
 // TestMain points the record at a scratch state directory for the whole
 // package: every detected run writes one, and a suite must never write into
-// the operator's own.
+// the operator's own. It also clears the CI markers, so a suite run in CI
+// does not turn on stream mode for tests that assert the default output.
 func TestMain(m *testing.M) {
 	dir, err := packageScratch("gate-state-")
 	if err != nil {
@@ -31,6 +32,11 @@ func TestMain(m *testing.M) {
 	}
 	if err := os.Setenv("XDG_STATE_HOME", dir); err != nil {
 		panic(err)
+	}
+	for _, k := range []string{"CI", "GITHUB_ACTIONS"} {
+		if err := os.Unsetenv(k); err != nil {
+			panic(err)
+		}
 	}
 	code := m.Run()
 	_ = os.RemoveAll(dir)
