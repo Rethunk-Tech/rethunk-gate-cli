@@ -79,10 +79,13 @@ func Run(ctx context.Context, dir string) ([]Finding, error) {
 
 	// Loaded once, here, rather than by each check that needs it: two checks
 	// read it, and a project's configuration cannot change between them. An
-	// unreadable file is treated as absent -- gate itself refuses it when it
-	// runs, and doctor advising around a file it could not parse would be a
-	// guess dressed as a finding.
-	cfg, _ := config.Load(root)
+	// unreadable file is refused -- the same as a run -- so findings are not
+	// computed as if no config existed, and --json doctor does not emit an
+	// empty warnings list for a listing that also failed to load it.
+	cfg, err := config.Load(root)
+	if err != nil {
+		return nil, err
+	}
 
 	var findings []Finding
 	add := func(f Finding) {

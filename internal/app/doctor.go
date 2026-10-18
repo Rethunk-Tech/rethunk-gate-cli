@@ -61,22 +61,22 @@ func writeDoctorJSON(w io.Writer, findings []doctor.Finding, warnings []string) 
 // listingWarnings is the warnings array a no-run `gate --json` prints for dir.
 // Those strings are decided after config and dedupe, which is the listing, so
 // doctor reads that listing instead of assembling a second gate list.
-func listingWarnings(ctx context.Context, dir string, forceCache bool) []string {
+func listingWarnings(ctx context.Context, dir string, forceCache bool) ([]string, bool) {
 	args := []string{"-C", dir, "--json"}
 	if forceCache {
 		args = append(args, "--force-cache")
 	}
 	var stdout, stderr bytes.Buffer
 	if Run(ctx, "", args, &stdout, &stderr) != Success {
-		return nil
+		return nil, false
 	}
 	var listed struct {
 		Warnings []string `json:"warnings"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &listed); err != nil {
-		return nil
+		return nil, false
 	}
-	return listed.Warnings
+	return listed.Warnings, true
 }
 
 // runDoctor prints what could be improved here and changes nothing.
@@ -87,12 +87,17 @@ func listingWarnings(ctx context.Context, dir string, forceCache bool) []string 
 func runDoctor(ctx context.Context, dir string, asJSON, forceCache bool, stdout, stderr io.Writer) Code {
 	findings, err := doctor.Run(ctx, dir)
 	if err != nil {
-		fmt.Fprintf(stderr, "gate: cannot inspect this directory: %v\n", err)
-		return Fatal
+		fmt.Fprintf(stderr, "gate: %v\n", err)
+		return InvalidUsage
 	}
 
 	if asJSON {
-		if err := writeDoctorJSON(stdout, findings, listingWarnings(ctx, dir, forceCache)); err != nil {
+		warnings, ok := listingWarnings(ctx, dir, forceCache)
+		if !ok {
+			fmt.Fprintf(stderr, "gate: cannot list the project's gates\n")
+			return Fatal
+		}
+		if err := writeDoctorJSON(stdout, findings, warnings); err != nil {
 			fmt.Fprintf(stderr, "gate: cannot write the report: %v\n", err)
 			return Fatal
 		}

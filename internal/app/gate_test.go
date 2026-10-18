@@ -1994,6 +1994,20 @@ func TestDoctorJSONReportsNoFindingsAsAnEmptyList(t *testing.T) {
 	qt.Check(t, qt.StringContains(stdout, `"findings": []`), qt.Commentf("stdout = %q", stdout))
 }
 
+// A config typo is refused the same way a run is: stderr names the file, and
+// --json doctor does not emit an empty warnings array as if the listing worked.
+func TestJSONDoctorRefusesAMalformedConfig(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "test:\n\ttrue\n")
+	testutil.Write(t, root, ".gate.toml", "nope = true\n")
+
+	stdout, stderr, code := runGateTest(t, "-C", root, "--json", "doctor")
+	qt.Assert(t, qt.Equals(code, InvalidUsage), qt.Commentf("stderr = %q stdout = %q", stderr, stdout))
+	qt.Check(t, qt.StringContains(stderr, ".gate.toml"))
+	qt.Check(t, qt.Not(qt.StringContains(stdout, `"warnings"`)))
+}
+
 // doctor runs nothing, so there is no stream to give a caller asking for one.
 func TestNDJSONIsRefusedForDoctor(t *testing.T) {
 	t.Parallel()

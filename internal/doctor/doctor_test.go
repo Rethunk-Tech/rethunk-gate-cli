@@ -682,3 +682,17 @@ func TestParseTag(t *testing.T) {
 		}
 	}
 }
+
+// A typo in .gate.toml is refused, not treated as "no config". Findings
+// computed around a file doctor could not parse would be a guess.
+func TestMalformedConfigIsRefused(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	dir := t.TempDir()
+	testutil.Write(t, dir, "Makefile", "test:\n\ttrue\n")
+	testutil.Write(t, dir, ".gate.toml", "nope = true\n")
+
+	findings, err := Run(t.Context(), dir)
+	qt.Assert(t, qt.IsNotNil(err))
+	qt.Check(t, qt.IsNil(findings))
+	qt.Check(t, qt.StringContains(err.Error(), ".gate.toml"))
+}
