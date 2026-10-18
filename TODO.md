@@ -254,6 +254,209 @@ already leaves a command it does not recognise alone.
 - A non-zero process exit is still that exit code with or without a label.
   `make test`, `make lint`, and `doc-audit` stay clean.
 
+## --version does not name budget among the settings in force
+
+`gate --help` says `--version` prints "the version and the settings in
+force". The second line of that output is written to answer "why did it do
+that" (`internal/app/version.go:62`). Today it names timeout, the log
+directory, and retention (`:75`). `--budget` is the other duration flag
+that changes a run (`internal/app/app.go:201`, default 10s, 2m when e2e
+gates run, 0 disables). `gate --timeout 5m --version` already reports 5m
+(`app.go:230`). `gate --budget 15s --version` still prints the timeout
+line and never the 15s.
+
+A passing run that overruns the budget warns and still passes. An operator
+who only has the version line cannot tell whether that warning will fire,
+or whether they turned it off.
+
+Decided shape: pass the resolved budget into `writeVersion` the way timeout
+already is, and append `budget <duration|off>` on the same defaults line,
+using `describeTimeout`. `--budget 0 --version` prints `budget off`. The
+built-in default prints `budget 10s`. Do not load `.gate.toml` here, and
+do not apply the 2m e2e default: `--version` currently returns before
+detection and before `config.Load` (`app.go:232`), so a malformed config
+cannot fail a version query, and `--e2e` has not classified any gates yet.
+
+Rejected: loading config so a file's `budget` appears. That would make
+`gate --version` fatal on a typo in `.gate.toml`, which it does not today.
+Rejected: printing `--force-cache`, `--tail`, `--serial`, or `--quiet` on
+that line in the same change. Timeout is there because it kills; budget is
+the sibling duration. The rest are a different widening.
+
+### Read
+
+1. `internal/app/version.go:68` `writeVersion` — the signature and the
+   defaults line at `:75`. `describeTimeout` at `:79` already spells `off`.
+2. `internal/app/app.go:201` budget flag, `:232` the `--version` return
+   (before `config.Load` at `:371`). Keep that order.
+3. `internal/app/version_test.go:36` `TestVersionSettingsLineReflectsOverrides`
+   — a budget table sits beside the timeout one. `:71`
+   `TestVersionNamesLogRetention` still requires `kept 14 days`.
+4. `docs/USAGE.md:846` — names retention beside the log directory; budget
+   belongs in that sentence if the line grows.
+
+### Traps
+
+- **Loading config on `--version` is the rejected alternative.** A file
+  gate cannot parse currently fails a run, not a version query. `Load`
+  here would change that.
+- **The e2e 2m default is not in force at `--version`.** Detection has not
+  run. Printing `2m` because `--e2e` was passed would invent a budget for
+  a run that has not chosen gates yet. Print the 10s default, or the
+  `--budget` value if the flag was set.
+- **The defaults line is grepped.** Adding a field rewrites
+  `defaults: timeout …, logs … (kept N days)` for every build. Update the
+  tests that contain those substrings in the same commit. Do not drop
+  timeout or retention to make room.
+
+### Acceptance
+
+- `gate --version` contains `budget 10s` and still contains `timeout 1m`
+  and `kept 14 days`.
+- `gate --budget 15s --version` contains `budget 15s`. `gate --budget 0
+  --version` contains `budget off`.
+- `gate --timeout 5m --version` still contains `timeout 5m`. A missing or
+  malformed `.gate.toml` does not change `--version`'s exit (0) or its
+  second line.
+- `make test`, `make lint`, and `doc-audit` stay clean.
+
+## NDJSON and the result record omit a gate's dir and timeout
+
+`--list` and `--json` now name a configured `dir`, `env`, `allow-failure`,
+and `timeout` (`internal/app/listing.go:61-78`). The stream a run emits
+does not. `result` (`internal/app/results.go:23`) carries name, argv,
+display, status, code, ms, log, reason, allowed, error, and cache. A
+consumer reproducing a gate from `--ndjson` or from `gate --json record`
+does not see that it ran in `docs/` or that it was killed after 5m
+because the file said so — only `reason` on a timeout names the limit,
+and only after the kill (`results.go:47`, `:127`).
+
+The listing comment at `listing.go:20` is the rule: a scalar with nothing
+to say is absent. The same omitempty fields on `result` would match. They
+are not there because `recordSchema` / `result.Schema` is 2
+(`internal/result/result.go:22`, `internal/app/record.go:19`), and
+"Schema is bumped on any change a reader must know about."
+
+Decided shape: add `Dir` and `Timeout` to `result` as omitempty strings,
+copied from `gateSpec.listDir` and `gateSpec.listTimeout` in `toResult`
+(`results.go:109`), bump `Schema` to 3, and document the bump in
+`docs/USAGE.md` Result record. Existing schema-2 files stay readable as
+not-fresh (`result.Verdict`, doctor `result-not-fresh`). Do not add
+`serial`; grouping is a listing fact, not an outcome.
+
+Rejected: adding the fields without a schema bump. A reader that assumed
+the object was closed would miss where the command ran. Rejected: putting
+dir only on the listing. The listing already has it; the gap is the run
+record.
+
+### Read
+
+1. `internal/app/results.go:23` `result` — the stream object. `toResult`
+   at `:109` is the one writer. `record.Gates` (`record.go:62`) stores the
+   same type.
+2. `internal/result/result.go:22` `Schema` and `docs/USAGE.md` Result
+   record — what a bump invalidates. Doctor `checkResultRecord`
+   (`internal/doctor/doctor.go:119`) ignores a schema it does not know.
+3. `internal/app/listing.go:254` `listDir` and `:265` `listTimeout` —
+   reuse these; do not invent a second spelling.
+4. `internal/app/record_test.go` and `internal/app/gate_test.go` NDJSON
+   tests — a configured dir/timeout must appear on the stream line; a
+   gate that never set them must not grow `"dir"` or `"timeout"` keys.
+
+### Traps
+
+- **A schema bump makes every stored record not fresh.** `gate record`
+  exits non-zero and doctor emits `result-not-fresh` until the next run
+  writes schema 3. That is the cost, not a bug. Do not special-case
+  schema 2 as still fresh after the fields appear.
+- **Timeout 0 is `off`, not `"0s"` and not omitted.** `listTimeout`
+  already says that. Omitting 0 would collapse "unbounded" into "never
+  set".
+- **Dir is the resolved path.** The listing prints what `resolveGateDir`
+  produced, not the relative string from the file. The stream must match
+  that, or a consumer cannot chdir to where the gate ran.
+- **Do not put these on `Code`.** They are display and reproduction, the
+  same side of the line cache already occupies.
+
+### Acceptance
+
+- `--ndjson` for a gate with `dir = "sub"` and `timeout = "5m"` includes
+  those values, spelled as the listing spells them. A gate with neither
+  key has no `"dir"` and no `"timeout"` in its line.
+- A new result file has `"schema": 3`. A leftover schema-2 file is not
+  fresh: `gate record` exits non-zero, doctor reports `result-not-fresh`.
+- A timeout kill still sets `status` to `timeout` and `code` to 124. The
+  new fields do not change any `Code`.
+- `make test`, `make lint`, and `doc-audit` stay clean.
+
+## --list does not mark a lone serial gate
+
+`serial = true` sequences a gate with the other serial ones
+(`internal/app/gate.go:108`, `schedule` at `:396`). `--list` shows that
+order as `then` when two or more serial gates share a group
+(`listing.go:180`). A project that marked exactly one gate serial gets a
+group of one. `len(groups) == len(opts.gates)` is still true, so the
+header prints `-- all concurrent` (`listing.go:166`) and the gate has no
+`serial` line. The setting is real: adding a second serial gate later
+would chain them. `--json` has `group` but no `serial` field
+(`listedGate` at `listing.go:39`).
+
+`--list` already names `allow-failure` as a flag with no value when it is
+true (`listing.go:213`). `serial` is the same shape of boolean.
+
+Decided shape: print `serial` on a gate whose `spec.serial` is
+true, and add `Serial bool json:"serial,omitempty"` on `listedGate`. Leave
+the header rules alone: two serial gates still say "groups run
+concurrently, gates marked serial in order", and `--serial` still says
+the whole-run sentence. A lone serial gate's header stays "all
+concurrent" as a statement about groups, while the gate line carries the
+key.
+
+Rejected: changing the header to "serial" for a single serial gate. That
+would call a run of otherwise concurrent gates serial. Rejected: omitting
+the per-gate line when `then` is already present. A reader of `--json`
+has no `then`.
+
+Deferred because every listing that already has two serial gates would
+gain a new `serial` line under each, which is a text-listing contract
+change even though it is additive JSON.
+
+### Read
+
+1. `internal/app/listing.go:202` — the comment that still groups serial
+   with `run` as "shown by grouping". The print site is the block at
+   `:207`. `listedGate` at `:39` is the JSON shape.
+2. `internal/app/gate.go:396` `schedule` — a lone serial gate is still
+   one group of one (`:404`).
+3. `internal/app/gate_test.go:611` `TestJSONListingCarriesWhatListDoes` —
+   two serial gates share a `group`. Assertions about stdout text for
+   that fixture must allow a new `serial` line.
+4. `docs/USAGE.md:643` — the sentence that lists which configured keys
+   `--list` names.
+
+### Traps
+
+- **`--serial` is not `spec.serial`.** The flag puts every gate in one
+  chain (`schedule`'s `serial bool`). Do not print `serial` on every gate
+  under `--serial`; that would mark gates the file never set.
+- **`serial = false` stays quiet**, the way `allow-failure` false does
+  (`TestListingOmitsUnsetConfigKeys`). HasSerial false vs a deliberate
+  false both mean "not serial" on the spec after merge.
+- **Do not reorder groups.** This is display only. `schedule` is
+  unchanged.
+
+### Acceptance
+
+- A project with one `serial = true` gate lists `serial` under that gate
+  in `--list` and `"serial": true` in `--json`. The header may still say
+  `all concurrent`.
+- Two serial gates still share a `group`, still print `then` on the
+  second, and each also has `serial`. Gates that never set the key have
+  no such line and no JSON field.
+- `gate --serial --list` does not print `serial` under gates the file
+  left concurrent.
+- `make test`, `make lint`, and `doc-audit` stay clean.
+
 <!--
 ## A sentence naming the problem, not the solution
 
