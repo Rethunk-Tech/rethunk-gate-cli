@@ -38,6 +38,9 @@ type Result struct {
 // skipReasons are checks whose Fix is real advice and not a repo splice.
 var skipReasons = map[string]string{
 	"go-no-govulncheck":  "go install is machine-wide, not a repo edit",
+	"python-no-audit":    "the remedy is not a one-line repo edit",
+	"rust-no-clippy":     "the remedy is not a one-line repo edit",
+	"bun-no-audit":       "the remedy is not a one-line repo edit",
 	"no-ci":              "adding a workflow needs a template choice",
 	"ci-no-final-gate":   "an aggregating job is a design, not a splice",
 	"superseded-tooling": "Fix and Path do not uniquely name a file move",
@@ -73,7 +76,13 @@ func Apply(f doctor.Finding, dryRun bool) (Result, error) {
 	case "next-build-typecheck-race":
 		return applySerialTOML(f, dryRun)
 	case "ci-govulncheck-off":
-		return applyWorkflow(f, dryRun, enableGovulncheck)
+		return applyWorkflow(f, dryRun, enableWorkflowInput("gh-actions/setup-go", "run-govulncheck"))
+	case "ci-python-audit-off":
+		return applyWorkflow(f, dryRun, enableWorkflowInput("gh-actions/setup-python", "run-audit"))
+	case "ci-clippy-off":
+		return applyWorkflow(f, dryRun, enableWorkflowInput("gh-actions/setup-rust", "run-clippy"))
+	case "ci-bun-audit-off":
+		return applyWorkflow(f, dryRun, enableWorkflowInput("gh-actions/setup-bun", "run-audit"))
 	case "corepack-with-setup-bun":
 		return applyWorkflow(f, dryRun, dropCorepack)
 	case "npx-in-bun-workspace":
@@ -324,35 +333,37 @@ func replaceNpxInScripts(body string) (string, string) {
 	return next, ""
 }
 
-func enableGovulncheck(body string) (string, string) {
-	lines := splitLines(body)
-	var uses []int
-	for i, line := range lines {
-		if strings.Contains(line, "gh-actions/setup-go") {
-			uses = append(uses, i)
+func enableWorkflowInput(action, input string) func(string) (string, string) {
+	return func(body string) (string, string) {
+		lines := splitLines(body)
+		var uses []int
+		for i, line := range lines {
+			if strings.Contains(line, action) {
+				uses = append(uses, i)
+			}
 		}
-	}
-	if len(uses) == 0 {
-		return body, "setup-go step not found"
-	}
-	changed := false
-	for _, use := range slices.Backward(uses) {
-		next, inserted, ok := addGovulncheck(lines, use)
-		if !ok {
-			return body, "setup-go step is not a mechanical edit"
+		if len(uses) == 0 {
+			return body, action + " step not found"
 		}
-		if inserted != nil {
-			lines = next
-			changed = true
+		changed := false
+		for _, use := range slices.Backward(uses) {
+			next, inserted, ok := addWorkflowInput(lines, use, input)
+			if !ok {
+				return body, action + " step is not a mechanical edit"
+			}
+			if inserted != nil {
+				lines = next
+				changed = true
+			}
 		}
+		if !changed {
+			return body, ""
+		}
+		return strings.Join(lines, "\n"), ""
 	}
-	if !changed {
-		return body, ""
-	}
-	return strings.Join(lines, "\n"), ""
 }
 
-func addGovulncheck(lines []string, usesAt int) ([]string, []string, bool) {
+func addWorkflowInput(lines []string, usesAt int, input string) ([]string, []string, bool) {
 	uses := lines[usesAt]
 	if strings.ContainsRune(uses, '\t') {
 		return nil, nil, false
@@ -365,23 +376,20 @@ func addGovulncheck(lines []string, usesAt int) ([]string, []string, bool) {
 	for j < len(lines) && strings.TrimSpace(lines[j]) == "" {
 		j++
 	}
+	quoted := input + `: "true"`
 	if j < len(lines) {
 		next := lines[j]
 		trimmed := strings.TrimSpace(next)
 		ind := indentOf(next)
 		if ind == usesIndent && trimmed == "with:" {
-			if stepHasGovulncheck(lines, j+1, usesIndent) {
+			if stepHasInput(lines, j+1, usesIndent, input) {
 				return lines, nil, true
 			}
-			key := strings.Repeat(" ", usesIndent+2) + `run-govulncheck: "true"`
+			key := strings.Repeat(" ", usesIndent+2) + quoted
 			return insertLines(lines, j+1, key), []string{key}, true
 		}
 		if ind == usesIndent && strings.HasPrefix(trimmed, "with:") {
-			// A single-line flow mapping is still a closed splice: the
-			// braces name exactly where the key goes. Anything else on a
-			// `with:` line -- a value spanning lines, quoted braces -- is
-			// not provable and stays a refusal.
-			if next, changed, ok := spliceFlowWith(next); ok {
+			if next, changed, ok := spliceFlowWith(next, input); ok {
 				if !changed {
 					return lines, nil, true
 				}
@@ -393,11 +401,11 @@ func addGovulncheck(lines []string, usesAt int) ([]string, []string, bool) {
 		}
 	}
 	with := strings.Repeat(" ", usesIndent) + "with:"
-	key := strings.Repeat(" ", usesIndent+2) + `run-govulncheck: "true"`
+	key := strings.Repeat(" ", usesIndent+2) + quoted
 	return insertLines(lines, usesAt+1, with, key), []string{with, key}, true
 }
 
-// spliceFlowWith inserts run-govulncheck into a single-line flow mapping:
+// spliceFlowWith inserts input into a single-line flow mapping:
 //
 //	`with: { cache: true }` becomes `with: { cache: true, run-govulncheck: "true" }`.
 //
@@ -407,7 +415,7 @@ func addGovulncheck(lines []string, usesAt int) ([]string, []string, bool) {
 // unbalanced braces, quoted braces that a naive search would misread, a value
 // spanning lines, trailing content past the mapping -- is unprovable, and the
 // caller skips the finding rather than guessing at YAML.
-func spliceFlowWith(line string) (string, bool, bool) {
+func spliceFlowWith(line, input string) (string, bool, bool) {
 	_, after, ok := strings.Cut(line, "with:")
 	if !ok {
 		return "", false, false
@@ -431,17 +439,18 @@ func spliceFlowWith(line string) (string, bool, bool) {
 	if strings.TrimSpace(inner) != "" && !strings.Contains(inner, ":") {
 		return "", false, false
 	}
-	if strings.Contains(inner, "run-govulncheck") {
+	quoted := input + `: "true"`
+	if strings.Contains(inner, input) {
 		return line, false, true
 	}
 	head := line[:strings.Index(line, "{")+1]
 	if strings.TrimSpace(inner) == "" {
-		return head + `run-govulncheck: "true"` + "}", true, true
+		return head + quoted + "}", true, true
 	}
-	return head + " " + strings.TrimSpace(inner) + `, run-govulncheck: "true" }`, true, true
+	return head + " " + strings.TrimSpace(inner) + ", " + quoted + " }", true, true
 }
 
-func stepHasGovulncheck(lines []string, start, usesIndent int) bool {
+func stepHasInput(lines []string, start, usesIndent int, input string) bool {
 	for i := start; i < len(lines); i++ {
 		if strings.TrimSpace(lines[i]) == "" {
 			continue
@@ -449,7 +458,7 @@ func stepHasGovulncheck(lines []string, start, usesIndent int) bool {
 		if indentOf(lines[i]) <= usesIndent {
 			return false
 		}
-		if strings.Contains(lines[i], "run-govulncheck") {
+		if strings.Contains(lines[i], input) {
 			return true
 		}
 	}

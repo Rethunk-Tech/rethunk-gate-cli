@@ -98,6 +98,9 @@ func Run(ctx context.Context, dir string) ([]Finding, error) {
 
 	checkSupersededTooling(root, add)
 	checkGoVuln(root, proj, add)
+	checkPythonAudit(root, proj, cfg, add)
+	checkRustClippy(root, proj, cfg, add)
+	checkBunAudit(root, proj, cfg, add)
 	checkGoRace(root, proj, add)
 	checkNoCI(proj, cfg, add)
 	checkWorkflows(proj, add)
@@ -243,6 +246,127 @@ func checkGoVuln(root string, proj detect.Project, add func(Finding)) {
 			Fix:   "go install golang.org/x/vuln/cmd/govulncheck@latest",
 		})
 	}
+}
+
+func hasNamedGate(proj detect.Project, cfg config.Config, name string) bool {
+	if slices.ContainsFunc(proj.Gates, func(g detect.Gate) bool {
+		return g.Name == name
+	}) {
+		return true
+	}
+	g, ok := cfg.Gates[name]
+	return ok && g.Run != ""
+}
+
+func commandMentions(argv []string, run, needle string) bool {
+	if slices.ContainsFunc(argv, func(a string) bool { return strings.Contains(a, needle) }) {
+		return true
+	}
+	return strings.Contains(run, needle)
+}
+
+// checkPythonAudit flags a pyproject without a vuln gate. uv.lock already
+// supplies that gate, so the local finding stays quiet there; CI is the
+// remaining half.
+func checkPythonAudit(root string, proj detect.Project, cfg config.Config, add func(Finding)) {
+	if !exists(filepath.Join(root, "pyproject.toml")) {
+		return
+	}
+	if hasNamedGate(proj, cfg, "vuln") {
+		return
+	}
+	add(Finding{
+		Warn:  true,
+		Check: "python-no-audit",
+		Where: filepath.Join(root, "pyproject.toml"),
+		What:  "no uv audit gate runs for this Python project",
+		Why:   "the shared setup-python action ships run-audit opt-in and OFF, so nothing else is checking",
+		Fix:   "add a vuln gate that runs uv audit, or uv lock so the convention can",
+	})
+}
+
+func hasCargoClippy(proj detect.Project, cfg config.Config) bool {
+	if slices.ContainsFunc(proj.Gates, func(g detect.Gate) bool {
+		return cargoClippyArgv(g.Argv)
+	}) {
+		return true
+	}
+	for _, g := range cfg.Gates {
+		if strings.Contains(g.Run, "clippy") && strings.Contains(g.Run, "cargo") {
+			return true
+		}
+	}
+	return false
+}
+
+func cargoClippyArgv(argv []string) bool {
+	if len(argv) < 2 || filepath.Base(argv[0]) != "cargo" {
+		return false
+	}
+	return slices.Contains(argv[1:], "clippy")
+}
+
+// checkRustClippy looks at argv, not the vuln role: cargo audit already
+// occupies vuln, and clippy is the lint command.
+func checkRustClippy(root string, proj detect.Project, cfg config.Config, add func(Finding)) {
+	if !exists(filepath.Join(root, "Cargo.toml")) {
+		return
+	}
+	if hasCargoClippy(proj, cfg) {
+		return
+	}
+	add(Finding{
+		Warn:  true,
+		Check: "rust-no-clippy",
+		Where: filepath.Join(root, "Cargo.toml"),
+		What:  "no cargo clippy gate runs for this crate",
+		Why:   "the shared setup-rust action ships run-clippy opt-in and OFF, so a missing clippy component is silent",
+		Fix:   "rustup component add clippy, or add a lint gate that runs cargo clippy",
+	})
+}
+
+func hasBunAudit(proj detect.Project, cfg config.Config) bool {
+	if hasNamedGate(proj, cfg, "vuln") {
+		return true
+	}
+	if slices.ContainsFunc(proj.Gates, func(g detect.Gate) bool {
+		return commandMentions(g.Argv, "", "audit-bun")
+	}) {
+		return true
+	}
+	for _, g := range cfg.Gates {
+		if strings.Contains(g.Run, "audit-bun") {
+			return true
+		}
+	}
+	return false
+}
+
+func hasBunLock(root string) bool {
+	return detect.IsBunWorkspace(root)
+}
+
+// checkBunAudit needs a bun lockfile, not a package.json: packageRunner
+// defaults to bun without one, and that is not this gap.
+func checkBunAudit(root string, proj detect.Project, cfg config.Config, add func(Finding)) {
+	if !hasBunLock(root) {
+		return
+	}
+	if hasBunAudit(proj, cfg) {
+		return
+	}
+	lock := "bun.lock"
+	if exists(filepath.Join(root, "bun.lockb")) && !exists(filepath.Join(root, "bun.lock")) {
+		lock = "bun.lockb"
+	}
+	add(Finding{
+		Warn:  true,
+		Check: "bun-no-audit",
+		Where: filepath.Join(root, lock),
+		What:  "no audit-bun gate runs for this bun workspace",
+		Why:   "the shared setup-bun action ships run-audit opt-in and OFF, and detection has no bun audit convention",
+		Fix:   "add a vuln gate that runs audit-bun",
+	})
 }
 
 // raceMarker is `-race` as its own word, or the shared setup-go action's
@@ -418,7 +542,10 @@ func checkWorkflows(proj detect.Project, add func(Finding)) {
 	// flagging every such file would be the kind of noise that teaches
 	// people to skip the output.
 	var usesSetupGo, enablesVuln bool
-	var setupGoWhere string
+	var usesSetupPython, enablesPythonAudit bool
+	var usesSetupRust, enablesClippy bool
+	var usesSetupBun, enablesBunAudit bool
+	var setupGoWhere, setupPythonWhere, setupRustWhere, setupBunWhere string
 
 	for _, entry := range entries {
 		if entry.IsDir() || !isYAML(entry.Name()) {
@@ -437,6 +564,33 @@ func checkWorkflows(proj detect.Project, add func(Finding)) {
 			}
 			if strings.Contains(body, "run-govulncheck") {
 				enablesVuln = true
+			}
+		}
+		if strings.Contains(body, "gh-actions/setup-python") {
+			usesSetupPython = true
+			if setupPythonWhere == "" {
+				setupPythonWhere = path
+			}
+			if stepMentionsInput(body, "gh-actions/setup-python", "run-audit") {
+				enablesPythonAudit = true
+			}
+		}
+		if strings.Contains(body, "gh-actions/setup-rust") {
+			usesSetupRust = true
+			if setupRustWhere == "" {
+				setupRustWhere = path
+			}
+			if strings.Contains(body, "run-clippy") {
+				enablesClippy = true
+			}
+		}
+		if strings.Contains(body, "gh-actions/setup-bun") {
+			usesSetupBun = true
+			if setupBunWhere == "" {
+				setupBunWhere = path
+			}
+			if stepMentionsInput(body, "gh-actions/setup-bun", "run-audit") {
+				enablesBunAudit = true
 			}
 		}
 
@@ -509,6 +663,103 @@ func checkWorkflows(proj detect.Project, add func(Finding)) {
 			Fix:   `set run-govulncheck: "true" on the setup-go step`,
 		})
 	}
+	if usesSetupPython && !enablesPythonAudit {
+		add(Finding{
+			Warn:  true,
+			Check: "ci-python-audit-off",
+			Where: setupPythonWhere,
+			What:  "no workflow enables run-audit on setup-python",
+			Why:   "that input defaults to false, so CI never runs uv audit anywhere in this repo",
+			Fix:   `set run-audit: "true" on the setup-python step`,
+		})
+	}
+	if usesSetupRust && !enablesClippy {
+		add(Finding{
+			Warn:  true,
+			Check: "ci-clippy-off",
+			Where: setupRustWhere,
+			What:  "no workflow enables run-clippy on setup-rust",
+			Why:   "that input defaults to false, so CI never runs clippy anywhere in this repo",
+			Fix:   `set run-clippy: "true" on the setup-rust step`,
+		})
+	}
+	if usesSetupBun && !enablesBunAudit {
+		add(Finding{
+			Warn:  true,
+			Check: "ci-bun-audit-off",
+			Where: setupBunWhere,
+			What:  "no workflow enables run-audit on setup-bun",
+			Why:   "that input defaults to false, so CI never runs audit-bun anywhere in this repo",
+			Fix:   `set run-audit: "true" on the setup-bun step`,
+		})
+	}
+}
+
+// stepMentionsInput is true when a step that uses action mentions input.
+// run-audit is shared by setup-python and setup-bun, so a file-wide search
+// would let one action satisfy the other. A mention anywhere in that step
+// counts, including a comment, matching run-govulncheck.
+func stepMentionsInput(body, action, input string) bool {
+	lines := strings.Split(body, "\n")
+	for i, line := range lines {
+		if !strings.Contains(line, action) {
+			continue
+		}
+		start, end, ok := yamlStep(lines, i)
+		if !ok {
+			if strings.Contains(line, input) {
+				return true
+			}
+			continue
+		}
+		for _, l := range lines[start:end] {
+			if strings.Contains(l, input) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func yamlStep(lines []string, i int) (start, end int, ok bool) {
+	start = i
+	for start >= 0 {
+		if _, isDash := yamlDash(lines[start]); isDash {
+			break
+		}
+		start--
+	}
+	if start < 0 {
+		return 0, 0, false
+	}
+	di, ok := yamlDash(lines[start])
+	if !ok {
+		return 0, 0, false
+	}
+	end = start + 1
+	for end < len(lines) {
+		line := lines[end]
+		if strings.TrimSpace(line) == "" {
+			end++
+			continue
+		}
+		if ind, isDash := yamlDash(line); isDash && ind <= di {
+			break
+		}
+		if len(line)-len(strings.TrimLeft(line, " ")) <= di {
+			break
+		}
+		end++
+	}
+	return start, end, true
+}
+
+func yamlDash(line string) (int, bool) {
+	s := strings.TrimLeft(line, " ")
+	if !strings.HasPrefix(s, "- ") && s != "-" {
+		return 0, false
+	}
+	return len(line) - len(s), true
 }
 
 func isYAML(name string) bool {

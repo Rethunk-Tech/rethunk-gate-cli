@@ -329,8 +329,14 @@ plus `warnings` (`[]` if none). Text omits `warnings`. `--ndjson` refused.
 | --- | --- |
 | `no-ci` | Gates to run and no `.github/workflows` |
 | `go-no-govulncheck` | Go module, no vulnerability gate |
+| `python-no-audit` | `pyproject.toml`, no gate named `vuln` |
+| `rust-no-clippy` | `Cargo.toml`, no `cargo clippy` gate |
+| `bun-no-audit` | bun lockfile, no `vuln` gate and no `audit-bun` argv |
 | `go-test-no-race` | Go module, no `go test -race` |
 | `ci-govulncheck-off` | `setup-go` used, no `run-govulncheck` |
+| `ci-python-audit-off` | `setup-python` used, no `run-audit` on that step |
+| `ci-clippy-off` | `setup-rust` used, no `run-clippy` |
+| `ci-bun-audit-off` | `setup-bun` used, no `run-audit` on that step |
 | `ci-no-final-gate` | Matrix checks, no aggregating job |
 | `corepack-with-setup-bun` | `corepack enable` beside `setup-bun` |
 | `npx-in-bun-workspace` | `npx` with a `bun.lock` |
@@ -356,10 +362,14 @@ finding was applied/skipped; a failed write is a failure.
 | --- | --- |
 | `next-build-typecheck-race` | `serial = true` on `gates.build` and `gates.typecheck` |
 | `ci-govulncheck-off` | `run-govulncheck: "true"` on the named setup-go step |
+| `ci-python-audit-off` | `run-audit: "true"` on the named setup-python step |
+| `ci-clippy-off` | `run-clippy: "true"` on the named setup-rust step |
+| `ci-bun-audit-off` | `run-audit: "true"` on the named setup-bun step |
 | `corepack-with-setup-bun` | drop the `corepack enable` step |
 | `npx-in-bun-workspace` | `npx` → `bunx` in the named workflow or `package.json` |
 | `actions-floating-ref` / `actions-stale-ref` | pin named shared-action refs to doctor's tag |
 | `go-no-govulncheck` | skip — `go install` is machine-wide |
+| `python-no-audit` / `rust-no-clippy` / `bun-no-audit` | skip — the remedy is not a one-line repo edit |
 | `go-test-no-race` | skip — Fix names a test target or a workflow step |
 | `no-ci` | skip — a workflow needs a template choice |
 | `missing-gate-*` | skip — adding a script is ambiguous |

@@ -6,6 +6,10 @@ Notable changes to `gate`. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `gate doctor` warns for a missing Python audit, Rust clippy, or Bun audit the same way it already warns for Go: local `python-no-audit`, `rust-no-clippy`, `bun-no-audit`, and CI `ci-python-audit-off`, `ci-clippy-off`, `ci-bun-audit-off`. `run-audit` is attributed to the step that uses that action. `gate fix` skips the local checks and splices the CI inputs. Docs: docs/USAGE.md, `gate doctor`.
+
 ### Changed
 
 - The result record is schema 3. `--ndjson` and stored `gates` include configured `dir` and `timeout` (`off` for `0`), omitted when unset. A leftover schema-2 file is not fresh. Docs: docs/USAGE.md, Result record.

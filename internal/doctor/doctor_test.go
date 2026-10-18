@@ -156,6 +156,98 @@ func TestGovulncheckIsJudgedAcrossAllWorkflows(t *testing.T) {
 	qt.Check(t, qt.IsFalse(reported(findings, "ci-govulncheck-off")), qt.Commentf("flagged %s though another workflow enables govulncheck", checkNames(findings)))
 }
 
+func TestPythonRustBunAuditGaps(t *testing.T) {
+	isolatePath(t)
+	none := t.TempDir()
+	testutil.Write(t, none, "go.mod", "module demo\n\ngo 1.26\n")
+	testutil.Write(t, none, "package.json", `{"name":"demo"}`)
+	findings, err := Run(t.Context(), none)
+	qt.Assert(t, qt.IsNil(err))
+	for _, check := range []string{
+		"python-no-audit", "rust-no-clippy", "bun-no-audit",
+		"ci-python-audit-off", "ci-clippy-off", "ci-bun-audit-off",
+	} {
+		qt.Check(t, qt.IsFalse(reported(findings, check)), qt.Commentf("%s on a tree without those markers: %v", check, checkNames(findings)))
+	}
+
+	py := t.TempDir()
+	testutil.Write(t, py, "pyproject.toml", "[project]\nname = \"demo\"\nversion = \"0\"\n")
+	findings, err = Run(t.Context(), py)
+	qt.Assert(t, qt.IsNil(err))
+	f, ok := findingNamed(findings, "python-no-audit")
+	qt.Assert(t, qt.IsTrue(ok), qt.Commentf("findings = %v", checkNames(findings)))
+	qt.Check(t, qt.IsTrue(f.Warn))
+
+	locked := t.TempDir()
+	testutil.Write(t, locked, "pyproject.toml", "[project]\nname = \"demo\"\nversion = \"0\"\n")
+	testutil.Write(t, locked, "uv.lock", "version = 1\n")
+	findings, err = Run(t.Context(), locked)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsFalse(reported(findings, "python-no-audit")),
+		qt.Commentf("uv.lock still flagged: %v", checkNames(findings)))
+
+	rs := t.TempDir()
+	testutil.Write(t, rs, "Cargo.toml", "[package]\nname = \"demo\"\nversion = \"0.0.0\"\nedition = \"2021\"\n")
+	testutil.Write(t, rs, ".gate.toml", "[gates.vuln]\nrun = \"cargo audit\"\n")
+	findings, err = Run(t.Context(), rs)
+	qt.Assert(t, qt.IsNil(err))
+	f, ok = findingNamed(findings, "rust-no-clippy")
+	qt.Assert(t, qt.IsTrue(ok), qt.Commentf("cargo audit stood in for clippy: %v", checkNames(findings)))
+	qt.Check(t, qt.IsTrue(f.Warn))
+
+	clipped := t.TempDir()
+	testutil.Write(t, clipped, "Cargo.toml", "[package]\nname = \"demo\"\nversion = \"0.0.0\"\nedition = \"2021\"\n")
+	testutil.Write(t, clipped, ".gate.toml", "[gates.lint]\nrun = \"cargo clippy\"\n")
+	findings, err = Run(t.Context(), clipped)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsFalse(reported(findings, "rust-no-clippy")),
+		qt.Commentf("clippy gate still flagged: %v", checkNames(findings)))
+
+	bun := t.TempDir()
+	testutil.Write(t, bun, "bun.lock", "")
+	findings, err = Run(t.Context(), bun)
+	qt.Assert(t, qt.IsNil(err))
+	f, ok = findingNamed(findings, "bun-no-audit")
+	qt.Assert(t, qt.IsTrue(ok), qt.Commentf("findings = %v", checkNames(findings)))
+	qt.Check(t, qt.IsTrue(f.Warn))
+}
+
+func TestCIAuditInputsArePerActionAndRepoWide(t *testing.T) {
+	isolatePath(t)
+	dir := t.TempDir()
+	testutil.Write(t, dir, "pyproject.toml", "[project]\nname = \"demo\"\nversion = \"0\"\n")
+	testutil.Write(t, dir, "Cargo.toml", "[package]\nname = \"demo\"\nversion = \"0.0.0\"\nedition = \"2021\"\n")
+	testutil.Write(t, dir, "bun.lock", "")
+	testutil.Write(t, dir, ".github/workflows/ci.yml", strings.Join([]string{
+		"jobs:",
+		"  a:",
+		"    steps:",
+		"      - uses: Rethunk-Tech/gh-actions/setup-python@v1.16",
+		"      - uses: Rethunk-Tech/gh-actions/setup-bun@v1.16",
+		"        with:",
+		"          run-audit: \"true\"",
+		"      - uses: Rethunk-Tech/gh-actions/setup-rust@v1.16",
+	}, "\n")+"\n")
+
+	findings, err := Run(t.Context(), dir)
+	qt.Assert(t, qt.IsNil(err))
+	py, ok := findingNamed(findings, "ci-python-audit-off")
+	qt.Assert(t, qt.IsTrue(ok), qt.Commentf("bun run-audit covered python: %v", checkNames(findings)))
+	qt.Check(t, qt.IsTrue(py.Warn))
+	qt.Check(t, qt.IsFalse(reported(findings, "ci-bun-audit-off")),
+		qt.Commentf("setup-bun with run-audit still flagged: %v", checkNames(findings)))
+	clip, ok := findingNamed(findings, "ci-clippy-off")
+	qt.Assert(t, qt.IsTrue(ok), qt.Commentf("findings = %v", checkNames(findings)))
+	qt.Check(t, qt.IsTrue(clip.Warn))
+
+	testutil.Write(t, dir, ".github/workflows/nightly.yml",
+		"jobs:\n  b:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-python@v1.16\n        with:\n          run-audit: \"true\"\n      - uses: Rethunk-Tech/gh-actions/setup-rust@v1.16\n        with:\n          run-clippy: \"true\"\n")
+	findings, err = Run(t.Context(), dir)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsFalse(reported(findings, "ci-python-audit-off")), qt.Commentf("%v", checkNames(findings)))
+	qt.Check(t, qt.IsFalse(reported(findings, "ci-clippy-off")), qt.Commentf("%v", checkNames(findings)))
+}
+
 func TestWorkflowGapsAreReported(t *testing.T) {
 	isolatePath(t)
 	dir := t.TempDir()

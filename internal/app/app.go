@@ -113,8 +113,9 @@ Reports things about this project that are cheap to detect and worth fixing:
 missing vulnerability gates, CI gaps, superseded tooling and stale action
 pins.
 
-Checks: no-ci, go-no-govulncheck, go-test-no-race, ci-govulncheck-off,
-ci-no-final-gate, corepack-with-setup-bun, npx-in-bun-workspace,
+Checks: no-ci, go-no-govulncheck, python-no-audit, rust-no-clippy, bun-no-audit,
+go-test-no-race, ci-govulncheck-off, ci-python-audit-off, ci-clippy-off,
+ci-bun-audit-off, ci-no-final-gate, corepack-with-setup-bun, npx-in-bun-workspace,
 actions-floating-ref, actions-stale-ref, superseded-tooling, missing-gate-*,
 next-build-typecheck-race, result-not-fresh.
 

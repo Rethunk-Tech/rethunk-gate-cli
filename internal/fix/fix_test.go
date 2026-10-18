@@ -153,10 +153,41 @@ func TestDryRunWritesNothing(t *testing.T) {
 	qt.Assert(t, qt.Equals(testutil.TreeDigest(t, dir), before))
 }
 
+func TestApplySplicesRunAuditOnTheNamedActionOnly(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ci.yml")
+	testutil.Write(t, dir, "ci.yml", strings.Join([]string{
+		"jobs:",
+		"  a:",
+		"    steps:",
+		"      - uses: Rethunk-Tech/gh-actions/setup-python@v1.16",
+		"      - uses: Rethunk-Tech/gh-actions/setup-bun@v1.16",
+	}, "\n")+"\n")
+
+	r, err := Apply(doctor.Finding{
+		Check: "ci-python-audit-off",
+		Path:  path,
+		Fix:   `set run-audit: "true" on the setup-python step`,
+	}, false)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Assert(t, qt.Equals(r.Outcome, Applied), qt.Commentf("reason = %q", r.Reason))
+
+	body, err := os.ReadFile(path) //nolint:gosec // path is a temporary workflow fixture
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.StringContains(string(body), "setup-python@v1.16\n        with:\n          run-audit: \"true\""),
+		qt.Commentf("body = %q", body))
+	qt.Check(t, qt.Not(qt.StringContains(string(body), "setup-bun@v1.16\n        with:")),
+		qt.Commentf("bun step gained run-audit: %q", body))
+}
+
 func TestUnappliableSkips(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct{ check, want string }{
 		{"go-no-govulncheck", "go install is machine-wide, not a repo edit"},
+		{"python-no-audit", "the remedy is not a one-line repo edit"},
+		{"rust-no-clippy", "the remedy is not a one-line repo edit"},
+		{"bun-no-audit", "the remedy is not a one-line repo edit"},
 		{"no-ci", "adding a workflow needs a template choice"},
 		{"missing-gate-test", "adding a script is ambiguous"},
 		{"missing-gate-typecheck", "adding a script is ambiguous"},

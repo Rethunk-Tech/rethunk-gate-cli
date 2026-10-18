@@ -17,7 +17,8 @@ import (
 const fixHelp = `usage: gate [-C <path>] [--json] fix [--dry-run]
 
 Applies doctor findings whose check names a closed mechanical remedy:
-next-build-typecheck-race, ci-govulncheck-off, corepack-with-setup-bun,
+next-build-typecheck-race, ci-govulncheck-off, ci-python-audit-off,
+ci-clippy-off, ci-bun-audit-off, corepack-with-setup-bun,
 npx-in-bun-workspace, actions-floating-ref, actions-stale-ref. The rest skip
 with a reason.
 
