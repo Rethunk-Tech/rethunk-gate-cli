@@ -129,11 +129,17 @@ func applyWorkflow(f doctor.Finding, dryRun bool, edit func(string) (string, str
 }
 
 func writeFile(path, body string) error {
-	mode := os.FileMode(0o644)
-	if info, err := os.Stat(path); err == nil {
-		mode = info.Mode().Perm()
+	info, err := os.Lstat(path)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		mode := os.FileMode(0o644)
+		return os.WriteFile(path, []byte(body), mode) //nolint:gosec // path comes from a doctor finding resolved under the project root
+	case err != nil:
+		return err
+	case info.Mode()&os.ModeSymlink != 0:
+		return fmt.Errorf("refusing to write through a symlink")
 	}
-	return os.WriteFile(path, []byte(body), mode) //nolint:gosec // path comes from a doctor finding resolved under the project root
+	return os.WriteFile(path, []byte(body), info.Mode().Perm()) //nolint:gosec // path comes from a doctor finding resolved under the project root
 }
 
 // --- next-build-typecheck-race ---

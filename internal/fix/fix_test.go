@@ -227,6 +227,28 @@ func TestFlowStyleWithGetsTheKey(t *testing.T) {
 		qt.Commentf("body = %q", emptyBody))
 }
 
+func TestApplyRefusesToWriteThroughASymlink(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	target := filepath.Join(t.TempDir(), "ci.yml")
+	body := "jobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-go@v1.14\n"
+	qt.Assert(t, qt.IsNil(os.WriteFile(target, []byte(body), 0o600)))
+	link := filepath.Join(dir, "ci.yml")
+	qt.Assert(t, qt.IsNil(os.Symlink(target, link)))
+
+	_, err := Apply(doctor.Finding{
+		Check: "ci-govulncheck-off",
+		Path:  link,
+		Fix:   `set run-govulncheck: "true" on the setup-go step`,
+	}, false)
+	qt.Assert(t, qt.IsNotNil(err))
+	qt.Check(t, qt.StringContains(err.Error(), "symlink"))
+
+	got, err := os.ReadFile(target) //nolint:gosec // path is a temporary fixture the test owns
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.Equals(string(got), body))
+}
+
 // What the splice cannot prove stays a skip: quoted braces a naive search
 // would misread, a value spanning lines, and content past the mapping whose
 // place the key would take is unknowable.
