@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"slices"
 	"strings"
 
@@ -272,13 +273,8 @@ func (s gateSpec) listTimeout() string {
 // formatEnv renders configured variables in a stable order, so two runs
 // print the same line. Map iteration is not ordered, which a listing must be.
 func formatEnv(env map[string]string) string {
-	keys := make([]string, 0, len(env))
-	for k := range env {
-		keys = append(keys, k)
-	}
-	slices.Sort(keys)
 	pairs := make([]string, 0, len(env))
-	for _, k := range keys {
+	for _, k := range slices.Sorted(maps.Keys(env)) {
 		pairs = append(pairs, k+"="+env[k])
 	}
 	return strings.Join(pairs, " ")
