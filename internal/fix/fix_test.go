@@ -163,6 +163,7 @@ func TestUnappliableSkips(t *testing.T) {
 		{"ci-no-final-gate", "an aggregating job is a design, not a splice"},
 		{"superseded-tooling", "Fix and Path do not uniquely name a file move"},
 		{"result-not-fresh", "running gate is not a repo edit"},
+		{"go-test-no-race", "Fix names a test target or a workflow step, not one splice"},
 		{"not-a-real-check", "no mechanical applier"},
 	} {
 		t.Run(tc.check, func(t *testing.T) {

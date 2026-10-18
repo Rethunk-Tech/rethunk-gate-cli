@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -1572,6 +1573,27 @@ func TestHelpSpellingsAgreeAndDoctorHasItsOwn(t *testing.T) {
 	}
 	if len(doctorText) >= len(short) {
 		t.Errorf("doctor help is %d bytes; top-level help is %d; a subcommand whose help outgrows the tool's own stops being read", len(doctorText), len(short))
+	}
+}
+
+var checkSlug = regexp.MustCompile(`Check:\s+"([^"]+)"`)
+
+func TestDoctorHelpNamesEveryCheck(t *testing.T) {
+	t.Parallel()
+	src, err := os.ReadFile(filepath.Join("..", "doctor", "doctor.go"))
+	qt.Assert(t, qt.IsNil(err))
+	seen := map[string]struct{}{}
+	for _, m := range checkSlug.FindAllSubmatch(src, -1) {
+		slug := string(m[1])
+		if strings.HasSuffix(slug, "-") {
+			slug += "*"
+		}
+		if _, ok := seen[slug]; ok {
+			continue
+		}
+		seen[slug] = struct{}{}
+		qt.Check(t, qt.StringContains(doctorHelp, slug),
+			qt.Commentf("doctorHelp omits check %q", slug))
 	}
 }
 

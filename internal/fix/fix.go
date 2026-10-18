@@ -40,6 +40,7 @@ var skipReasons = map[string]string{
 	"ci-no-final-gate":   "an aggregating job is a design, not a splice",
 	"superseded-tooling": "Fix and Path do not uniquely name a file move",
 	"result-not-fresh":   "running gate is not a repo edit",
+	"go-test-no-race":    "Fix names a test target or a workflow step, not one splice",
 }
 
 // All applies each finding in order against the tree as it stands. A write

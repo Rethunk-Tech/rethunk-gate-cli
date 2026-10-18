@@ -33,10 +33,17 @@ shows the decision and runs nothing:
 
 ```console
 $ gate --list
-project  /usr/local/src/com.github/Rethunk-Tech/rethunk-git-cli
-3 gate(s), 3 group(s) -- all concurrent
+project  /path/to/project
+6 gate(s), 6 group(s) -- all concurrent
   build      make build
         from Makefile target build
+  lint       make lint
+        from Makefile target lint
+  workflows  actionlint
+        from convention: .github/workflows
+  shell      shellcheck (1 script)
+        from convention: shell scripts
+        runs shellcheck -x scripts/bench.sh
   test       make test
         from Makefile target test
   vuln       govulncheck ./...
@@ -54,7 +61,7 @@ groups run concurrently. The document also carries the project `root`, the
 ```console
 $ gate --json
 {
-  "root": "/usr/local/src/com.github/Rethunk-Tech/rethunk-git-cli",
+  "root": "/path/to/project",
   "gates": [
     {
       "name": "build",
@@ -700,6 +707,7 @@ for d in ~/src/*/; do gate -C "$d" --json doctor | jq -r --arg d "$d" '.findings
 | --- | --- |
 | `no-ci` | A repository with gates to run and no `.github/workflows` |
 | `go-no-govulncheck` | A Go module with no vulnerability gate available |
+| `go-test-no-race` | A Go module whose gates never run `go test -race` |
 | `ci-govulncheck-off` | `setup-go` used, but no workflow sets `run-govulncheck` |
 | `ci-no-final-gate` | Matrix checks with no single aggregating job to require |
 | `corepack-with-setup-bun` | `corepack enable` beside `setup-bun` |
@@ -748,6 +756,7 @@ gate --json fix
 | `npx-in-bun-workspace` | replace `npx` with `bunx` in the named workflow or `package.json` |
 | `actions-floating-ref` / `actions-stale-ref` | pin the named shared-action refs to the tag doctor already stated, never unrelated actions |
 | `go-no-govulncheck` | skip — `go install` is machine-wide |
+| `go-test-no-race` | skip — Fix names a test target or a workflow step |
 | `no-ci` | skip — a workflow needs a template choice |
 | `missing-gate-*` | skip — adding a script is ambiguous |
 | `ci-no-final-gate` | skip — an aggregating job is a design |

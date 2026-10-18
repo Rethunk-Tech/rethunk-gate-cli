@@ -111,9 +111,10 @@ Reports things about this project that are cheap to detect and worth fixing:
 missing vulnerability gates, CI gaps, superseded tooling and stale action
 pins.
 
-Checks: no-ci, go-no-govulncheck, ci-govulncheck-off, ci-no-final-gate,
-corepack-with-setup-bun, npx-in-bun-workspace, actions-floating-ref,
-actions-stale-ref, superseded-tooling, missing-gate-*, next-build-typecheck-race.
+Checks: no-ci, go-no-govulncheck, go-test-no-race, ci-govulncheck-off,
+ci-no-final-gate, corepack-with-setup-bun, npx-in-bun-workspace,
+actions-floating-ref, actions-stale-ref, superseded-tooling, missing-gate-*,
+next-build-typecheck-race, result-not-fresh.
 
 Read-only. It never edits the repository and never runs a gate, and it exits 0
 whether or not it found anything -- advice that failed the build would stop
