@@ -1754,6 +1754,26 @@ func TestNDJSONKeepsStdoutMachineOnly(t *testing.T) {
 	qt.Check(t, qt.Equals(*r.Code, 0))
 }
 
+type failWriter struct{}
+
+func (failWriter) Write([]byte) (int, error) {
+	return 0, errors.New("broken pipe")
+}
+
+// A failed stdout write used to drop the line with no stderr and no other
+// signal. The command's status is still the verdict; the encode error is
+// what a caller reading the stream would otherwise never see.
+func TestNDJSONReportsEncodeError(t *testing.T) {
+	t.Parallel()
+	var stderr bytes.Buffer
+	code := Run(context.Background(), "v0.0.0-test", []string{"--ndjson", "true"}, failWriter{}, &stderr)
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr.String()))
+	qt.Check(t, qt.StringContains(stderr.String(), "writing --ndjson"),
+		qt.Commentf("stderr = %q", stderr.String()))
+	qt.Check(t, qt.StringContains(stderr.String(), "broken pipe"),
+		qt.Commentf("stderr = %q", stderr.String()))
+}
+
 // --list and --json run nothing, so pairing either with --ndjson would hand
 // the caller an empty stream it cannot tell from a project with no gates.
 func TestNDJSONRefusesTheFlagsThatRunNothing(t *testing.T) {

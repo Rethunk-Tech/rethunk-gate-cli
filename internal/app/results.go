@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"sync"
 )
@@ -70,21 +71,24 @@ type result struct {
 // the mutex is what stops two of them interleaving into a line nothing can
 // parse.
 type resultStream struct {
-	mu  sync.Mutex
-	enc *json.Encoder
+	mu   sync.Mutex
+	enc  *json.Encoder
+	errw io.Writer
 }
 
 // newResultStream returns a stream writing to w, or nil when the caller did
 // not ask for one. A nil stream emits nothing, so the run path calls emit
 // unconditionally instead of testing a flag at every site.
-func newResultStream(w io.Writer, wanted bool) *resultStream {
+func newResultStream(w, errw io.Writer, wanted bool) *resultStream {
 	if !wanted {
 		return nil
 	}
-	return &resultStream{enc: json.NewEncoder(w)}
+	return &resultStream{enc: json.NewEncoder(w), errw: errw}
 }
 
-// emit writes one gate's line.
+// emit writes one gate's line. An encode error is reported on stderr under
+// the same mutex so concurrent gates cannot interleave it into a parseable
+// stream line; it never changes the command's verdict.
 func (s *resultStream) emit(res gateResult) {
 	if s == nil {
 		return
@@ -93,7 +97,9 @@ func (s *resultStream) emit(res gateResult) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	// Encode ends every value with a newline, which is the whole of NDJSON.
-	_ = s.enc.Encode(rec)
+	if err := s.enc.Encode(rec); err != nil {
+		fmt.Fprintf(s.errw, "gate: writing --ndjson: %v\n", err)
+	}
 }
 
 // toResult is one gate's outcome as a stream line or a record entry. The

@@ -287,7 +287,7 @@ func (r gateResult) excused() bool {
 // the aggregate, whatever its own verdict was.
 func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code {
 	results := make([]gateResult, len(opts.gates))
-	stream := newResultStream(stdout, opts.ndjson)
+	stream := newResultStream(stdout, stderr, opts.ndjson)
 
 	started := time.Now()
 	// Read beside the gates rather than before them: it costs a git spawn or
