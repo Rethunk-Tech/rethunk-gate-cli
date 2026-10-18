@@ -13,6 +13,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strings"
 )
@@ -48,8 +49,12 @@ type Loaded struct {
 // setting cannot change the diff bytes the hash covers.
 func ReadTree(ctx context.Context, root string) State {
 	git := func(args ...string) ([]byte, bool) {
-		cmd := exec.CommandContext(ctx, "git", append([]string{"-C", root, "-c", "core.fsmonitor=", "-c", "color.ui=false"}, args...)...) //nolint:gosec // repository inspection uses fixed git arguments
-		cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
+		cmd := exec.CommandContext(ctx, "git", append([]string{ //nolint:gosec // repository inspection uses fixed git arguments
+			"-C", root,
+			"-c", "core.fsmonitor=",
+			"-c", "color.ui=false",
+		}, args...)...)
+		cmd.Env = gitEnv()
 		out, err := cmd.Output()
 		return out, err == nil
 	}
@@ -61,7 +66,7 @@ func ReadTree(ctx context.Context, root string) State {
 	if !ok {
 		return State{}
 	}
-	diff, ok := git("diff", "HEAD")
+	diff, ok := git("diff", "--no-ext-diff", "HEAD")
 	if !ok {
 		return State{}
 	}
@@ -79,6 +84,26 @@ func ReadTree(ctx context.Context, root string) State {
 		Status: statusHash(status, diff, blobs),
 		OK:     true,
 	}
+}
+
+// gitEnv is the environment git runs with for a tree hash. Optional locks
+// stay off so this never contends with a gate that is itself running git.
+// GIT_EXTERNAL_DIFF, GIT_PAGER, GIT_ASKPASS and GIT_DIFF_OPTS are dropped:
+// the first three name programs, and GIT_DIFF_OPTS can turn --ext-diff back
+// on. GIT_PAGER=cat is set after the drop so a pager cannot run even if
+// stdout is a tty.
+func gitEnv() []string {
+	env := os.Environ()
+	out := make([]string, 0, len(env)+2)
+	for _, e := range env {
+		k, _, _ := strings.Cut(e, "=")
+		switch k {
+		case "GIT_EXTERNAL_DIFF", "GIT_PAGER", "GIT_ASKPASS", "GIT_DIFF_OPTS":
+			continue
+		}
+		out = append(out, e)
+	}
+	return append(out, "GIT_OPTIONAL_LOCKS=0", "GIT_PAGER=cat")
 }
 
 // statusHash is the hex SHA-256 of three outputs concatenated, in order: raw
@@ -128,6 +153,9 @@ func UntrackedPaths(status []byte) []string {
 func untrackedFiles(status []byte, git func(...string) ([]byte, bool)) ([]string, bool) {
 	var files []string
 	for _, p := range UntrackedPaths(status) {
+		if !worktreePath(p) {
+			return nil, false
+		}
 		if !strings.HasSuffix(p, "/") {
 			files = append(files, p)
 			continue
@@ -143,6 +171,17 @@ func untrackedFiles(status []byte, git func(...string) ([]byte, bool)) ([]string
 		}
 	}
 	return files, true
+}
+
+// worktreePath is a porcelain path that stays inside the repository. hash-object
+// reads the named file, so an absolute path or a `..` component would hash
+// something git was not asked to track.
+func worktreePath(p string) bool {
+	if p == "" || strings.ContainsRune(p, 0) || filepath.IsAbs(p) {
+		return false
+	}
+	clean := path.Clean(filepath.ToSlash(strings.TrimSuffix(p, "/")))
+	return clean != ".." && !strings.HasPrefix(clean, "../")
 }
 
 // hashObjects is the concatenated stdout of `git hash-object --` over files,
