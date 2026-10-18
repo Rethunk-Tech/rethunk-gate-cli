@@ -35,6 +35,24 @@ go install github.com/Rethunk-Tech/rethunk-gate-cli/cmd/gate@latest
 From a clone: [HUMANS.md](HUMANS.md). Flags: `gate --help`. Detection,
 `.gate.toml`, cache awareness, and exit codes: [docs/USAGE.md](docs/USAGE.md).
 
+Completions and a man page ship as `gate-completions-man.tar.gz`:
+
+```bash
+install -Dm644 gate.bash ~/.local/share/bash-completion/completions/gate
+```
+
+```zsh
+install -Dm644 _gate ~/.local/share/zsh/site-functions/_gate
+```
+
+```fish
+install -Dm644 gate.fish ~/.config/fish/completions/gate.fish
+```
+
+```powershell
+Add-Content $PROFILE ". $PWD/gate.ps1"
+```
+
 ## Quick start
 
 ```bash

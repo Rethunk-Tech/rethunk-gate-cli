@@ -34,6 +34,33 @@ make install     # go install ./cmd/gate into your GOBIN
 
 Source and `go install` require Go 1.27 or newer.
 
+Completions (bash, zsh, fish, PowerShell) and a man page are
+`gate-completions-man.tar.gz`:
+
+```bash
+curl -fsSLO https://github.com/Rethunk-Tech/rethunk-gate-cli/releases/latest/download/gate-completions-man.tar.gz
+curl -fsSLO https://github.com/Rethunk-Tech/rethunk-gate-cli/releases/latest/download/gate-completions-man.tar.gz.sha256
+sha256sum -c gate-completions-man.tar.gz.sha256
+mkdir -p /tmp/gate-assets
+tar -xzf gate-completions-man.tar.gz -C /tmp/gate-assets
+```
+
+```bash
+install -Dm644 /tmp/gate-assets/gate.bash ~/.local/share/bash-completion/completions/gate
+```
+
+```zsh
+install -Dm644 /tmp/gate-assets/_gate ~/.local/share/zsh/site-functions/_gate
+```
+
+```fish
+install -Dm644 /tmp/gate-assets/gate.fish ~/.config/fish/completions/gate.fish
+```
+
+```powershell
+Add-Content $PROFILE '. /tmp/gate-assets/gate.ps1'
+```
+
 ## Using it
 
 Wrap any command — complete output goes to a log, one line on screen:
