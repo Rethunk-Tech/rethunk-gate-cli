@@ -1,7 +1,7 @@
 # AGENTS.md
 
-Internals for anyone changing this repository. To *use* `gate`, read
-[HUMANS.md](HUMANS.md). To submit changes, read [CONTRIBUTING.md](CONTRIBUTING.md).
+Internals. Use: [HUMANS.md](HUMANS.md). Process: [CONTRIBUTING.md](CONTRIBUTING.md).
+Reference: [docs/USAGE.md](docs/USAGE.md).
 
 ## The one invariant
 
@@ -15,27 +15,18 @@ is ~71% overhead on the common case.
 
 ## Delegation boundary
 
-`gate` owns **capture** (both streams merged), **summary** (bounded tail, display
-only), and **status** (passed through unchanged). No per-runner parsers change
-what `gate` reports as the verdict.
+`gate` owns **capture** (both streams merged), **summary** (bounded tail,
+display only), and **status** (passed through unchanged). No per-runner parser
+changes the verdict.
 
-**Cache awareness is the one deliberate exception**, and it stays on the
-display side of that line: `internal/app/cache.go` reads the same bytes the
-log already keeps, for the handful of markers turbo, `go test` and `make`
-themselves print, and turns them into a label beside the ok line and an
-NDJSON `cache` field. It never sets a `Code`, never moves the aggregate, and
-degrades to silence — not a guess — on any output it does not recognise. See
-cache.go's own doc comment for why that direction is safe and the other one
-is not.
+Cache awareness is the one exception, and display-only: `internal/app/cache.go`
+reads the log's bytes for turbo / `go test` / `make` markers, then a label and
+an NDJSON `cache` field. It never sets a `Code`, never moves the aggregate, and
+is silent on unrecognised output. See cache.go's doc comment.
 
-### The words gate claims
-
-Exactly four: **`doctor`**, **`run`**, **`fix`**, and **`record`**. A bare word cannot name a
-gate — project gate names are arbitrary. `run` takes gate names; `fix` takes
-`--dry-run`; `record` takes none. Programs of those names remain reachable as
-`gate -- run x`, `gate -- doctor`, `gate -- fix`, `gate -- record`.
-
-A name that resolves to no gate fails the whole run rather than the one name.
+Reserved words: **`doctor`**, **`run`**, **`fix`**, **`record`**. A bare word
+cannot name a gate. Those programs: `gate -- run x` (and the same for the
+others). An unknown `gate run` name fails the whole run.
 
 ## Invariants in the capture path
 
@@ -47,103 +38,52 @@ Breaking one of these is silent.
 | The tracker's `Write` never returns an error | An error there aborts the copy feeding the log |
 | Per-line memory is capped (`maxTrackedLine`) | A minified bundle arrives as one enormous line |
 | stdout and stderr share one writer | Splitting them reorders failure lines |
-| A signalled command reports 128+signal | exec reports -1, which tells the caller nothing |
-| A log close error is reported, not deferred away | Losing the log silently is the one failure nobody would notice |
+| A signalled command reports 128+signal | exec reports -1 |
+| A log close error is reported, not deferred away | Losing the log silently is the failure nobody would notice |
 | An interrupted gate still reaches `writeTrailer` and `Close` | An unfinished file gate opened is left empty |
 | An interrupt reports the signal that reached *gate* | The child dies of the signal gate sent it |
-| `--ndjson` lines are written under a mutex, from the finishing gate's own goroutine | Concurrent gates would otherwise interleave into a line nothing can parse |
+| `--ndjson` under a mutex, from the finishing gate's own goroutine | Concurrent gates would interleave into an unparseable line |
 
 ## Interrupts
 
-Children sit in their **own** process group so a timeout can stop the whole tree.
-Stopping is SIGINT to the group, then SIGKILL after `stopGrace` to whatever is
-left (`runOne`, `signal_unix.go`). SIGINT, not SIGTERM: Playwright stops the
-`webServer` it put in a group of its own only on SIGINT; SIGTERM kills its
-Node process with no cleanup, orphaning the server on its port.
-`main` catches SIGINT/SIGTERM, cancels the context, then hands the signal back
-to the OS so a second Ctrl-C still ends gate.
+Children sit in their **own** process group. Stop is SIGINT to the group, then
+SIGKILL after `stopGrace` (`runOne`, `signal_unix.go`). SIGINT, not SIGTERM:
+Playwright stops its `webServer` only on SIGINT; SIGTERM orphans it on the
+port. `main` catches SIGINT/SIGTERM, cancels, then hands the signal back so a
+second Ctrl-C still ends gate.
 
 ## Working directory
 
-**Never `os.Chdir`.** Gates run concurrently; working directory is process-global.
-Each gate carries its own directory. Detected gates run at `proj.Root`; explicit
-commands run in the `-C` directory. Configuration `dir` moves one gate off the
-root — resolved against the root, refused when missing — and the listing names
-the move.
+**Never `os.Chdir`.** Working directory is process-global; gates run
+concurrently. Each gate carries its own directory. Detected: `proj.Root`.
+Named command: `-C`. Config `dir` is resolved against the root, refused when
+missing, named in the listing.
 
 ## Detection
 
-`internal/detect` reads manifests and stats files. **It never executes a
-program the project chose** — `make -p` would evaluate the Makefile, and that
-is the line.
+`internal/detect` reads manifests and stats. **It never executes a program the
+project chose** (`make -p` would evaluate the Makefile).
 
-The `shell` gate is the one exception, and a bounded one. `shellcheck` takes
-files rather than a directory, and "the project's own scripts" is a question
-git already answers exactly, so detection runs `git ls-files --cached --others
---exclude-standard`: a fixed argv no project can influence, `core.fsmonitor`
-emptied so a repository cannot name a program for git to run, and a 5s
-deadline. Not a repository, no git, or any error falls back to walking for
-`.sh` files past vendored and generated trees. Measured at 7-8ms per
-detection including the spawn, and only a bare `gate` pays it.
+`shell` is the bounded exception: `git ls-files --cached --others
+--exclude-standard`, fixed argv, `core.fsmonitor` emptied, 5s deadline. Else
+walk `.sh` past vendored/generated trees. Only a bare `gate` pays it.
 
-Precedence: Makefile target, `turbo.json` task, `package.json` script, then
-convention. Only a declaration can shadow another.
-
-The roles live in `gateOrder`; a role missing from that list never reaches
-`Project.Gates` — silently. An aggregate (`ci`, `check`, `verify`, `validate`,
-in that precedence; never `all`, which is a build target by convention) is not
-a role and never reaches `gateOrder`:
-declined with a note where gate claimed any gate it aggregates (running it
-would run each of them twice), appended after the ordered gates where gate
-claimed none (declining there leaves the project unchecked). `workflows` and
-`shell` are not among the aggregated gates. Both branches state which case applied — a note
-present in only one reads as a bug in the other.
-
-A JavaScript package with its own lockfile, or a Go module with its own
-`go.mod`, that a workflow names as a `working-directory` becomes one gate named for its directory (`ciPackageGates`
-in `internal/detect/sources.go`): nothing else reaches it, since detection
-stops at the root manifest. That name is what lets a configured gate override
-it, and a configured `run` runs from the root, never the package. A package a
-root gate already enters (`cd`, `-C`, `--cwd` in its make recipe closure or
-script body, or a configured gate's `run`/`dir`) is not gated twice.
-
-A package script a push or pull-request workflow step runs whole
-(`<runner> run <script>`), or a task a declined aggregate runs beyond the
-roles, becomes a gate named for it (`ciScriptGates` in `internal/detect/ci.go`),
-serial behind a serial build (except Go's convention `go build ./...`, which
-writes nothing a step could read), carrying the step's and job's `env`. A step
-handed `${{ }}` values or in a job that starts services is a note instead.
-
-After configuration and `gate run` name checks, `dedupe` (`internal/app/dedupe.go`)
-breaks every gate into steps (`detect.Work`) and runs each step once: identical
-gates merge, a coverage or `-race` variant drops the plain run, and an aggregate is split
-to its uncovered steps or dropped. Each is a note. A gate that runs one script
-file (a CI step's `bun run gate` reaching `scripts/gate.sh`) cannot be split, so
-it keeps every other gate's step its lines run (`detect.ScriptLines`, read and
-never run, following the repository scripts and package scripts it names) and
-those gates are split or dropped instead. A command the script runs only under
-a condition counts as run; a word in a comment does not.
-
-Whether a gate is browser e2e (`detect.IsE2E`) is read from its name, its
-argv and the package scripts it runs, and decided in `internal/app` after the
-config merge, where `gates.<name>.e2e` can overrule it. A bare run drops those
-gates after the listings are written, so `--list` still shows them.
-
-Binaries resolve from `node_modules/.bin` and `.venv/bin` before `PATH`; the
-**resolved path** goes into argv.
+Precedence, roles, aggregates, CI packages/scripts, e2e, `dedupe`:
+[docs/USAGE.md](docs/USAGE.md#what-it-looks-at-in-order). A role missing from
+`gateOrder` never reaches `Project.Gates`. Resolved `node_modules/.bin` /
+`.venv/bin` paths go into argv.
 
 ### Recursion
 
-A project gate that runs `gate` re-enters detection. Each child environment
-carries `GATE_ACTIVE_ROOTS`; detection refuses a project already listed there.
-Wrapping a *command* is not recursion.
+A project gate that runs `gate` re-enters detection. Children carry
+`GATE_ACTIVE_ROOTS`; detection refuses a listed root. Wrapping a *command* is
+not recursion.
 
 ## Configuration
 
-Config **adds and overrides, never replaces**: detection always runs, and
-`--list` keeps answering why each gate is there.
+Adds and overrides, never replaces. Detection always runs.
 
-- **`internal/detect` stays a pure reader.** Merge happens in `internal/app`.
+- **`internal/detect` stays a pure reader.** Merge is `internal/app`.
 - **A gate's source survives the merge** (`gateSpec.source`).
 - **A typo is an error** — `DisallowUnknownFields`, go-toml not BurntSushi.
 
@@ -151,101 +91,52 @@ go-toml is the only binary dependency; `go-quicktest/qt` is test-only.
 
 ## Doctor
 
-`internal/doctor` is read-only. Every finding carries evidence.
-
-`gate --json doctor` serialises the findings; `--ndjson` is refused there,
-because it streams what a run did and doctor runs nothing. A finding carries
-the file twice — `where` relative for reading, `path` absolute for acting —
-the same split the gate listing makes between a display and a resolved argv.
-
-- **`knownGoodActionsTag` is a constant**, not a network lookup.
-- **Judgements are repository-wide** where that matters (e.g. govulncheck).
+Read-only; every finding has evidence. Shape and checks:
+[docs/USAGE.md](docs/USAGE.md#gate-doctor). `knownGoodActionsTag` is a
+constant, not a network lookup. Judgements are repository-wide where that
+matters (govulncheck).
 
 ## Concurrency
 
-Gates run **concurrently by default**; nothing infers order. Measured over 7 days,
-back-to-back chains cost 7.93h sequentially vs 5.57h overlapped.
-
-Overlapping saved 10-77% per repository (median of three, every gate passing). Warm caches shrink every gate to tens of milliseconds, so the direction is the rule, not the figure: overlap helps most where per-gate overhead dominates, least where one long gate sets the floor.
-
-Depending on another gate's *result* is never inferred. Three ways to state it:
-turbo `dependsOn` between roles, `gates.<role>.serial` in `.gate.toml`, or
-`--serial`. Turbo's topological `"^build"` is not such an edge.
-
-`schedule` groups serial gates together; groups run concurrently. A failure
-stops its group, unless the project allowed it (`allow-failure`); stopped gates
-are reported as skipped.
+Concurrent by default; nothing infers order. 7.93h sequential vs 5.57h
+overlapped over 7 days (10–77% per repo). Three ways to state a result edge:
+turbo `dependsOn` between roles, `gates.<role>.serial`, `--serial`. Turbo
+`"^build"` is not such an edge. `schedule` groups serial gates; groups run
+concurrently. A failure stops its group unless `allow-failure`; stopped gates
+are skipped.
 
 ## Cache awareness
 
-Markers recognised, each verified against the real tool rather than assumed:
-turbo's own summary line (`Cached:  N cached, M total`, present on every run,
-cached or not — the `>>> FULL TURBO` suffix is not needed and is not
-matched), `go test`'s per-package `(cached)` on its `ok`/`FAIL` line, and GNU
-make's `'<target>' is up to date.` A verdict is **full**, **partial**, or
-absent; absent covers a gate that ran fresh and a gate whose output this
-build does not recognise identically — see cache.go for why collapsing those
-two is the safe direction. `nx` and a bare `bun run` script are not among
-them: neither appears in this fleet, and `bun run` alone has no cache layer
-of its own to report on.
-
-**Report, never refuse.** The one invariant is that the wrapped command's
-exit status is the verdict; a gate that turned a fully-cached pass into a
-failure would invent one instead, exactly what this tool exists not to do. A
-fully-cached result is not itself wrong — turbo's cache is content-addressed,
-so it is telling the truth about the inputs not having changed — the failure
-mode in the AGENTS.md history this feature answers was a green nobody could
-tell apart from a green that ran, not a green that lied. Visibility settles
-that: the label, and `--force-cache` for the caller who wants to rule the
-cache out, not gate rewriting a status the command never gave.
-
-`--force-cache` is a single, global flag — not a per-gate `.gate.toml` key,
-because the case for it (about to push, want a real answer once) is a
-one-off, not a standing project setting. It sets `TURBO_FORCE=1`,
-`GOFLAGS=-count=1`, and `MAKEFLAGS` including `-B` unconditionally (an
-environment variable a command never reads changes nothing about it) and
-rewrites argv only where it can name the tool with certainty: `go test` gets
-`-count=1`, a Makefile target gets `make -B`. A `run` gate is a shell
-string (`sh -c <string>`), and gate does not parse shell to find a `go test`
-or `make` buried inside one. Those variables are what reach it: `GOFLAGS`
-reruns a nested `go test`, and `MAKEFLAGS=-B` is the same unconditional
-rebuild as `make -B`, including a recipe written `run = "make test"`.
+**Report, never refuse.** Markers and `--force-cache`:
+[docs/USAGE.md](docs/USAGE.md#cache-awareness). Global flag, not a
+`.gate.toml` key. A `run` string is not parsed; `TURBO_FORCE`,
+`GOFLAGS=-count=1`, `MAKEFLAGS=-B` reach nested tools.
 
 ## Exit codes
 
-The command's status passes through byte for byte, including values that collide
-with gate's own codes. Gate's codes apply only when it could not run the
-command. Table: [docs/USAGE.md](docs/USAGE.md#exit-codes); constants in
-`internal/app/code.go`. The multi-gate aggregate is the first failure in
-declaration order — or the first *non-allowed* one where the project marked
-gates `allow-failure`, whose own verdicts still pass through everywhere a
-verdict goes.
+Command status passes through, including collisions with gate's codes. Gate's
+codes apply only when it could not run the command.
+[docs/USAGE.md](docs/USAGE.md#exit-codes); `internal/app/code.go`. Aggregate:
+first failure in declaration order, or first non-allowed one.
 
 ## State
 
-Logs, and one result record per project root (`record.go`; format in
-[docs/USAGE.md](docs/USAGE.md#result-record)). `gate record` prints it and
-exits 0 only while schema, head, and status still match and the run exited 0.
-`status` hashes the porcelain
-status, the diff against HEAD, and each untracked file, so two dirty trees at
-one commit do not share a pass. The record's git read runs
-beside the gates rather than before them, so a run pays no extra wall time for
-it; its write failing is a stderr line, never a change to the exit status or
-to stdout. Logs go to `$TMPDIR`, or `/var/tmp` when unset —
-never `/tmp` on unix (`logDir` is build-tagged). `run` strings split `sh -c` vs
-`cmd /c`. Logs are 0600 in a 0700 directory.
+One result record per root (`record.go`;
+[docs/USAGE.md](docs/USAGE.md#result-record)). `gate record` exits 0 only while
+schema, head, and status still match and the run exited 0. `status` hashes
+porcelain, `git diff HEAD`, and each untracked file. Git read runs beside the
+gates; a write failure is stderr only.
 
-Logs older than 14 days are swept from `gate`'s own directory, once per
-process and at most once a day — a stamp file makes that one stat rather than
-one per log. A path `--log` names is never swept: `gate` does not delete
-files it did not place.
+Logs: `$TMPDIR` or `/var/tmp` — never `/tmp` on unix (`logDir` is
+build-tagged). `run` strings: `sh -c` vs `cmd /c`. 0600 in 0700. Sweep own
+directory >14 days, at most once a day. `--log` paths are never swept.
 
 ## Gate budget
 
-Measured at load average 3 to 8 on 32 cores. CI parity: gate schedules build, lint, `make test`
-(`go test -race ./...`), govulncheck, actionlint and shellcheck, the Linux legs of CI; the
-windows-only leg is not reproducible locally. Warm: 6.8 s wall and 6.7 CPU-s when two packages
-were uncached, 0.8 s and 5 CPU-s when everything was. Cold (fresh `GOCACHE` and golangci-lint
-cache): 12.8 s wall, 73 CPU-s, under the 30 s cold bar; `make test` is 12.8 s of it, the `-race`
-compile dominating. Chaining build, lint and test with `serial = true` cut CPU to 58 s but raised
-wall to 16.6 s, so the gates stay concurrent.
+Load average 3–8 on 32 cores. CI parity: build, lint, `make test`
+(`go test -race ./...`), govulncheck, actionlint, shellcheck; windows-only
+leg is not local. Warm: 6.8 s wall / 6.7 CPU-s with two packages uncached;
+0.8 s / 5 CPU-s when cached. Cold (fresh `GOCACHE` and golangci-lint): 12.8 s
+wall, 73 CPU-s, under the 30 s cold bar (`make test` is 12.8 s of it).
+`serial = true` on build+lint+test: 58 CPU-s, 16.6 s wall — so they stay
+concurrent.
