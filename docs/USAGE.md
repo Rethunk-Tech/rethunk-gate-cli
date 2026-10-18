@@ -1,560 +1,256 @@
 # Usage
 
-`gate --help` lists every flag and the argument rules. This file covers what
-help cannot carry: where gates come from, what `.gate.toml` can say, how the
-layers resolve, and the exit codes.
+`gate --help` lists every flag. This file is what help cannot carry: where
+gates come from, `.gate.toml`, layering, and exit codes.
 
 ## `-C <path>`
 
-`-C <path>` runs as if `gate` had been started in `<path>`, with git's own
-semantics: leading only, repeats accumulating and read relative to the last, an
-absolute path resetting, `-C ""` a no-op, and the glued `-C<path>` spelling
+Git's own semantics: leading only, repeats accumulating and read relative to
+the last, an absolute path resetting, `-C ""` a no-op, glued `-C<path>`
 refused.
 
 ```bash
 for d in ~/src/*/; do gate -C "$d" --quiet || echo "FAIL $d"; done
 ```
 
-The directory is checked before anything runs: a missing directory argument is
-a usage error (129), one that cannot be entered is fatal (128). A relative
-`--log` resolves against it.
+Missing directory argument: 129. Unenterable: 128. A relative `--log` resolves
+against it. Detected gates run at the project root; a command you name runs in
+the `-C` directory.
 
-Two things run in different places, deliberately:
+## Bare `gate`
 
-- **Detected gates run at the project root.** They are the project's own
-  commands and only work there.
-- **A command you name runs in the `-C` directory** — that command is yours,
-  and `gate -C x <cmd>` is indistinguishable from standing in `x` and typing it.
+`--list` shows the decision and runs nothing. `--json` is the same listing for
+a program: each gate's `name`, resolved `argv`, `display`, `source`, `shadows`,
+`group`; plus `root`, `config`, `notes`, `warnings`. Gates sharing a `group`
+run serially; groups run concurrently.
 
-## Bare `gate` — the project's own gates
-
-With no command, `gate` reads the project and runs what it finds. `--list`
-shows the decision and runs nothing:
-
-```console
-$ gate --list
-project  /path/to/project
-6 gate(s), 6 group(s) -- all concurrent
-  build      make build
-        from Makefile target build
-  lint       make lint
-        from Makefile target lint
-  workflows  actionlint
-        from convention: .github/workflows
-  shell      shellcheck (1 script)
-        from convention: shell scripts
-        runs shellcheck -x scripts/bench.sh
-  test       make test
-        from Makefile target test
-  vuln       govulncheck ./...
-        from convention: go
-```
-
-`--json` prints the same listing for a program to read, so nothing has to
-column-parse the text above — that layout is written for a person and is free
-to change. Each gate carries its `name`, the resolved `argv`, the `display`
-the text listing shows, the `source` it came from, anything it `shadows`, and
-its scheduling `group`; gates sharing a group run one after another, and
-groups run concurrently. The document also carries the project `root`, the
-`config` files in force, the `notes`, and the `warnings` (tools CI runs that
-no gate does). It runs nothing and changes nothing:
-
-```console
-$ gate --json
-{
-  "root": "/path/to/project",
-  "gates": [
-    {
-      "name": "build",
-      "argv": ["make", "build"],
-      "display": "make build",
-      "source": "Makefile target build",
-      "shadows": [],
-      "group": 0
-    }
-  ],
-  "config": [],
-  "notes": [],
-  "warnings": []
-}
-```
-
-A scalar with nothing to say is absent rather than empty: a wrapped command has
-no project, so `root`, `name` and `source` do not appear at all, and `workspace`
-appears only where it differs from `root`. Collections are always present, empty
-as `[]` and never `null`, so a consumer can iterate without a nil check.
+A scalar with nothing to say is omitted (a wrapped command has no `root` /
+`name` / `source`; `workspace` only when it differs from `root`). Collections
+are always `[]`, never `null`.
 
 ### Browser e2e is opt-in
 
-A local gate is budgeted at 10s warm, and one browser suite alone takes
-minutes, so a bare `gate` leaves e2e gates out and ends with one line saying
-so:
+A bare `gate` leaves e2e gates out and says so. `gate --e2e` runs them;
+`gate run <name>` runs one. CI still runs them.
 
-```console
-$ gate
-gate: ok  bun run knip  1.2s  /var/tmp/gate/bun-run-knip-114970238.log
-gate: 1 e2e gate(s) skipped; `gate --e2e` runs them
-```
+E2e when the name has an `e2e` segment, the command runs `playwright test`, or
+it runs a package script / turbo task that is e2e by either test.
+`gates.<name>.e2e` overrules. `--list` still names them (`e2e, skipped by
+default`); `--json` marks `"e2e": true, "skipped": true` and drops `skipped`
+under `--e2e`. A project whose every gate is e2e refuses a bare run.
 
-`gate --e2e` runs them with everything else, and `gate run test:e2e` runs one
-by name. CI still runs them all. A gate is e2e when its name has an `e2e`
-segment (`e2e`, `test:e2e`, `test:e2e:a11y`), or its command runs
-`playwright test`, or runs a package script or turbo task that is e2e by
-either test (`bun run test` whose script is `playwright test`, `bun run
-test:all` whose script runs `bun run test:e2e`). That covers the CI steps gate
-picks up too, since each is named for the script it runs. Where the reading is
-wrong, `e2e = true` or `e2e = false` under the gate in `.gate.toml` settles it.
-
-Nothing is hidden: `--list` names every e2e gate, adds `e2e, skipped by
-default` under each one a bare run would skip, and counts them on its header
-line; `--json` marks them `"e2e": true, "skipped": true`, and drops `skipped`
-under `--e2e`. A project whose every gate is e2e refuses a bare run rather
-than pass having run nothing.
-
-`--json` names the gate listing, so it applies to `--list` and to a bare run.
-With `doctor`, `fix`, or `record` it names that report instead — see [`gate doctor`](#gate-doctor),
-[`gate fix`](#gate-fix), and [Result record](#result-record).
+`--json` with `doctor`, `fix`, or `record` names that report instead.
 
 ### Frozen install
 
-Where the workspace holds a lockfile, a bare `gate` or `gate run` first runs
-the frozen install for it once, from the workspace root, before any gate (and
-one for each [package CI runs in a subdirectory](#packages-ci-runs-in-a-subdirectory)):
+A bare `gate` or `gate run` first runs the workspace lockfile's frozen install
+once (and one per [CI subdirectory package](#packages-ci-runs-in-a-subdirectory)):
 `bun install --frozen-lockfile`, `yarn install --frozen-lockfile`, `npm ci`, or
-`pnpm install --frozen-lockfile`, in the same lockfile precedence the package
-runner uses. A `uv.lock`, walked separately so it cannot hide a Node lockfile,
-runs `uv sync --locked` in the directory that holds it; both run when both
-lockfiles exist, and a Node lockfile still chooses the Node install. It prints
-`gate: install: <command> (in <workspace>)` on stderr. A failed install is the
-run's verdict: its output is quoted, its exit status passes through, and no
-gate runs. Without it, gates typecheck against whatever `node_modules` or
-`.venv` holds, which passes code CI's fresh install rejects. A wrapped
-command, `--list` and `--json` never install.
+`pnpm install --frozen-lockfile`. A `uv.lock` (walked separately so it cannot
+hide a Node lockfile) runs `uv sync --locked` in its directory; both run when
+both exist. Prints `gate: install: <command> (in <workspace>)` on stderr. A
+failed install is the run's verdict; no gate runs. A wrapped command, `--list`
+and `--json` never install.
 
-### Streaming what a run did
+### `--ndjson`
 
-`--json` describes what *would* run. `--ndjson` runs the gates and writes one
-JSON line per gate the moment that gate finishes:
-
-```console
-$ gate --ndjson
-{"name":"lint","argv":["make","lint"],"display":"make lint","status":"ok","code":0,"ms":189,"log":"/var/tmp/gate/make-lint-2378129278.log"}
-{"name":"build","argv":["make","build"],"display":"make build","status":"ok","code":0,"ms":193,"log":"/var/tmp/gate/make-build-1076509735.log"}
-{"name":"test","argv":["make","test"],"display":"make test","status":"fail","code":2,"ms":3307,"log":"/var/tmp/gate/make-test-738824944.log"}
-```
-
-A stream rather than one document at the end, because that is the shape a
-concurrent run has: a ten-minute gate must not hold back the verdict on a
-two-second one. The order is **arrival order** — the order gates finished, not
-the order they were named — which is the only order a stream can honestly
-claim. The text report on stderr is still in declaration order, and the two are
-free to disagree.
+`--json` is what *would* run. `--ndjson` writes one JSON line per gate as it
+finishes, **arrival order**. Text on stderr stays declaration order.
 
 `status` is a word, never a code: `ok`, `fail`, `timeout`, `interrupted`,
-`not-found`, `error`, `skipped`. The codes collide by design — a command
-exiting 124 is not a timeout — so a consumer must never have to guess which of
-the two it is holding.
+`not-found`, `error`, `skipped`. A command exiting 124 is not a timeout.
+`code` and `ms` are absent for a gate that never ran. `reason` is skip/timeout
+detail; `error` is gate's own failure beside the command's verdict. `cache` is
+`"cached"` or `"N/M cached"`, absent when unrecognised.
 
-`code` is what that gate contributes to gate's exit status, and `ms` how long
-it took. Both are **absent** for a gate that never ran: a skipped gate has no
-verdict, and `"code": 0` would claim a pass it never gave. `reason` says what a
-skipped gate was waiting on, or which limit a timeout passed; `error` carries
-gate's own failure — a log it could not finish — beside the command's verdict
-rather than in place of it. `cache` is the same reading the ok line shows
-(`"cached"` or `"N/M cached"`), and is absent when this build recognised no
-marker.
-
-stdout carries the stream alone. `--ndjson` implies `--quiet`, because a human
-`gate: ok` line in the middle of it is a parse error for the consumer that
-asked for the machine shape; failures still narrate on stderr either way. It
-cannot be combined with `--json` or `--list`, which run nothing — that pairing
-would hand back an empty stream indistinguishable from a project with no gates.
-
-The exit status is unchanged: `--ndjson` is output only, like `--json`, and a
-sweep can read both.
+stdout is the stream alone (`--quiet`). Cannot combine with `--json` or
+`--list`. Exit status is unchanged.
 
 ```bash
 for d in ~/src/*/; do gate -C "$d" --ndjson; done | jq -r 'select(.status != "ok") | "\(.name) \(.status) \(.log)"'
 ```
 
-### What a run cost
+### Budget and `--profile`
 
-`--profile` prints two lines on stderr after the run: wall time against
-summed gate time, and the slowest gates first.
+`--profile` prints wall vs summed gate time, then slowest first. Output only.
+Gates that never ran are omitted. Refused beside `--list`, `--json`, `doctor`,
+`fix`, or `record`.
 
-```console
-$ gate --profile
-gate: ok  make lint  189ms  /var/tmp/gate/make-lint-2378129278.log
-gate: ok  make test  3.307s  /var/tmp/gate/make-test-738824944.log
-gate: profile wall 3.312s sum 3.496s (1.1x overlap) across 2 gate(s)
-gate: slowest make test 3.307s, make lint 189ms
-```
-
-Output only, like `--ndjson`: what a run does never depends on who is
-reading it. The per-gate `ms` was already in every NDJSON line; this is the
-same numbers read after the fact rather than as they arrive, so the stream's
-arrival-order contract is unchanged and stdout stays machine-only — combine
-the two freely. A gate that never ran has no time to report and is left out
-of both the sum and the ranking, for the same reason it carries no `ms` in
-the stream. `--profile` beside `--list`, `--json`, `doctor`, `fix`, or `record` is
-refused: there is no run to measure.
-
-A passing run over its budget prints one line on stderr with the wall time
-and the three slowest gates, the same numbers `--profile` reads, and still
-exits 0:
-
-```console
-gate: wall 14.212s is over the 10s budget; slowest make test 13.9s, make lint 1.2s, make build 180ms
-```
-
-The budget is 10s, or 2m for a run that includes an e2e gate. `--budget D`
-or a top-level `budget = "15s"` in `.gate.toml` replaces that default (the flag
-wins), including when e2e gates run, and `0` turns the warning off. A command
-the caller named has no budget.
+A pass over budget still exits 0 and names the three slowest. Default 10s, or
+2m when an e2e gate ran. `--budget D` or top-level `budget = "15s"` replaces
+it (flag wins); `0` silences it. A named command has no budget.
 
 ### Cache awareness
 
-A gate's exit status is always the verdict, but a status of 0 can mean either
-"this ran and passed" or "a build tool answered from its own cache without
-touching the work" — and those read identically unless something says
-otherwise. `gate` reads the same output its log already keeps for the
-markers turbo, `go test`, and make themselves print, and adds a label:
-
-```console
-$ gate
-gate: ok  turbo run lint typecheck test build  20ms  /var/tmp/gate/turbo-run-ci-114970238.log  (cached)
-gate: ok  go test ./...  3.7s  /var/tmp/gate/go-test-728104553.log  (2/5 cached)
-```
-
-`(cached)` is every unit of work served from cache; `(N/M cached)` is some of
-it. Neither ever changes the exit status or which gate's own verdict decides
-the aggregate — this is display, the same as `--profile`'s timing, added
-beside a verdict the command already gave rather than in place of one.
-Recognised:
+A 0 can mean ran or cached. `gate` labels from the log; it never changes the
+exit status.
 
 | Tool | Marker |
 | --- | --- |
-| turbo | its own `Cached:  N cached, M total` summary line, printed on every run |
-| `go test` | `(cached)` on a package's `ok`/`FAIL` line, in place of a real duration |
-| GNU make | `'<target>' is up to date.`, and only when every line the gate printed was one of those — make names no total to weigh a partial against |
+| turbo | `Cached:  N cached, M total` (every run) |
+| `go test` | `(cached)` on a package `ok`/`FAIL` line |
+| GNU make | `'<target>' is up to date.` on **every** line the gate printed |
 
-A gate whose output carries none of these reads exactly as it always did:
-this cannot tell "ran fresh" from "a marker this build does not recognise"
-apart, and reporting a guess would be worse than reporting nothing.
+`(cached)` is all units cached; `(N/M cached)` is some. Unrecognised output is
+silent — this cannot tell "fresh" from "unknown marker".
 
-`--force-cache` re-runs a gate for real: `TURBO_FORCE=1`, `GOFLAGS=-count=1`,
-and `MAKEFLAGS` including `-B` on every gate (harmless where nothing reads
-them), `-count=1` appended to a `go test` command, `-B` (always make) appended
-to a Makefile target. A `.gate.toml` `run` gate is a shell string that gate does
-not parse, so it is not rewritten; the environment variables are what reach a
-tool inside it. `GOFLAGS` reruns a nested `go test` (including one behind
-`make`, since `make -B` does not clear Go's test cache). `MAKEFLAGS=-B` is
-what reruns a Makefile target named only inside that string, such as
-`run = "make test"`.
-
-```console
-TURBO_FORCE=1 bun run ci   # by hand, project by project
-gate --force-cache          # every gate in this run, whatever tool it is
-```
+`--force-cache`: `TURBO_FORCE=1`, `GOFLAGS=-count=1`, `MAKEFLAGS` including
+`-B`; `-count=1` on `go test`; `-B` on a Makefile target. A `run` string is
+not parsed; the env vars reach a nested tool.
 
 ### What it looks at, in order
 
-1. **`Makefile` targets** — a target that exists is a deliberate wrapper, and
-   usually adds flags a convention would miss.
-2. **`turbo.json` tasks** — where a task graph is declared, `turbo run <task>`
-   is the real entry point. Inside a workspace member, turbo runs only that
-   package's own tasks, so a task counts only where the member has the script;
-   the rest fall through to the rows below.
-3. **`package.json` scripts** — the project's own declared commands.
-4. **Conventions** — only for roles nothing above declares: `go build`/`go
-   test`/`golangci-lint run --allow-parallel-runners`/`govulncheck`, `cargo
-   build`/`cargo test`/`cargo clippy`/`cargo audit` where a `Cargo.toml`
-   exists, `dotnet build <solution-or-project> -c Release` and, when a test
-   project is present, `dotnet test … -c Release --no-build` (with `--solution` or `--project` when `global.json` selects the Microsoft.Testing.Platform runner) where a `*.sln`
-   or `*.slnx` sits at the root or exactly one `*.csproj`/`*.fsproj` is at
-   the root or one directory down (an absent `dotnet` is a note, not a silent
-   skip), `uv run pytest`/`ruff`/`pyrefly` plus `uv audit` where a
-   `uv.lock` exists (pytest only where a manifest names it or a `tests/`,
-   `test/`, `conftest.py`, or `pytest.ini` exists), `biome`/`tsc --noEmit` where a `tsconfig.json` exists
-   (`tsc -b --noEmit` when `tsconfig.json` names project references — without
-   `-b` a solution-style file exits 0 having checked nothing), `actionlint`
-   where `.github/workflows` exists, and `shellcheck` over the project's own
-   `.sh` files where it has any.
-   An absent `actionlint` is a note naming `brew install actionlint`, the same
-   rule as `shellcheck` and clippy.
+1. **Makefile** targets
+2. **turbo.json** tasks (inside a workspace member, only that package's tasks)
+3. **package.json** scripts
+4. **Conventions** for remaining roles: `go build` / `go test` /
+   `golangci-lint run --allow-parallel-runners` / `govulncheck`; `cargo build`
+   / `test` / `clippy` / `audit`; `dotnet build <sln-or-proj> -c Release` and,
+   with a test project, `dotnet test … -c Release --no-build` (`--solution` or
+   `--project` when `global.json` selects Microsoft.Testing.Platform) where a
+   `*.sln`/`*.slnx` is at the root or exactly one `*.csproj`/`*.fsproj` is at
+   the root or one directory down (absent `dotnet` is a note); `uv run pytest`
+   / `ruff` / `pyrefly` plus `uv audit` where `uv.lock` exists (pytest only if
+   a manifest names it or `tests/`, `test/`, `conftest.py`, or `pytest.ini`
+   exists); `biome` / `tsc --noEmit` where `tsconfig.json` exists
+   (`tsc -b --noEmit` when it names project references — without `-b` a
+   solution-style file exits 0 having checked nothing); `actionlint`;
+   `shellcheck` over the project's `.sh` files. Absent actionlint / shellcheck
+   / clippy / cargo-audit is a note naming the install, never a lesser gate.
 
-The Rust tier has no typecheck gate on purpose: `cargo build` type-checks as it
-compiles, and `cargo check` would compile the crate a second time for an answer
-`build` already gave. `clippy` and `cargo-audit` are probed for, and an absent
-one is a note naming its install — `rustup component add clippy`, `cargo
-install cargo-audit` — rather than a lesser gate: Rust ships no `go vet`
-equivalent, so a fallback would report something other than a lint result.
+No Rust typecheck gate: `cargo build` already type-checks.
 
-The project's own declaration always wins. The roles are `build`, `typecheck`,
-`lint`, `knip`, `workflows`, `shell`, `test` and `vuln`. An **aggregate** target is not
-one of them — `ci`, `check`, `verify` or `validate`, which all mean "run the
-whole pipeline", which is what `gate` is already doing. A project writing
-several of those has written one thing several times, so the first in that
-order is the one `gate` acts on. `all` is deliberately not among them: by
-convention it is the default build target, so treating it as a pipeline would
-have `gate` run a build and call it the whole check.
+Roles: `build`, `typecheck`, `lint`, `knip`, `workflows`, `shell`, `test`,
+`vuln`. Aggregates `ci`, `check`, `verify`, `validate` (that precedence) are
+not roles. `all` is a build target, never an aggregate.
 
-What happens to the aggregate depends on whether the duplication is real:
+- **Declined** if any aggregated role was claimed (`build`, `typecheck`,
+  `lint`, `test`, `vuln`).
+- **Run**, appended, if none were.
 
-- **Declined** where `gate` claimed any of the gates `ci` aggregates —
-  `build`, `typecheck`, `lint`, `test` or `vuln`, declared or inferred alike.
-  Running it beside them would run every one of them a second time.
-- **Run**, appended after the ordered gates, where `gate` claimed none of them.
-  A project whose checks are all declared under names detection does not read
-  would otherwise be left entirely unchecked by a refusal that was correct in
-  wording.
-
-A note says which case applied, either way — and that note is the point of
-recognising more than one spelling. Measured across 55 repositories, widening
-it from `ci` alone changed what runs in none of them and added the note to
-five, including one whose `check: lint` had `gate` running the lint and
-silently skipping the rest of what `check` does.
-
-`knip`, `workflows` and `shell` are not among the aggregated gates: dead-code
-scan, workflow lint and shell lint are a different thing from what a project's
-`ci` target runs.
+A note says which. `knip`, `workflows`, `shell` are not aggregated.
 
 ### Leaving a directory out
-
-A directory detection gates because CI names it or it holds a manifest, but that the project does not want checked
-(a test fixture that is broken on purpose), is left out in `.gate.toml`:
 
 ```toml
 [detect]
 exclude = ["python-app-broken", ".github/test-fixtures/*-unformatted"]
 ```
 
-Each entry is a `path.Match` pattern tried against the gate's name, which is its directory relative to the project
-root, and against that name's last segment, so `python-app-broken` finds `.github/test-fixtures/python-app-broken`.
-Entries from the user file and the project file are joined. Only a gate named for a directory is excluded; a role is
-turned off by configuring it. A note in `--list` names each directory left out, and its package's frozen install
-is skipped with it. A pattern `path.Match` cannot read, or an empty one, is refused like any other bad value.
+`path.Match` against the gate's directory name and its last segment. User +
+project entries join. Only directory-named gates; turn a role off by
+configuring it. `--list` notes each; its frozen install is skipped. Empty or
+unreadable patterns are refused.
 
 ### CI coverage warnings
 
-`gate --list`, `--json` and the start of a run warn, never fail, when a workflow runs a known tool that no gate
-runs: `warning: CI runs \`go vet ./...\` (.github/workflows/ci.yml:70), but no gate runs go vet`. Only`run:` steps are read, and
-only a fixed list of tools is recognised (go test, vet, build, mod tidy and verify; golangci-lint; govulncheck; pytest;
-ruff; pyrefly; mypy; bun test; vitest; knip; biome; tsc; cargo test, clippy and audit; dotnet build and test; vsce;
-osv-scanner; actionlint; shellcheck; uv audit), so an unknown command, a project script or an expression never raises one. A tool counts as run
-when it appears in any gate's command, in a make recipe the gate names (read from the Makefile in the gate's directory), or
-in a workspace package script behind a turbo gate; golangci-lint covers go vet, and a CI `go test -race` is
-covered only by a gate that also passes `-race`. Each tool is reported once, at its first line. A named run
-(`gate run lint`) does not print them.
+`--list`, `--json`, and the start of a run warn, never fail, when a workflow
+`run:` step runs a known tool no gate runs: go test, vet, build, mod tidy and
+verify; golangci-lint; govulncheck; pytest; ruff; pyrefly; mypy; bun test;
+vitest; knip; biome; tsc; cargo test, clippy and audit; dotnet build and test;
+vsce; osv-scanner; actionlint; shellcheck; uv audit. Unknown commands, project
+scripts and expressions never raise one. A tool counts if it appears in any
+gate's command, a make recipe that gate names, or a workspace package script
+behind turbo; golangci-lint covers go vet; CI `go test -race` needs a gate
+that also passes `-race`. Once per tool, first line. `gate run <name>` omits
+them.
 
-### Nested projects, shared roles and undeclared tools
+### Nested projects
 
-Beyond the directories CI names, a Go module, Python project or Rust crate one or two levels down is a project
-of its own and gets the same one-gate treatment. Discovery asks git, so what `.gitignore` excludes is never found, and it
-skips `node_modules`, `vendor`, `testdata`, `.venv` and hidden directories. A nested Python project under a Python
-root, or a crate under a crate, is taken for a workspace member. A JavaScript package still needs CI to name it.
+A Go module, Python project or Rust crate one or two levels down is its own
+one-gate project. Discovery asks git (so `.gitignore` is honour); skips
+`node_modules`, `vendor`, `testdata`, `.venv`, hidden dirs. Nested Python
+under Python, or crate under crate, is a workspace member. JavaScript still
+needs CI to name it.
 
-Where a Go module, crate or Python project shares a directory with a `package.json` that declares build, lint or
-test, the package scripts win the roles and the other toolchain's gates run together as one gate named for it (`go`),
-when CI runs that toolchain. Go code that embeds a directory (`//go:embed`) makes the gate follow the build, serially.
-A Makefile target that wraps the toolchain wins its roles without a second gate.
+Sharing a directory with a `package.json` that declares build, lint or test:
+package scripts win those roles; the other toolchain runs as one gate named
+for it (`go`) when CI runs that toolchain. `//go:embed` makes that gate follow
+the build, serially. A Makefile wrapper wins without a second gate.
 
-A root gate that enters a Go module (`cd backend && go build`) no longer hides the roles it never runs there: the
-lint and vulnerability scan become a gate named for the directory.
+A root gate that `cd`s into a Go module no longer hides the roles it never
+runs there (lint, vuln become a directory-named gate).
 
-For a `package.json` that declares `typescript`, `@biomejs/biome` or `knip`, the tool is detected even before
-`node_modules` exists, because the frozen install runs before any gate. A `tsconfig.<name>.json` beside a
-reference-free `tsconfig.json` is typechecked too (`tsconfig.build.json` excepted); `knip` is a gate of its own unless a
-script already runs it; and bun projects with `.test.` files and no `test` script run `bun test`.
+`typescript`, `@biomejs/biome`, `knip` in `package.json` are detected before
+`node_modules` exists. `tsconfig.<name>.json` beside a reference-free
+`tsconfig.json` is typechecked too (`tsconfig.build.json` excepted). `knip` is
+its own gate unless a script already runs it. Bun projects with `.test.` files
+and no `test` script run `bun test`.
 
 ### Packages CI runs in a subdirectory
 
-Detection stops at the nearest manifest, so a JavaScript package in a
-subdirectory with a lockfile of its own — a `frontend/` beside a Python or Go
-root — or a Go module with its own `go.mod` is reached by no root gate. Where a workflow under `.github/workflows`
-names that directory as a `working-directory`, gate adds one gate for it, named
-for the directory and run there: what bare `gate` would detect from inside the
-package, roles only (for a Go module: build, lint or vet, test, vuln). A package whose roles are all turbo tasks runs as one
-`turbo run <roles...>`; anything else runs its role commands in order under
-`sh -c`, stopping at the first failure. The package's own frozen install runs
-beside the workspace's, before any gate.
+Detection stops at the nearest manifest. A workflow `working-directory` that
+is a JS package with its own lockfile, or a Go module with its own `go.mod`,
+becomes one gate named for that directory, run there: roles only (a
+turbo-only package is `turbo run <roles...>`; else `sh -c`, stop on first
+failure). Its frozen install runs beside the workspace's.
 
-A package without its own lockfile is a workspace member, which its workspace's
-gates already cover, and is not added. Nor is a package a root gate already
-enters: a scheduled make target whose recipe, or a prerequisite's, runs
-`cd <dir>` or `-C <dir>`; a package script with `cd <dir>` or `--cwd <dir>`; or
-a configured gate under another name whose `run` enters it or whose `dir` is
-it. Gating it again would run the same build in the same directory at once, and
-`next build` refuses that. A note names the gate that covers it. `shell` and `workflows` stay with the
-repository's own gates. A configured gate with the package's name overrides it
-like any other and, like any configured `run`, runs from the root.
+Not added: no own lockfile (workspace member); a package a root gate already
+enters (`cd` / `-C` / `--cwd` in a make recipe or script, or a configured
+`run`/`dir`). A note names the covering gate. `shell` and `workflows` stay on
+the repository. A configured gate of that name overrides it and runs from the
+root.
 
 ### Scripts CI runs
 
-A push or pull-request workflow that runs a package script no role covers --
-`bun run knip`, `bun run test:e2e` -- adds a gate named for the script, and so
-does each task or script a declined aggregate runs beyond the roles: `bun run
-ci` with `ci` set to `turbo run validate-examples lint test && bun run
-pagefind` adds `validate-examples` (through turbo) and `pagefind`. Only a step
-whose whole command is `<runner> run <script>`, at the root: a multi-line
-`run`, a raw command, a `working-directory`, and a workflow run only by hand or
-on a schedule are not read.
+A push/PR step whose whole command is `<runner> run <script>` at the root,
+naming a script no role covers, becomes a gate; so does each extra task a
+declined aggregate runs. Multi-line `run`, raw commands, `working-directory`,
+and manual/schedule workflows are not read.
 
-These gates run serial, in the order CI names them, and the build gate joins
-them first: CI runs its steps in order on a built tree, and a search index or
-an e2e suite reads that build. Go's convention `go build ./...` is the
-exception and stays concurrent: it discards what it compiles, so no step can
-read it. A step's `env`, and its job's, reach the gate,
-under anything `.gate.toml` sets for it, with `CI=true` as the runner sets it:
-Playwright's usual `reuseExistingServer: !process.env.CI` would otherwise test
-whatever app already holds the port. A step CI hands `${{ }}` values, or
-whose job starts services (`services:`, `supabase start`, `docker compose up`,
-`docker run`), is not run, and a note names it.
-
-A configured gate of the same name overrides one like any other; a drift check
-that follows a generator is the usual reason:
-
-```toml
-[gates.generate-schema]
-run = "bun run generate-schema && git diff --exit-code -- config.schema.json"
-```
+Serial, CI order, build first. Exception: `go build ./...` stays concurrent
+(it writes nothing a later step can read). Step and job `env` reach the gate
+under `.gate.toml`, plus `CI=true`. `${{ }}` values, or a job that starts
+services (`services:`, `supabase start`, `docker compose up`, `docker run`),
+become a note. Same-name config overrides.
 
 ### Nothing runs twice
 
-Gates reach a run from turbo, package scripts, CI steps and `.gate.toml`, and
-two of them can name the same work. Before anything runs, gate breaks each gate
-into the steps it runs, following `<runner> run <script>` and root turbo tasks
-(every task of a package without workspaces, or one declared only as
-`//#name`) through `&&` chains, and runs each step in one gate only:
+Each gate is broken into steps (`<runner> run <script>`, root turbo tasks
+including `//#name`, through `&&`) and each step runs once:
 
-- **Merged**: gates whose steps are the same, in the same directory, are one
-  gate under the more specific name (`test:unit` over `test`), listing both
-  sources.
-- **Instrumented wins**: a step another gate runs with coverage flags
-  (`--coverage`, `--cov`, `-cover`, `-coverprofile`, `-coverpkg`) or `-race`
-  is dropped from the plain gate. `test` beside `test:coverage` runs only the
-  coverage run; `go test ./...` beside `go test -race ./...` only the race run.
-- **Script file wins**: a gate that runs one script file, such as CI's `bun
-  run gate` with `gate` set to `scripts/gate.sh`, cannot be split, so each
-  step of another gate that the script runs stays in it, and that gate is
-  split or dropped. gate reads the script, never runs it: a step counts as run
-  when its words appear in order on one line of the script, of a repository
-  script it names, or of a package script it runs with `<runner> run`.
-  Comments do not count; a command run only under a condition does.
-- **Split**: a step two gates share stays in the one with fewer steps, and
-  leaves the aggregate. An aggregate left with nothing is dropped; one that
-  still runs something no other gate covers keeps only that, as `sh -c`, with
-  each script's tool resolved into `node_modules/.bin`. Splitting rather than
-  dropping keeps what only the aggregate checks: `ci:offline` running a root
-  `tsc` and a version check beside the lint, typecheck and test gates keeps
-  those two.
+- **Merged** — same steps, same directory: one gate, more specific name.
+- **Instrumented wins** — coverage flags or `-race` drop the plain run.
+- **Script file wins** — a one-file script cannot be split; it keeps steps
+  its lines run (`detect.ScriptLines`, read never run). Comments do not count;
+  a command under a condition does.
+- **Split** — a shared step stays in the smaller gate; an empty aggregate
+  drops; leftovers run as `sh -c` with tools resolved into
+  `node_modules/.bin`.
 
-A script holding any shell control but `&&` (a pipe, `;`, `||`, a redirect,
-`cd`, `$`) is one step, compared whole. Each merge, drop and split is a `note:`
-line in `--list` and `--json`. Names asked for with `gate run` are checked
-before this, so `gate run test` still runs `test` alone.
+Any shell control but `&&` (`|`, `;`, `||`, redirect, `cd`, `$`) is one step.
+Each action is a `note:`. `gate run` names are checked first.
 
 ### The shell gate
 
-`shellcheck` takes files, not a directory, so gate has to name them. The
-project's own scripts are what git says they are: `git ls-files --cached
---others --exclude-standard -- '*.sh'`, which is everything tracked plus
-everything untracked that is not ignored. A script written a minute ago counts;
-a generated one inside an ignored directory does not. Outside a repository, or
-with no git, gate walks for `.sh` files instead and skips vendored and
-generated trees (`node_modules`, `.venv`, `vendor`, `target`, `dist`, `build`,
-`.next`, `.turbo`). Paths are relative and sorted, so two runs produce the same
-command.
+Files from `git ls-files --cached --others --exclude-standard -- '*.sh'`. No
+repo / no git: walk, skip `node_modules`, `.venv`, `vendor`, `target`, `dist`,
+`build`, `.next`, `.turbo`. Relative, sorted. Detection internals:
+[AGENTS.md](../AGENTS.md#detection).
 
-This is the one place detection runs a program. The argv is fixed and nothing
-the project writes can change it, `core.fsmonitor` is emptied so a repository
-cannot name a program for git to run on gate's behalf, and a 5s deadline means
-a wedged git cannot hang a gate.
+Display is `shellcheck (N scripts)`; `--list` `runs` and `--json` `argv` hold
+the full command. A declared shellcheck suppresses the convention gate;
+`gate run shell` still reaches it. Absent binary: a note, never a lesser
+check.
 
-shellcheck runs at its own default severity, like every other convention tool
-here — `gate` picks the files, not the threshold. shellcheck's default includes
-`style` and `info`, which is stricter than most of these tools, and the lever
-for that belongs to the project rather than to `gate`: a `.shellcheckrc` at the
-repository root is read automatically.
+`.shellcheckrc` at the repo root is read. `severity=` is **not** a directive
+(shellcheck 0.11 ignores it silently). `disable=` works.
 
-```
-disable=SC1091
-```
+`node_modules/.bin` and `.venv/bin` before `PATH`; resolved path is argv.
+Lockfile picks the runner: `bun.lock`/`bun.lockb` → `bun` even beside
+`pnpm-lock.yaml`, then yarn, npm, pnpm, else bun.
 
-Codes, not a severity: `severity=` is a command-line option and **not** a
-`.shellcheckrc` directive — shellcheck 0.11 reads the file and ignores that
-line, silently. `disable=` is the directive that works.
+Two declarations for one role: higher precedence runs, and says so. A
+convention losing to a declaration is silent.
 
-Measured across this fleet, `info` findings are most often `SC1091` — "Not
-following: … was not specified as input" — where the sourced path is built
-from a variable, which shellcheck cannot resolve even with `-x`. One repository
-fails its shell gate on eighteen findings and no warnings at all; nine of those
-are SC1091, and one `disable=` line settles them for every tool that reads
-shellcheck rather than for `gate` alone.
+### `gate run`
 
-Detection costs 7-8ms including the git spawn, against a 0.14s median gate, and
-is flat across repository size — asking git's index is cheaper on a large tree
-than the walk it replaced. Only a bare `gate` pays it; a wrapped command never
-reaches detection.
-
-Because every script is an argument, this is the one gate whose command is not
-what gets printed: it shows `shellcheck (76 scripts)` instead. The full command
-measured 3,263 characters on the largest repository here — twenty terminal rows
-for a tool whose premise is one line on screen. Nothing about what runs
-changes: `--list` prints the whole command on its own `runs` line, and `--json`
-carries it in `argv`, which is what a consumer reproducing the gate reads.
-`display` is the string written for a person.
-
-A project that declares its own shellcheck gets no convention gate, whatever
-name it declared it under — two repositories in this fleet had one as
-`[gates.shellcheck]` and were running the same tool twice, concurrently, over
-different file lists. This is the ordinary rule that a declaration outranks a
-convention, so it is silent; `gate run shell` still reaches the convention
-gate, because a name asked for outright is not a tie to break.
-
-Measured across 55 repositories: 23 have shell scripts of their own, and
-running the new gate in all of them, 19 passed unchanged and 4 reported real
-shellcheck findings. Without `shellcheck` installed the gate is a note naming
-the install, never a lesser check — the same rule the Rust tier follows.
-
-Tools are looked for in `node_modules/.bin` and `.venv/bin` before `PATH`, and
-the resolved path is what runs. Several of the best tools — `turbo`, `pyrefly`
-— are typically not on `PATH` at all. The lockfile at the workspace picks the
-package runner: `bun.lock`/`bun.lockb` → `bun run` even when
-`pnpm-lock.yaml` is also there, then `yarn.lock` → `yarn`,
-`package-lock.json` → `npm run`, `pnpm-lock.yaml` → `pnpm run`, otherwise
-`bun run`.
-
-If two declarations claim one role with different commands, `gate` runs the
-higher-precedence one and says so:
-
-```console
-gate: test is declared twice -- running make test (Makefile target test),
-      ignoring package.json scripts.test (vitest run)
-```
-
-A convention losing to a declaration is not a disagreement and is not reported.
-
-### Running some of them
-
-`gate run lint test` runs those two. The names are any `gate --list` shows: the
-roles, CI-run packages and scripts, and any gate `.gate.toml` declares. Every name
-has to resolve — one that does not fails the whole run without running
-anything, because running the subset that matched would report a pass covering
-a gate that never ran:
-
-```console
-$ gate run lint nosuch
-gate: no nosuch gate detected in /usr/local/src/com.github/Rethunk-Tech/rethunk-gate-cli
-gate: run `gate --list` for what is here, or `gate -- nosuch` for a program by that name
-```
+`gate run lint test` runs those two. One unknown name fails the whole run
+without running anything (`gate -- nosuch` for a program by that name).
 
 ## Configuration
 
-`gate` needs no configuration, and most projects should not add any: a
-`Makefile` target or a `package.json` script is already the project's config,
-and detection reads it. Two things have no home in either — a check detection
-could never infer, and an order it could never see.
+Needed only for a check detection cannot infer, or an order it cannot see.
 
 ```toml
 [gates.e2e]
@@ -576,193 +272,85 @@ allow-failure = true
 MDBOOK_VERSION = "0.4"
 ```
 
-`run`, `serial`, `timeout`, `dir`, `env`, `allow-failure` and `e2e` are the
-only keys under a gate. Outside a gate: top-level `budget` (see [What a run
-cost](#what-a-run-cost)) and `[detect] exclude` (see [Leaving a directory
-out](#leaving-a-directory-out)). `e2e` is under [Browser e2e is
-opt-in](#browser-e2e-is-opt-in). `run` takes a shell string, so it can carry pipes and globs; the shell
-is `sh` on unix and `cmd` on Windows, which split their command lines by
-different rules. `timeout` takes the same value `--timeout` does — `5m`,
-`90s`, `1m30s`, or `0` to run that gate with no limit — and bounds only the
-gate it sits on. A value that is not a duration refuses the file, alongside
-any other unusable one, the same way a misspelled key does.
+Gate keys: `run`, `serial`, `timeout`, `dir`, `env`, `allow-failure`, `e2e`.
+Outside: `budget`, `[detect] exclude`. `run` is a shell string (`sh` / `cmd`).
+`timeout` is the same grammar as `--timeout` (`5m`, `90s`, `1m30s`, `0`).
+Unknown keys and bad durations refuse the file.
 
-`dir` runs that gate in another directory — a docs site that only builds
-inside `docs/`, a suite that needs the fixture tree beside it. A relative
-path resolves against the project root, so the file says where the gate
-belongs rather than where the caller happened to stand. A directory that is
-not there refuses the run before anything starts: falling back to the root
-would run the gate somewhere its author did not choose, and say nothing about
-it. `dir` is the only spelling — a file using another name for the key
-is refused as an unknown key, the same as any typo.
+`dir` is relative to the project root; missing directory refuses the run.
+`env` merges per variable, literal, no `$VAR` expansion, after the inherited
+environment. `GATE_ACTIVE_ROOTS` is reserved.
 
-`env` carries per-gate environment variables, layered per variable rather
-than per table — a project setting one variable still inherits your values
-for the rest. Values are literal, with no `$VAR` expansion, so what runs is
-what the file says. They reach the command after the inherited environment,
-so the gate wins over a value it names. `GATE_ACTIVE_ROOTS` is reserved: it
-is how a gate knows its project is already running, and letting a file move
-it would re-open the loop that guard exists to close.
+`allow-failure`: aggregate ignores that gate (first non-allowed failure wins;
+all-allowed exits 0); text still prints `FAIL (allowed)`; NDJSON keeps the
+real `status` plus `"allowed": true`; log trailer unchanged; serial groups
+continue; interrupted/skipped and log-write failures are not excusable.
 
-`allow-failure` keeps a failing gate from failing the run — a docs preview
-or an experimental check whose signal is worth reading but not worth
-blocking on. `allow-failure` is the only spelling. What "allowed" changes, and what it leaves alone:
-
-- **Aggregate status**: ignored. The first *non-allowed* failure in
-  declaration order wins, and a run whose every failure was allowed exits 0.
-- **Text report**: still printed, marked `FAIL (allowed)` — allowing is
-  never hiding.
-- **`--ndjson`**: the `status` word still names what happened (`fail`,
-  `timeout`, `not-found`), with the gate's own `code` and `ms`, plus
-  `"allowed": true` so a consumer aggregating the stream agrees with gate's
-  own exit status.
-- **Log trailer**: unchanged — the actual outcome, as always the only thing
-  `gate` writes into a log.
-- **Serial groups**: run on past an allowed failure; a non-allowed one still
-  stops its group and the gates behind it are still reported as skipped.
-- **Not excusable**: interrupted and skipped gates have no verdict to
-  excuse, and gate's own log failure is still said out loud either way —
-  `allow-failure` excuses the command, not the guarantee its output
-  survived.
-
-Configuration **adds and overrides, never replaces**. Detection always runs, so
-a file mentioning one gate cannot remove the others, and `--list` still names
-where every gate came from — `from Makefile target test, overridden by
-/path/.gate.toml`. A gate that only config declares runs with bare `gate`, and
-is named the same way as any other: `gate run e2e` (an e2e gate like this one
-runs with bare `gate` only under `--e2e`). A config `run` for a role
-detection left empty for want of a tool (`vuln` without `cargo-audit`, say)
-fills that role, so the note naming the missing tool is not printed.
+Adds and overrides, never replaces. A config `run` filling a role left empty
+for want of a tool clears that missing-tool note.
 
 ### Which file wins
 
-1. Flags on the command line — the most local statement of intent.
+1. Flags
 2. `<project root>/.gate.toml`
-3. `$XDG_CONFIG_HOME/gate/config.toml`, or `~/.config/gate/config.toml`
+3. `$XDG_CONFIG_HOME/gate/config.toml` or `~/.config/gate/config.toml`
 
-The layers merge **per key, not per file**: a project overriding one gate still
-inherits your settings for the rest. `env` merges one level deeper, per
-variable, since a whole-table merge would make one project variable discard
-every user default beside it. The project file is found from the
-*detected project root*, so `gate -C <elsewhere>` picks up that project's
-configuration rather than yours.
+Merge **per key** (`env` per variable) from the *detected* project root.
+`--list` / `--json` name configured `dir`, stable-order `env`,
+`allow-failure`, and `timeout` (`off` for `0`) only where they differ from
+the default. Unreadable files are refused; every unknown key in one report.
 
-`--list` and `--json` name the configured keys where they differ from the
-default — the resolved `dir`, the `env` variables in a stable order,
-`allow-failure`, and a per-gate `timeout` (including `off` for a deliberate
-`0`) — and stay quiet about the rest, so a gate with nothing configured
-reads exactly as it always did.
+## `serial`
 
-A file that cannot be understood is refused, never ignored — including a
-misspelled key, which would otherwise do nothing quietly. Every unknown key is
-reported at once rather than one per run.
+Concurrent by default; nothing infers order. `--serial` for the run, or
+`serial = true` on gates that need another's *result* (`build` before `test`;
+Next `build` and `typecheck` both write `.next`). Cache contention is not a
+reason. `--serial` beats the file; `serial = false` turns off a user default
+(absent ≠ false).
 
-## When to use `serial`
-
-Gates run **concurrently by default**, and nothing infers an order. The only
-thing that justifies one — a gate needing another's result — is a property of
-the project, not of the commands, so the project has to say it: `--serial` for
-a whole run, or `serial = true` on the gates that genuinely chain.
-
-The case for it is **ordering**: `build` before the `test` that needs it. Run
-together, that tests an artifact which may not exist yet. A Next project wants
-it on `build` and `typecheck`, which both write `.next` and race when
-overlapped.
-
-Shared build caches are *not* a reason. With warm caches — the state gates
-actually run in — contention costs less than the serialisation does.
-
-`--serial` beats the config file, and a gate's own `serial = false` turns off a
-user-level default, which is why an absent key and a deliberate `false` are
-distinguishable.
-
-A failure stops the rest of its own group — every gate under `--serial`, or the
-gates marked `serial` — and never touches a group that asked for no order.
-Those gates are named rather than left out:
-
-```console
-gate: FAIL exit 2  make build  1ms
---- last 2 line(s) ---
-make: *** [Makefile:2: build] Error 5
-gate: full log  /var/tmp/gate/make-build-114970238.log
-gate: SKIP  make test  (not run: an earlier gate failed)
-```
-
-A skipped gate has no verdict and never changes the exit status. A gate you
-asked for that vanishes from the output reads as one that passed.
+A failure stops its group only. Skipped gates are named, have no verdict, and
+do not change the exit status.
 
 ## `gate doctor`
 
-Read-only, and exits 0 whether or not it found anything. Every finding carries
-what, why and fix.
-
-`gate --json doctor` prints the same findings for a program to read — `check`,
-`warn`, `what`, `why`, `fix`, and the file as both `where` (relative to the
-repository, the string the text report shows) and `path` (absolute, which is
-what a consumer acting on a finding has to resolve). The same split the gate
-listing makes between a display and a resolved argv. No findings is `[]`, never
-`null`, so "nothing to suggest" never has to be told apart from "nothing
-reported". It also includes `warnings`, the same strings a no-run `gate --json`
-listing reports when CI runs a known tool no gate runs. No warnings is `[]`.
-The text report does not include them. `--ndjson` is refused here: it streams
-what a run did, and doctor runs nothing.
-
-```bash
-for d in ~/src/*/; do gate -C "$d" --json doctor | jq -r --arg d "$d" '.findings[] | "\($d)\t\(.check)\t\(.where)"'; done
-```
+Read-only; exits 0 either way. `--json` findings: `check`, `warn`, `what`,
+`why`, `fix`, `where` (relative), `path` (absolute), plus `warnings` (`[]` if
+none). Text omits `warnings`. `--ndjson` refused.
 
 | Check | Fires when |
 | --- | --- |
-| `no-ci` | A repository with gates to run and no `.github/workflows` |
-| `go-no-govulncheck` | A Go module with no vulnerability gate available |
-| `go-test-no-race` | A Go module whose gates never run `go test -race` |
-| `ci-govulncheck-off` | `setup-go` used, but no workflow sets `run-govulncheck` |
-| `ci-no-final-gate` | Matrix checks with no single aggregating job to require |
+| `no-ci` | Gates to run and no `.github/workflows` |
+| `go-no-govulncheck` | Go module, no vulnerability gate |
+| `go-test-no-race` | Go module, no `go test -race` |
+| `ci-govulncheck-off` | `setup-go` used, no `run-govulncheck` |
+| `ci-no-final-gate` | Matrix checks, no aggregating job |
 | `corepack-with-setup-bun` | `corepack enable` beside `setup-bun` |
-| `npx-in-bun-workspace` | `npx` in a workspace with a `bun.lock` |
-| `actions-floating-ref` | A shared action pinned to `main` |
-| `actions-stale-ref` | A shared action pinned behind the known tag |
-| `superseded-tooling` | eslint, mypy or black where the fleet moved on |
-| `missing-gate-*` | No test or typecheck gate declared or inferable |
-| `next-build-typecheck-race` | A Next project runs build and typecheck concurrently |
-| `result-not-fresh` | A schema-2 result exists and is not fresh (stale, partial, or failed). A missing record stays quiet |
+| `npx-in-bun-workspace` | `npx` with a `bun.lock` |
+| `actions-floating-ref` | Shared action pinned to `main` |
+| `actions-stale-ref` | Shared action behind the known tag |
+| `superseded-tooling` | eslint, mypy or black |
+| `missing-gate-*` | No test or typecheck gate |
+| `next-build-typecheck-race` | Next build and typecheck concurrent |
+| `result-not-fresh` | Schema-2 result exists and is not fresh. Missing stays quiet |
 
-Judgements are repository-wide where that is what matters: a release workflow
-omitting `run-govulncheck` while CI enables it is not a gap.
-
-`gate --fix` as a flag is refused; the verb is [`gate fix`](#gate-fix).
+Judgements are repository-wide (a release workflow omitting `run-govulncheck`
+while CI enables it is not a gap). `gate --fix` as a flag is refused.
 
 ## `gate fix`
 
-Applies doctor findings whose check names a closed mechanical remedy. Doctor
-stays read-only: a separate verb is what keeps advice from becoming a silent
-rewrite.
-
-`gate fix` runs the same inspection as `gate doctor`, then edits only findings
-that can prove a post-state from `path` + `fix` without inventing files or
-guessing at YAML/TOML. Everything else is skipped with a reason.
-
-`gate fix --dry-run` prints what would change and writes nothing.
-`gate --json fix` reports each finding with `outcome` (`applied`, `skipped`, or
-`dry-run`) and a `reason` when it skipped. `--ndjson` is refused here, as it is
-for doctor: it streams what a run did, and fix is not a run.
-
-Exits 0 when there is nothing to apply, or every finding was applied or skipped
-as unappliable. A failed write is a failure. Advice that failed the build would
-stop being advice.
-
-```bash
-gate fix --dry-run
-gate --json fix
-```
+Doctor stays read-only. `fix` applies findings that can prove a post-state
+from `path` + `fix`. `--dry-run` writes nothing. `--json` adds `outcome`
+(`applied`, `skipped`, `dry-run`) and `reason` when skipped. `--ndjson`
+refused. Exit 0 if nothing to apply or every finding was applied/skipped; a
+failed write is a failure.
 
 | Check | Apply |
 | --- | --- |
-| `next-build-typecheck-race` | `serial = true` on `gates.build` and `gates.typecheck` in `.gate.toml` |
+| `next-build-typecheck-race` | `serial = true` on `gates.build` and `gates.typecheck` |
 | `ci-govulncheck-off` | `run-govulncheck: "true"` on the named setup-go step |
 | `corepack-with-setup-bun` | drop the `corepack enable` step |
-| `npx-in-bun-workspace` | replace `npx` with `bunx` in the named workflow or `package.json` |
-| `actions-floating-ref` / `actions-stale-ref` | pin the named shared-action refs to the tag doctor already stated, never unrelated actions |
+| `npx-in-bun-workspace` | `npx` → `bunx` in the named workflow or `package.json` |
+| `actions-floating-ref` / `actions-stale-ref` | pin named shared-action refs to doctor's tag |
 | `go-no-govulncheck` | skip — `go install` is machine-wide |
 | `go-test-no-race` | skip — Fix names a test target or a workflow step |
 | `no-ci` | skip — a workflow needs a template choice |
@@ -771,115 +359,53 @@ gate --json fix
 | `superseded-tooling` | skip — Fix and Path do not uniquely name a file move |
 | `result-not-fresh` | skip — running gate is not a repo edit |
 
-A program named `fix` is still `gate -- fix`.
+A program named `fix` is `gate -- fix`.
 
 ## Timeouts
 
-Each gate is bounded independently, defaulting to one minute. A gate that
-overruns is **killed, not failed** — it exits 124, `timeout(1)`'s status and
-not one the command could have produced, so a caller can tell "slower than the
-limit" from "broken". The log keeps whatever was written before the kill, and
-its trailer records the timeout rather than an exit status that never happened.
-The whole process group is stopped, not just the command: a test runner that
-forked workers would otherwise leave them holding a port. The group gets
-SIGINT first, as Ctrl-C would send it, and SIGKILL 5 s later if anything in it
-is still alive, so a runner can shut down what it started in groups of its own:
-Playwright stops its `webServer` on SIGINT, and SIGTERM or SIGKILL would orphan
-it on its port. On Windows the command is killed outright.
-
-A killed gate says what to do about it, once per run however many overran —
-including a run whose every timeout was allowed, where the remedy line is
-printed beside the `TIMEOUT ... (allowed)` verdict rather than dropped:
+Default one minute per gate. Overrun is **killed, not failed** — exit 124.
+Trailer records the timeout. Process group: SIGINT, then SIGKILL after 5 s.
+Windows: killed outright. Why SIGINT: [AGENTS.md](../AGENTS.md#interrupts).
 
 ```console
 gate: TIMEOUT after 1m0s  make test  (killed, not failed)
 gate: raise it for that gate alone with timeout = "5m" under [gates.test] in .gate.toml, or --timeout 5m for the whole run
 ```
 
-A command you named has no `.gate.toml` entry to configure, so it is pointed at
-the flag alone.
-
-The default is aggressive deliberately. Measured over 12,569 real invocations
-in a week, 141 (1.12%) ran longer than 60s and p99 was 65.0s — so roughly one
-working gate in ninety will be killed by it, which is why a timeout is reported
-so distinctly. Raise it with `--timeout 5m`, or disable it with `--timeout 0`.
-
-`--timeout` applies to every gate in the run, which is the wrong shape for the
-usual case: one slow gate in a project of fast ones. That gate says so itself,
-and the rest keep the default:
-
-```toml
-[gates.e2e]
-run = "bun run e2e"
-timeout = "10m"
-
-[gates.build]
-timeout = "0"
-```
-
-Precedence is the same as every other key — `--timeout` on the command line
-beats the project file, which beats your user config — and the layers still
-merge per key, so a project raising one gate's timeout leaves the others alone.
-An absent `timeout` and `timeout = "0"` are deliberately different: the first
-inherits, the second removes the limit from that one gate.
+`--timeout` is every gate; `.gate.toml` `timeout` is one. Absent inherits;
+`timeout = "0"` removes the limit. `--timeout 0` disables for the run.
 
 ## Interrupting a run
 
-Ctrl-C stops the gates, not only `gate`: each running command is stopped with
-its whole process group, SIGINT then SIGKILL as a timeout does, so nothing survives holding a port, and each log still
-gets its trailer. A second signal ends `gate` outright, in case a command is
-ignoring the first. An interrupted gate reads as stopped, not failed, and the
-exit status is 128+the signal that reached `gate` — 130 for Ctrl-C.
+Ctrl-C stops each command's process group (SIGINT then SIGKILL). A second
+signal ends `gate`. Interrupted, not failed; exit 128+the signal that reached
+`gate` (130 for Ctrl-C).
 
 ## Logs
 
-Logs are written under `$TMPDIR/gate/`, or `/var/tmp/gate/` when `TMPDIR` is
-unset; on Windows, under what `TMP` or `TEMP` names. `/tmp` is deliberately not
-the default: it is a tmpfs on the machines this runs on, and a verbose build
-log is exactly the kind of large, disposable file that should not sit in RAM.
+`$TMPDIR/gate/`, or `/var/tmp/gate/` if unset; Windows `TMP`/`TEMP`. Not
+`/tmp` (tmpfs). Every gate gets `TMPDIR`/`GOTMPDIR` = `/var/tmp` (or
+`GATE_TMPDIR`): Go's test cache keys on env, and `t.TempDir` reads `TMPDIR`.
 
-Every gate runs with `TMPDIR` and `GOTMPDIR` set to `/var/tmp` on unix (or to
-`GATE_TMPDIR` when that is set), whatever the caller's `TMPDIR` is. Go's test
-cache keys a result on the environment a test read, and `t.TempDir` reads
-`TMPDIR`, so two callers with different values would each miss the other's
-cached results.
+Filename is command plus a random suffix. **0600 in a 0700 directory**.
+`--log PATH` is one file; several gates refuse it. That parent is the
+caller's (0755 if created, never 0700, never swept).
 
-The filename is derived from the command plus a random suffix, so a directory
-of logs can be read without opening them and two gates sharing a command name
-cannot collide. Logs are created **0600 in a 0700 directory** — they hold
-whatever the command printed, which can include tokens.
-`--log PATH` writes that one file. A run with several gates refuses it — one
-path cannot hold several logs — and points at `TMPDIR` instead. The file's
-parent is the caller's: created 0755 if missing, never chmod'd to 0700, and
+`--version` names timeout, budget, log directory, retention. Own-directory
+logs older than **14 days** are swept at most once a day. `--log` paths are
 never swept.
-
-`gate --version` names the timeout and budget in force, the log directory, and
-the retention. Logs older
-than **14 days** are removed from gate's own directory. Nothing else
-does it, and the directory only grows: one operator's measured 811 logs in two
-days. Linux clears `/var/tmp` at 30 days, but the macOS and Windows temporary
-directories gate also writes to do not. The sweep runs at most once a day —
-a stamp file makes the cost one stat per run rather than one per log — and
-never touches a path `--log` named, which is the caller's and holds files
-gate did not place.
 
 ## Result record
 
-After a run over a detected project (bare `gate`, or `gate run <names>`), gate
-writes the run's outcome to one file per project root, so a tool that did not
-start the run can still read it:
+After bare `gate` or `gate run <names>`:
 
-```
+```text
 $XDG_STATE_HOME/gate/results/<sha256 of the root>.json
 ```
 
-`~/.local/state` stands in for `XDG_STATE_HOME` when that is unset or not
-absolute. The root is the project root as detection found it, with symlinks
-resolved; the name is the lowercase hex SHA-256 of that path's bytes. Each run
-replaces the file by writing a temporary file beside it and renaming it over,
-so a reader sees one whole record or the previous one. Nothing is written for
-a command named directly (`gate go test ./...`), outside a git work tree, or
-for a repository with no commit.
+`~/.local/state` if `XDG_STATE_HOME` is unset or not absolute. Name is
+lowercase hex SHA-256 of the resolved project-root path. Write temp + rename.
+No record for a named command, a non-git tree, or a repo with no commit.
 
 ```json
 {
@@ -903,43 +429,26 @@ for a repository with no commit.
 | --- | --- |
 | `schema` | Bumped on any change a reader has to know about |
 | `head` | `git rev-parse HEAD` at the start of the run |
-| `dirty` | `git status --porcelain=v1 -z` was non-empty (untracked files count) |
-| `status` | Hex SHA-256 of that status, then `git diff HEAD`, then `git hash-object` of each untracked path. See below |
-| `partial` | `gate run <names>`: only those gates ran, so a pass is not the project's whole gate |
-| `exit` | gate's own exit status for the run |
-| `gates` | One entry per gate, in declaration order, each the same object `--ndjson` emits |
+| `dirty` | porcelain status was non-empty (untracked counts) |
+| `status` | SHA-256 of porcelain `-z`, then `git diff HEAD`, then `git hash-object --` (never `-w`) of each untracked path in status order |
+| `partial` | `gate run <names>` — not the whole project |
+| `exit` | gate's exit for the run |
+| `gates` | Declaration order; each object is an `--ndjson` line |
 
-`status` is the hex SHA-256 of three outputs concatenated, in order: the raw
-stdout of `git status --porcelain=v1 -z`, of `git diff HEAD`, and of
-`git hash-object --` (never `-w`) for each untracked path, in the order status
-printed them. `hash-object` refuses a directory, so an untracked directory is
-the files `git ls-files -z --others --exclude-standard` lists inside it. A
-clean tree is empty status plus an empty diff, which is the SHA-256 of no
-bytes. Color is forced off so a `color.ui` setting cannot change the diff.
+An untracked directory is the files `git ls-files -z --others --exclude-standard`
+lists inside it. Clean tree: SHA-256 of no bytes. Color forced off.
 
-The record is true only of the commit and the tree `status` names. A reader
-trusts it only when the current HEAD equals `head` and a fresh hash equals
-`status`. `dirty` stays, and is not enough: two dirty trees at one HEAD do
-not share a pass.
+Trust only when current HEAD equals `head` and a fresh hash equals `status`.
+Two dirty trees at one HEAD do not share a pass.
 
-`gate record` is that reader. It prints the record for this project root.
-The exit status is 0 when `schema` is 2, `head` is the current HEAD, `status`
-equals a fresh hash of this tree (the same three git outputs the writer
-hashed), `partial` is false, and `exit` is 0. A missing file exits 1 and says
-missing. A record that fails the comparison exits 1 and says stale. A record
-that matches and whose run exited non-zero exits with that status and says
-failed. A matching record with `exit` 0 and `partial` true exits 1 and says
-partial: only the named gates ran. `gate --json record` prints the stored
-record plus `fresh`, `reason`, and `current`. `fresh` is true only in the
-exit-0 case. `reason` is `"missing"`, `"stale"`, `"partial"`, `"failed"`, or
-`null` when the record is fresh — the same decision as the exit, in that
-order: a tree or schema mismatch is stale even when the run failed, a
-non-zero `exit` is failed even when `partial` is true, and partial is what
-remains. `current` is `{head, status, dirty}` from that same tree read, so
-the tree the verdict compared sits beside the stored record. Those fields
-are not stored, and `schema` stays 2. A missing file prints only `fresh` and
-`reason`. `gate record` without `--json` stays the text layout below. The
-missing, stale, partial, or failed line is on stderr.
+`gate record` exits 0 iff schema 2, `head` matches, `status` matches, `partial`
+is false, and `exit` is 0. Missing → 1 "missing". Tree/schema mismatch → 1
+"stale". Match with non-zero `exit` → that status "failed". Match with
+`partial` true → 1 "partial". `--json` adds `fresh`, `reason`
+(`missing`/`stale`/`partial`/`failed`/`null`), and `current`
+`{head, status, dirty}` (not stored; schema stays 2). Order: stale even if
+the run failed; failed even if partial; else partial. Missing `--json` is
+only `fresh` and `reason`. Text:
 
 ```console
 $ gate record
@@ -955,21 +464,20 @@ finished 2026-09-23T10:00:04.5-07:00
 test     ok
 ```
 
+Missing/stale/partial/failed on stderr.
+
 ## Exit codes
 
-`gate` is a wrapper, so it mostly returns nothing of its own: the wrapped
-command's status is passed through byte for byte, **including values that
-collide with the codes below**. A command exiting 129 makes `gate` exit 129,
-and `gate` does not relabel it. These apply only when `gate` could not run the
-command at all — the same property a shell has, and for the same reason.
+The wrapped command's status passes through **including values that collide
+with the codes below**. These apply only when `gate` could not run it.
 
 | Code | Meaning |
 | --- | --- |
 | 0 | The command succeeded |
-| 124 | The gate exceeded its timeout and was killed |
-| 127 | The command could not be executed |
-| 128 | `gate` itself could not proceed — a log it cannot create, a command line it cannot resolve |
-| 129 | `gate` was invoked wrongly — no command, unknown flag, flag missing its value |
-| 130 | The run was interrupted; more generally 128+the signal that reached `gate` |
+| 124 | Timed out and was killed |
+| 127 | Could not be executed |
+| 128 | `gate` could not proceed (log, unresolved command line) |
+| 129 | Wrong invocation |
+| 130 | Interrupted; generally 128+the signal that reached `gate` |
 
-Any other value is the wrapped command's own status, passed through.
+Any other value is the command's own status.
