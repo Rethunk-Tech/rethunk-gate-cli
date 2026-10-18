@@ -1,6 +1,7 @@
 # HUMANS.md
 
-Running and using `gate`.
+Running and using `gate`. Internals: [AGENTS.md](AGENTS.md). Reference:
+[docs/USAGE.md](docs/USAGE.md). Flags: `gate --help`.
 
 ## Install
 
@@ -10,7 +11,9 @@ Without a clone:
 go install github.com/Rethunk-Tech/rethunk-gate-cli/cmd/gate@latest
 ```
 
-[GitHub Releases](https://github.com/Rethunk-Tech/rethunk-gate-cli/releases) ship attested binaries for linux, darwin, and windows (OS/arch artifacts). Binaries do not need a local Go toolchain.
+[GitHub Releases](https://github.com/Rethunk-Tech/rethunk-gate-cli/releases)
+ship attested binaries for linux, darwin, and windows. Binaries do not need a
+local Go toolchain.
 
 From a clone:
 
@@ -22,37 +25,23 @@ Source and `go install` require Go 1.27 or newer.
 
 ## Using it
 
-Wrap any command — complete output goes to a log file, one line on screen:
+Wrap any command — complete output goes to a log, one line on screen:
 
 ```console
 $ gate bun test
 gate: ok  bun test  1.7s  /var/tmp/gate/bun-test-563617115.log
 ```
 
-With no command, `gate` reads the project and runs detected gates:
+With no command, `gate` reads the project and runs detected gates. A gate turbo,
+`go test`, or make served from cache is labelled `(cached)` or `(N/M cached)` on
+that line. `--force-cache` re-runs it for real.
 
-```console
-$ gate
-gate: ok  make build   138ms  /var/tmp/gate/make-build-114970238.log
-gate: ok  make lint    134ms  /var/tmp/gate/make-lint-728104553.log
-```
+Browser e2e suites are skipped unless you pass `--e2e` or `gate run <name>`. A
+passing run over 10s prints one line naming the slowest gates.
 
-A gate that turbo, `go test`, or make served from its own cache says so:
-
-```console
-$ gate
-gate: ok  turbo run lint typecheck test build  20ms  /var/tmp/gate/turbo-run-ci-114970238.log  (cached)
-```
-
-Browser e2e suites are skipped unless you pass `--e2e` or `gate run <name>`.
-A passing run over 10s prints one line naming the slowest gates. GitHub Actions
-still runs the project's own e2e jobs.
-
-`--force-cache` re-runs it for real. `gate --list` shows what it picked.
-`gate run test` runs one gate by name. `gate doctor` reports what is cheap to
-fix here; `gate fix` applies the mechanical ones. `gate record` prints the last
-result for this tree. `gate --help` lists every flag.
-Detection, `.gate.toml`, cache awareness, and exit codes: [docs/USAGE.md](docs/USAGE.md).
+`gate --list` shows what it picked. `gate run test` runs one gate by name.
+`gate doctor` reports what is cheap to fix here; `gate fix` applies the
+mechanical ones. `gate record` prints the last result for this tree.
 
 ## Environment
 
