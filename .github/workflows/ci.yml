@@ -69,7 +69,7 @@ jobs:
       - name: gitleaks
         if: ${{ !cancelled() }}
         run: |
-          go install github.com/gitleaks/gitleaks/v8@v8.28.0
+          go install github.com/zricethezav/gitleaks/v8@v8.28.0
           gitleaks git --redact --no-banner
 
   # The release publishes a windows binary, so something has to run one.
