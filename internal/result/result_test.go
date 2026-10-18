@@ -54,3 +54,63 @@ func TestWorktreePathRejectsEscape(t *testing.T) {
 	qt.Check(t, qt.IsFalse(worktreePath("foo/../../etc/passwd")))
 	qt.Check(t, qt.IsFalse(worktreePath("")))
 }
+
+func TestStateDir(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	fallback := filepath.Join(home, ".local", "state")
+	abs := t.TempDir()
+	for _, c := range []struct {
+		xdg  string
+		set  bool
+		want string
+	}{
+		{xdg: abs, set: true, want: abs},
+		{xdg: "relative", set: true, want: fallback},
+		{set: false, want: fallback},
+	} {
+		if c.set {
+			t.Setenv("XDG_STATE_HOME", c.xdg)
+		} else {
+			t.Setenv("XDG_STATE_HOME", "")
+			qt.Assert(t, qt.IsNil(os.Unsetenv("XDG_STATE_HOME")))
+		}
+		got, err := stateDir()
+		qt.Assert(t, qt.IsNil(err), qt.Commentf("xdg=%q set=%v", c.xdg, c.set))
+		qt.Check(t, qt.Equals(got, c.want), qt.Commentf("xdg=%q set=%v", c.xdg, c.set))
+	}
+}
+
+func TestCanonical(t *testing.T) {
+	root := t.TempDir()
+	link := filepath.Join(t.TempDir(), "alias")
+	qt.Assert(t, qt.IsNil(os.Symlink(root, link)))
+	missing := filepath.Join(root, "gone")
+	for _, c := range []struct {
+		in, want string
+	}{
+		{in: link, want: root},
+		{in: missing, want: missing},
+	} {
+		qt.Check(t, qt.Equals(Canonical(c.in), c.want), qt.Commentf("%s", c.in))
+	}
+}
+
+func TestLoad(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	root := t.TempDir()
+	_, err := Load(root)
+	qt.Assert(t, qt.ErrorIs(err, os.ErrNotExist))
+
+	path, err := Path(Canonical(root))
+	qt.Assert(t, qt.IsNil(err))
+	qt.Assert(t, qt.IsNil(os.MkdirAll(filepath.Dir(path), 0o700)))
+	qt.Assert(t, qt.IsNil(os.WriteFile(path, []byte("{"), 0o600)))
+	_, err = Load(root)
+	qt.Assert(t, qt.IsNotNil(err))
+
+	qt.Assert(t, qt.IsNil(os.WriteFile(path, []byte(`{"schema":2,"head":"abc","status":"def","partial":true,"exit":1}`), 0o600)))
+	got, err := Load(root)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.Equals(got, Loaded{Schema: 2, Head: "abc", Status: "def", Partial: true, Exit: 1, Path: path}))
+}

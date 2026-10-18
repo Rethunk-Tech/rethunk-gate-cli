@@ -95,3 +95,30 @@ func TestScriptReadersLeaveNonChainScriptsWhole(t *testing.T) {
 	run := [][]string{{"tsc", "tee", "out"}, {"vitest", "run"}}
 	qt.Check(t, qt.IsFalse(Covered(dir, Step{Key: "run piped"}, run)))
 }
+
+// Covered is true when the lines run the step, or every && part of a package
+// script whose body cannot itself be a step.
+func TestCovered(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	testutil.Write(t, dir, "package.json", `{"scripts":{
+		"ci":"bun run lint && bun run typecheck",
+		"lint":"biome check .",
+		"typecheck":"tsc -p tsconfig.json",
+		"loop":"bun run loop"
+	}}`)
+	both := [][]string{{"biome", "check", "."}, {"tsc", "-p", "tsconfig.json"}}
+	for _, c := range []struct {
+		key   string
+		lines [][]string
+		want  bool
+	}{
+		{key: "biome check .", lines: both, want: true},
+		{key: "run ci", lines: both, want: true},
+		{key: "run ci", lines: [][]string{{"biome", "check", "."}}, want: false},
+		{key: "run loop", lines: both, want: false},
+		{key: "run missing", lines: both, want: false},
+	} {
+		qt.Check(t, qt.Equals(Covered(dir, Step{Key: c.key}, c.lines), c.want), qt.Commentf("%s", c.key))
+	}
+}

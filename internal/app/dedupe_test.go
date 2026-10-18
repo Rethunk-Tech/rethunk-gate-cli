@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/testutil"
 	"github.com/go-quicktest/qt"
@@ -196,4 +197,43 @@ run = "bun run test"
 	qt.Check(t, qt.StringContains(out, "test       bun run test"))
 	qt.Check(t, qt.Not(qt.StringContains(out, "note: dropped")))
 	qt.Check(t, qt.Not(qt.StringContains(out, "note: split")))
+}
+
+// merge keeps the stricter of each setting and never overwrites an env key
+// keep already set.
+func TestMerge(t *testing.T) {
+	t.Parallel()
+	keepEnv := map[string]string{"A": "keep", "B": "keep"}
+	for _, c := range []struct {
+		name             string
+		keep, lose, want gateSpec
+	}{
+		{
+			name: "stricter flags and lose timeout",
+			keep: gateSpec{role: "a", source: "cfg", serial: false, e2e: true, allowFailure: true, env: keepEnv},
+			lose: gateSpec{
+				role: "b", source: "pkg", serial: true, e2e: false, allowFailure: false,
+				hasTimeout: true, timeout: time.Second, env: map[string]string{"A": "lose", "C": "lose"},
+			},
+			want: gateSpec{
+				role: "a", source: "cfg; also b from pkg", serial: true, e2e: false, allowFailure: false,
+				hasTimeout: true, timeout: time.Second, env: map[string]string{"A": "keep", "B": "keep", "C": "lose"},
+			},
+		},
+		{
+			name: "keep timeout wins",
+			keep: gateSpec{role: "a", source: "cfg", hasTimeout: true, timeout: time.Minute},
+			lose: gateSpec{role: "b", source: "pkg", hasTimeout: true, timeout: time.Second, env: map[string]string{"Z": "from-lose"}},
+			want: gateSpec{role: "a", source: "cfg; also b from pkg", hasTimeout: true, timeout: time.Minute, env: map[string]string{"Z": "from-lose"}},
+		},
+	} {
+		got := merge(c.keep, c.lose)
+		qt.Check(t, qt.Equals(got.serial, c.want.serial), qt.Commentf("%s serial", c.name))
+		qt.Check(t, qt.Equals(got.e2e, c.want.e2e), qt.Commentf("%s e2e", c.name))
+		qt.Check(t, qt.Equals(got.allowFailure, c.want.allowFailure), qt.Commentf("%s allowFailure", c.name))
+		qt.Check(t, qt.Equals(got.hasTimeout, c.want.hasTimeout), qt.Commentf("%s hasTimeout", c.name))
+		qt.Check(t, qt.Equals(got.timeout, c.want.timeout), qt.Commentf("%s timeout", c.name))
+		qt.Check(t, qt.Equals(got.source, c.want.source), qt.Commentf("%s source", c.name))
+		qt.Check(t, qt.DeepEquals(got.env, c.want.env), qt.Commentf("%s env", c.name))
+	}
 }
