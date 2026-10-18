@@ -5,6 +5,17 @@ Running and using `gate`. Internals: [AGENTS.md](AGENTS.md). Reference:
 
 ## Install
 
+```bash
+brew install rethunk-tech/tap/gate
+```
+
+Windows:
+
+```powershell
+scoop bucket add rethunk https://github.com/Rethunk-Tech/scoop-bucket
+scoop install gate
+```
+
 Without a clone:
 
 ```bash
