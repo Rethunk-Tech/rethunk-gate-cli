@@ -462,6 +462,12 @@ func TestRecordStaleWhenHeadOrSchemaDiffer(t *testing.T) {
 	qt.Check(t, qt.Equals(code, recordNotFresh))
 	qt.Check(t, qt.StringContains(stderr, "stale"))
 	assertRecordView(t, js, false, "stale")
+
+	rec.Schema = 2
+	qt.Assert(t, qt.IsNil(writeRecord(rec)))
+	_, stderr, code = runGateTest(t, "-C", root, "record")
+	qt.Check(t, qt.Equals(code, recordNotFresh))
+	qt.Check(t, qt.StringContains(stderr, "stale"))
 }
 
 func TestRecordMissing(t *testing.T) {
@@ -512,7 +518,7 @@ func TestRecordHelp(t *testing.T) {
 	stdout, _, code := runGateTest(t, "record", "--help")
 	qt.Assert(t, qt.Equals(code, Success))
 	qt.Check(t, qt.Equals(stdout, recordHelp))
-	qt.Check(t, qt.StringContains(stdout, "schema 2"))
+	qt.Check(t, qt.StringContains(stdout, "schema 3"))
 	if len(stdout) >= len(gateHelp) {
 		t.Errorf("record help is %d bytes; top-level help is %d", len(stdout), len(gateHelp))
 	}

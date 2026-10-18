@@ -119,13 +119,14 @@ func Run(ctx context.Context, dir string) ([]Finding, error) {
 	return findings, nil
 }
 
-// checkResultRecord flags a schema-2 result that is not fresh for this tree:
-// stale, partial, or failed. A missing file stays quiet. A clone that has
-// never run gate has nothing to be stale about, and flagging it would fire
-// on every one.
+// checkResultRecord flags a stored result that is not fresh for this tree:
+// wrong schema, stale, partial, or failed. A missing file stays quiet. A
+// clone that has never run gate has nothing to be stale about, and flagging
+// it would fire on every one. A leftover schema from before a bump is not
+// fresh; ignoring an unknown number would hide that.
 func checkResultRecord(ctx context.Context, root string, add func(Finding)) {
 	loaded, err := result.Load(root)
-	if err != nil || loaded.Schema != result.Schema {
+	if err != nil {
 		return
 	}
 	state := result.ReadTree(ctx, root)

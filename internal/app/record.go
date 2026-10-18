@@ -27,7 +27,7 @@ const recordNotFresh Code = 1
 const recordHelp = `usage: gate [-C <path>] [--json] record
 
 Prints the last result record for this project. Exits 0 only when that
-record is schema 2, names the current HEAD and this tree's status hash,
+record is schema 3, names the current HEAD and this tree's status hash,
 the run exited 0, and partial is false. A missing record, a stale tree, a
 partial run, or a failed run exits non-zero.
 

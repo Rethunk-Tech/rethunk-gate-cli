@@ -65,6 +65,13 @@ type result struct {
 	// changes Status or Code; see cache.go for why the exit status is
 	// always the verdict.
 	Cache string `json:"cache,omitempty"`
+
+	// Dir and Timeout are the listing's configured values, so a consumer
+	// of the stream can reproduce where the gate ran and under which
+	// limit. Absent where the listing would omit them; Timeout is "off"
+	// for a deliberate 0, not omitted.
+	Dir     string `json:"dir,omitempty"`
+	Timeout string `json:"timeout,omitempty"`
 }
 
 // resultStream writes one JSON line per gate. Gates finish concurrently, so
@@ -153,5 +160,7 @@ func toResult(res gateResult) result {
 		rec.Allowed = true
 	}
 	rec.Cache = res.cache.label()
+	rec.Dir = res.spec.listDir()
+	rec.Timeout = res.spec.listTimeout()
 	return rec
 }

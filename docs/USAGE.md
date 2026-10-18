@@ -67,7 +67,9 @@ is the same object a result record stores under `gates`, so it has no
 `not-found`, `error`, `skipped`. A command exiting 124 is not a timeout.
 `code` and `ms` are absent for a gate that never ran. `reason` is skip/timeout
 detail; `error` is gate's own failure beside the command's verdict. `cache` is
-`"cached"` or `"N/M cached"`, absent when unrecognised.
+`"cached"` or `"N/M cached"`, absent when unrecognised. `dir` and `timeout`
+are the listing's configured values (`off` for `0`), omitted where the listing
+omits them.
 
 stdout is the stream alone (`--quiet`). Cannot combine with `--json` or
 `--list`. Exit status is unchanged.
@@ -337,7 +339,7 @@ plus `warnings` (`[]` if none). Text omits `warnings`. `--ndjson` refused.
 | `superseded-tooling` | eslint, mypy or black |
 | `missing-gate-*` | No test or typecheck gate |
 | `next-build-typecheck-race` | Next build and typecheck concurrent |
-| `result-not-fresh` | Schema-2 result exists and is not fresh. Missing stays quiet |
+| `result-not-fresh` | A stored result exists and is not fresh. Missing stays quiet |
 
 Judgements are repository-wide (a release workflow omitting `run-govulncheck`
 while CI enables it is not a gap). `gate --fix` as a flag is refused.
@@ -415,7 +417,7 @@ No record for a named command, a non-git tree, or a repo with no commit.
 
 ```json
 {
-  "schema": 2,
+  "schema": 3,
   "root": "/usr/local/src/example",
   "head": "35f23ab5255d6ac9e2804b7bc8ecea389a70aea6",
   "dirty": false,
@@ -447,18 +449,18 @@ lists inside it. Clean tree: SHA-256 of no bytes. Color forced off.
 Trust only when current HEAD equals `head` and a fresh hash equals `status`.
 Two dirty trees at one HEAD do not share a pass.
 
-`gate record` exits 0 iff schema 2, `head` matches, `status` matches, `partial`
+`gate record` exits 0 iff schema 3, `head` matches, `status` matches, `partial`
 is false, and `exit` is 0. Missing → 1 "missing". Tree/schema mismatch → 1
 "stale". Match with non-zero `exit` → that status "failed". Match with
 `partial` true → 1 "partial". `--json` adds `fresh`, `reason`
 (`missing`/`stale`/`partial`/`failed`/`null`), and `current`
-`{head, status, dirty}` (not stored; schema stays 2). Order: stale even if
+`{head, status, dirty}` (not stored; schema stays 3). Order: stale even if
 the run failed; failed even if partial; else partial. Missing `--json` is
-`schema` 2, `fresh`, and `reason`. Text:
+`schema` 3, `fresh`, and `reason`. A leftover schema-2 file is stale. Text:
 
 ```console
 $ gate record
-schema   2
+schema   3
 root     /usr/local/src/example
 head     35f23ab5255d6ac9e2804b7bc8ecea389a70aea6
 dirty    false

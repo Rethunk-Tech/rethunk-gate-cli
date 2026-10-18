@@ -617,12 +617,12 @@ func TestStaleResultIsAFindingAndAFreshOneIsNot(t *testing.T) {
 		qt.Commentf("a fresh record was flagged: %v", checkNames(findings)))
 
 	old := resultRecord(state)
-	old["schema"] = 1
+	old["schema"] = 2
 	writeFixtureRecord(t, dir, old)
 	findings, err = Run(t.Context(), dir)
 	qt.Assert(t, qt.IsNil(err))
-	qt.Check(t, qt.IsFalse(reported(findings, "result-not-fresh")),
-		qt.Commentf("a schema-1 record was flagged: %v", checkNames(findings)))
+	qt.Check(t, qt.IsTrue(reported(findings, "result-not-fresh")),
+		qt.Commentf("a leftover schema-2 record was quiet: %v", checkNames(findings)))
 }
 
 func resultRecord(state result.State) map[string]any {

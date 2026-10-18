@@ -20,7 +20,7 @@ import (
 
 // Schema is bumped on any change a reader must know about. See
 // docs/USAGE.md, Result record.
-const Schema = 2
+const Schema = 3
 
 // State is HEAD, whether the work tree differs from it, and the status hash
 // of that tree. OK is false where root is not a git work tree with a commit,

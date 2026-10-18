@@ -6,6 +6,10 @@ Notable changes to `gate`. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- The result record is schema 3. `--ndjson` and stored `gates` include configured `dir` and `timeout` (`off` for `0`), omitted when unset. A leftover schema-2 file is not fresh. Docs: docs/USAGE.md, Result record.
+
 ## [0.6.7] - 2026-10-18
 
 ### Added

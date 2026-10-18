@@ -2612,6 +2612,60 @@ func TestNDJSONCarriesTheCacheLabel(t *testing.T) {
 	qt.Check(t, qt.Equals(r.Cache, "cached"))
 }
 
+// The stream names the same dir and timeout the listing does, including
+// timeout off for a deliberate 0. A gate that never set either key must
+// not grow those JSON keys.
+func TestNDJSONCarriesConfiguredDirAndTimeout(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
+	qt.Assert(t, qt.IsNil(os.MkdirAll(filepath.Join(root, "sub"), 0o750)))
+	testutil.Write(t, root, ".gate.toml",
+		"[gates.docs]\nrun = \"true\"\ndir = \"sub\"\ntimeout = \"5m\"\n\n"+
+			"[gates.other]\nrun = \"echo other\"\n\n"+
+			"[gates.unbounded]\nrun = \"echo unbounded\"\ntimeout = \"0\"\n")
+
+	stdout, stderr, code := runGateTest(t, "-C", root, "--ndjson")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+
+	byName := map[string]result{}
+	raw := map[string]string{}
+	for line := range strings.Lines(strings.TrimSpace(stdout)) {
+		var r result
+		qt.Assert(t, qt.IsNil(json.Unmarshal([]byte(line), &r)),
+			qt.Commentf("stdout line is not JSON: %q", line))
+		byName[r.Name] = r
+		raw[r.Name] = line
+	}
+	qt.Assert(t, qt.Equals(len(byName), 3), qt.Commentf("stdout = %q", stdout))
+
+	docs := byName["docs"]
+	qt.Check(t, qt.Equals(docs.Dir, filepath.Join(root, "sub")))
+	qt.Check(t, qt.Equals(docs.Timeout, describeTimeout(5*time.Minute)))
+	qt.Assert(t, qt.IsNotNil(docs.Code))
+	qt.Check(t, qt.Equals(*docs.Code, 0))
+
+	other := raw["other"]
+	qt.Check(t, qt.Not(qt.StringContains(other, `"dir"`)), qt.Commentf("other = %q", other))
+	qt.Check(t, qt.Not(qt.StringContains(other, `"timeout"`)), qt.Commentf("other = %q", other))
+	qt.Check(t, qt.Equals(byName["unbounded"].Timeout, "off"))
+}
+
+func TestNDJSONTimeoutKillKeepsCode124(t *testing.T) {
+	root := timeoutProject(t, "[gates.slow]\nrun = \"sleep 10\"\ntimeout = \"200ms\"\n")
+
+	stdout, stderr, code := runGateTest(t, "-C", root, "--ndjson")
+	qt.Assert(t, qt.Equals(code, TimedOut), qt.Commentf("stderr = %q", stderr))
+
+	var r result
+	qt.Assert(t, qt.IsNil(json.Unmarshal([]byte(strings.TrimSpace(stdout)), &r)),
+		qt.Commentf("stdout = %q", stdout))
+	qt.Check(t, qt.Equals(r.Status, "timeout"))
+	qt.Assert(t, qt.IsNotNil(r.Code))
+	qt.Check(t, qt.Equals(*r.Code, int(TimedOut)))
+	qt.Check(t, qt.Equals(r.Timeout, describeTimeout(200*time.Millisecond)))
+}
+
 // --force-cache rewrites a `go test` gate so Go's own cache cannot answer
 // for it, and sets TURBO_FORCE unconditionally so a shell-string gate that
 // happens to invoke turbo is covered too. A fake `go` on PATH stands in for
