@@ -176,10 +176,12 @@ func Load(projectRoot string) (Config, error) {
 }
 
 // userPath is the user-level config location: $XDG_CONFIG_HOME/gate/config.toml,
-// falling back to ~/.config/gate/config.toml.
+// falling back to ~/.config/gate/config.toml. A relative XDG_CONFIG_HOME is
+// treated as unset, which is what the XDG spec requires -- otherwise Load
+// would read a config from whatever directory the caller happened to stand in.
 func userPath() string {
 	base := os.Getenv("XDG_CONFIG_HOME")
-	if base == "" {
+	if !filepath.IsAbs(base) {
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return ""
@@ -256,8 +258,12 @@ func (c *Config) merge(path string, data []byte) error {
 				merged.Env = map[string]string{}
 			}
 			for k, v := range g.Env {
-				if k == "" || strings.ContainsAny(k, "=\x00") || k == reservedEnv {
+				if k == "" || strings.ContainsAny(k, "=\x00\n") || k == reservedEnv {
 					unusable = append(unusable, fmt.Sprintf("gates.%s.env has an unusable variable name %q", name, k))
+					continue
+				}
+				if strings.ContainsRune(v, 0) {
+					unusable = append(unusable, fmt.Sprintf("gates.%s.env %q has a NUL in its value", name, k))
 					continue
 				}
 				merged.Env[k] = v

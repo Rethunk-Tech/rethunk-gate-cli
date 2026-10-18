@@ -224,6 +224,8 @@ func TestReservedAndMalformedEnvNamesAreRefused(t *testing.T) {
 	}{
 		{"reserved", "[gates.test.env]\nGATE_ACTIVE_ROOTS = \"x\"\n", "GATE_ACTIVE_ROOTS"},
 		{"equals", "[gates.test.env]\n\"A=B\" = \"x\"\n", "A=B"},
+		{"nul-name", "[gates.test.env]\n\"A\\u0000B\" = \"x\"\n", "unusable variable name"},
+		{"nul-value", "[gates.test.env]\nFOO = \"x\\u0000y\"\n", "NUL in its value"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
@@ -330,4 +332,21 @@ func TestDetectExcludeRefusesABadPattern(t *testing.T) {
 	_, err := Load(root)
 	qt.Assert(t, qt.IsNotNil(err))
 	qt.Check(t, qt.StringContains(err.Error(), "detect.exclude has an unusable pattern"))
+}
+
+// XDG_CONFIG_HOME that is not an absolute path must not be joined onto the
+// current directory: Load would then pick up a config from wherever the
+// caller stood, including after `gate -C`.
+func TestRelativeXDGConfigHomeIsIgnored(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "xdg")
+	cwd := t.TempDir()
+	t.Chdir(cwd)
+	testutil.Write(t, cwd, "xdg/gate/config.toml", "[gates.test]\nrun = \"from-relative\"\n")
+
+	cfg, err := Load(t.TempDir())
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.Equals(cfg.Gates["test"].Run, ""))
+	qt.Check(t, qt.HasLen(cfg.Files, 0))
 }
