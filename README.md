@@ -46,6 +46,7 @@ Prerequisites and full install notes: [HUMANS.md](HUMANS.md).
 | [AGENTS.md](AGENTS.md) | Internals, invariants, and why this exists |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Process — commits, tests, docs |
 | [CHANGELOG.md](CHANGELOG.md) | Release notes |
+| [SECURITY.md](SECURITY.md) | Vulnerability disclosure |
 
 ## License
 

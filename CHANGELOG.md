@@ -10,13 +10,11 @@ Notable changes to `gate`. The format follows
 
 - `--list` and `--json` name a gate's configured `timeout` where the file set one, including `off` for `timeout = "0"`. A gate that never set the key stays quiet. Docs: docs/USAGE.md, configuration listing.
 
-- `gate --json record` adds `current` (`head`, `status`, `dirty`) from the tree just read, beside the stored record. `fresh` and `reason` stay. The stored record stays schema 2. `gate record` without `--json` stays text. Docs: docs/USAGE.md, Result record.
+- `gate --json record` adds `current` (`head`, `status`, `dirty`) from the tree just read, beside the stored record, plus `fresh` and `reason` (`missing`, `stale`, `partial`, `failed`, or null when the record is fresh). The stored record stays schema 2. `gate record` without `--json` stays text. Docs: docs/USAGE.md, Result record.
 
 - `gate doctor` flags a schema-2 result that is not fresh (`stale`, `partial`, or `failed`). A missing record stays quiet. The fix is `run gate`. `gate --json doctor` includes the finding. Docs: docs/USAGE.md, `gate doctor`.
 
 - `gate --json doctor` includes `warnings`, the same CI tool warning strings a no-run `gate --json` listing reports. The text report is unchanged. Docs: docs/USAGE.md, `gate doctor`.
-
-- `gate --json record` adds `fresh` and `reason` (`missing`, `stale`, `partial`, `failed`, or null when the record is fresh). The stored record stays schema 2. `gate record` without `--json` stays text. Docs: docs/USAGE.md, Result record.
 
 - `gate record` prints the last result record for this project and exits 0 only when it is schema 2, `head` is the current HEAD, `status` matches this tree, `partial` is false, and the run exited 0. A missing record exits 1. A stale tree exits 1 and says stale. A fresh record whose run failed exits with that status and says failed. A matching record with `partial` true exits 1 and says partial. `gate --json record` prints the record as JSON. Docs: docs/USAGE.md, Result record.
 

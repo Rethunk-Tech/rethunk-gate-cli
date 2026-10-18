@@ -151,8 +151,7 @@ go-toml is the only binary dependency; `go-quicktest/qt` is test-only.
 
 ## Doctor
 
-`internal/doctor` is read-only with a byte-identical fixture test. Every finding
-carries evidence.
+`internal/doctor` is read-only. Every finding carries evidence.
 
 `gate --json doctor` serialises the findings; `--ndjson` is refused there,
 because it streams what a run did and doctor runs nothing. A finding carries

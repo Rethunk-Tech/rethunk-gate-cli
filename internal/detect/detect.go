@@ -129,7 +129,9 @@ var gateOrder = []string{"build", "typecheck", "lint", "knip", "workflows", "she
 func IsRole(name string) bool { return slices.Contains(gateOrder, name) }
 
 // Detect inspects dir and everything above it, and reports the gates it can
-// run. It never executes anything.
+// run. It never executes a program the project chose. The one spawn is git
+// ls-files for the shell gate: a fixed argv, with core.fsmonitor emptied so a
+// repository cannot name a program for git to run.
 func Detect(ctx context.Context, dir string) (Project, error) {
 	proj, err := detectOne(ctx, dir)
 	if err != nil {
