@@ -56,7 +56,8 @@ to change. Each gate carries its `name`, the resolved `argv`, the `display`
 the text listing shows, the `source` it came from, anything it `shadows`, and
 its scheduling `group`; gates sharing a group run one after another, and
 groups run concurrently. The document also carries the project `root`, the
-`config` files in force, and the `notes`. It runs nothing and changes nothing:
+`config` files in force, the `notes`, and the `warnings` (tools CI runs that
+no gate does). It runs nothing and changes nothing:
 
 ```console
 $ gate --json
@@ -73,7 +74,8 @@ $ gate --json
     }
   ],
   "config": [],
-  "notes": []
+  "notes": [],
+  "warnings": []
 }
 ```
 
@@ -158,7 +160,9 @@ it took. Both are **absent** for a gate that never ran: a skipped gate has no
 verdict, and `"code": 0` would claim a pass it never gave. `reason` says what a
 skipped gate was waiting on, or which limit a timeout passed; `error` carries
 gate's own failure — a log it could not finish — beside the command's verdict
-rather than in place of it.
+rather than in place of it. `cache` is the same reading the ok line shows
+(`"cached"` or `"N/M cached"`), and is absent when this build recognised no
+marker.
 
 stdout carries the stream alone. `--ndjson` implies `--quiet`, because a human
 `gate: ok` line in the middle of it is a parse error for the consumer that
@@ -204,8 +208,9 @@ gate: wall 14.212s is over the 10s budget; slowest make test 13.9s, make lint 1.
 ```
 
 The budget is 10s, or 2m for a run that includes an e2e gate. `--budget D`
-or a top-level `budget = "15s"` in `.gate.toml` sets the first (the flag wins),
-and `0` turns the warning off. A command the caller named has no budget.
+or a top-level `budget = "15s"` in `.gate.toml` replaces that default (the flag
+wins), including when e2e gates run, and `0` turns the warning off. A command
+the caller named has no budget.
 
 ### Cache awareness
 
@@ -286,7 +291,7 @@ install cargo-audit` — rather than a lesser gate: Rust ships no `go vet`
 equivalent, so a fallback would report something other than a lint result.
 
 The project's own declaration always wins. The roles are `build`, `typecheck`,
-`lint`, `workflows`, `shell`, `test` and `vuln`. An **aggregate** target is not
+`lint`, `knip`, `workflows`, `shell`, `test` and `vuln`. An **aggregate** target is not
 one of them — `ci`, `check`, `verify` or `validate`, which all mean "run the
 whole pipeline", which is what `gate` is already doing. A project writing
 several of those has written one thing several times, so the first in that
@@ -310,8 +315,9 @@ it from `ci` alone changed what runs in none of them and added the note to
 five, including one whose `check: lint` had `gate` running the lint and
 silently skipping the rest of what `check` does.
 
-`workflows` and `shell` are not among the aggregated gates: linting workflow files or shell scripts is a
-different thing from what a project's `ci` target runs.
+`knip`, `workflows` and `shell` are not among the aggregated gates: dead-code
+scan, workflow lint and shell lint are a different thing from what a project's
+`ci` target runs.
 
 ### Leaving a directory out
 
@@ -532,7 +538,7 @@ A convention losing to a declaration is not a disagreement and is not reported.
 ### Running some of them
 
 `gate run lint test` runs those two. The names are any `gate --list` shows: the
-seven roles, CI-run packages and scripts, and any gate `.gate.toml` declares. Every name
+roles, CI-run packages and scripts, and any gate `.gate.toml` declares. Every name
 has to resolve — one that does not fails the whole run without running
 anything, because running the subset that matched would report a pass covering
 a gate that never ran:
@@ -571,8 +577,9 @@ MDBOOK_VERSION = "0.4"
 ```
 
 `run`, `serial`, `timeout`, `dir`, `env`, `allow-failure` and `e2e` are the
-only keys under a gate, and `budget` the only one outside them (see [What a run
-cost](#what-a-run-cost)); `e2e` is under [Browser e2e is
+only keys under a gate. Outside a gate: top-level `budget` (see [What a run
+cost](#what-a-run-cost)) and `[detect] exclude` (see [Leaving a directory
+out](#leaving-a-directory-out)). `e2e` is under [Browser e2e is
 opt-in](#browser-e2e-is-opt-in). `run` takes a shell string, so it can carry pipes and globs; the shell
 is `sh` on unix and `cmd` on Windows, which split their command lines by
 different rules. `timeout` takes the same value `--timeout` does — `5m`,
@@ -841,8 +848,10 @@ The filename is derived from the command plus a random suffix, so a directory
 of logs can be read without opening them and two gates sharing a command name
 cannot collide. Logs are created **0600 in a 0700 directory** — they hold
 whatever the command printed, which can include tokens.
-`--log PATH` overrides the location entirely; that directory is the caller's
-and is never re-permissioned.
+`--log PATH` writes that one file. A run with several gates refuses it — one
+path cannot hold several logs — and points at `TMPDIR` instead. The file's
+parent is the caller's: created 0755 if missing, never chmod'd to 0700, and
+never swept.
 
 `gate --version` names the retention alongside the log directory. Logs older
 than **14 days** are removed from gate's own directory. Nothing else
@@ -850,7 +859,7 @@ does it, and the directory only grows: one operator's measured 811 logs in two
 days. Linux clears `/var/tmp` at 30 days, but the macOS and Windows temporary
 directories gate also writes to do not. The sweep runs at most once a day —
 a stamp file makes the cost one stat per run rather than one per log — and
-never touches a directory `--log` named, which is the caller's and holds files
+never touches a path `--log` named, which is the caller's and holds files
 gate did not place.
 
 ## Result record

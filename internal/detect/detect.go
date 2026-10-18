@@ -19,7 +19,7 @@ import (
 
 // Gate is one runnable check.
 type Gate struct {
-	// Name is the role: build, typecheck, lint, workflows, shell, test, vuln.
+	// Name is the role: build, typecheck, lint, knip, workflows, shell, test, vuln.
 	Name string
 
 	// Argv is the command, executed directly rather than through a shell.

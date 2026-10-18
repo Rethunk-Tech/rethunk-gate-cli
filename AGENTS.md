@@ -238,7 +238,7 @@ never `/tmp` on unix (`logDir` is build-tagged). `run` strings split `sh -c` vs
 
 Logs older than 14 days are swept from `gate`'s own directory, once per
 process and at most once a day — a stamp file makes that one stat rather than
-one per log. A directory `--log` names is never swept: `gate` does not delete
+one per log. A path `--log` names is never swept: `gate` does not delete
 files it did not place.
 
 ## Gate budget

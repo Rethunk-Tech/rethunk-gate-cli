@@ -59,8 +59,8 @@ runs one by name.
 
 Commands:
   <command>     run that command as a gate
-  run NAME...   run the named gates: build, typecheck, lint, workflows, shell,
-                test, vuln, and any others .gate.toml declares
+  run NAME...   run the named gates: build, typecheck, lint, knip, workflows,
+                shell, test, vuln, and any others .gate.toml declares
   doctor        report what is cheap to fix here (read-only)
   fix           apply doctor findings that name a closed mechanical remedy
   record        print the last result record, and whether it is still true
@@ -87,7 +87,8 @@ Flags:
   --timeout D   kill a gate that runs longer than D (default 1m, 0 disables;
                 .gate.toml can set it per gate, and this beats that)
   --tail N      trailing lines to quote on failure (default 40)
-  --log PATH    write the log here instead of the default location
+  --log PATH    write this one file instead of the default location
+                (refused when several gates run; set TMPDIR for those)
   --quiet       print nothing when the gates pass
   --version     print the version and the settings in force, then exit
   -h, --help    show this help and exit
@@ -653,7 +654,10 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	// has none.
 	if opts.root != "" {
 		opts.budget = budget
-		if slices.ContainsFunc(opts.gates, func(g gateSpec) bool { return g.e2e }) {
+		// 2m is the default when e2e actually runs, not a ceiling. --budget
+		// and a file's budget are the same statement of intent they are
+		// without e2e, including 0 to silence the warning.
+		if !budgetSet && !configured.HasBudget && slices.ContainsFunc(opts.gates, func(g gateSpec) bool { return g.e2e }) {
 			opts.budget = e2eBudget
 		}
 	}

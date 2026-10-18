@@ -1537,7 +1537,7 @@ func TestHelpNamesExactlyTheRolesRunAccepts(t *testing.T) {
 	t.Parallel()
 
 	roles := helpRoles(gateHelp)
-	qt.Assert(t, qt.DeepEquals(roles, []string{"build", "typecheck", "lint", "workflows", "shell", "test", "vuln"}))
+	qt.Assert(t, qt.DeepEquals(roles, []string{"build", "typecheck", "lint", "knip", "workflows", "shell", "test", "vuln"}))
 	for _, role := range roles {
 		qt.Check(t, qt.IsTrue(detect.IsRole(role)),
 			qt.Commentf("the help offers %q, which is not a gate role", role))
@@ -2965,6 +2965,16 @@ func TestBudgetWarnsOnASlowPassOnly(t *testing.T) {
 	_, stderr, _ = runGateTest(t, "-C", root)
 	qt.Check(t, qt.StringContains(stderr, "over the 1ms budget"), qt.Commentf("stderr = %q", stderr))
 	_, stderr, _ = runGateTest(t, "-C", root, "--budget", "1m")
+	qt.Check(t, qt.Not(qt.StringContains(stderr, "budget")), qt.Commentf("stderr = %q", stderr))
+
+	// An e2e run uses the 2m default only when nothing set a budget. The
+	// flag, including 0, is what --help says it is.
+	e2e := t.TempDir()
+	testutil.Write(t, e2e, ".gate.toml", "[gates.e2e]\nrun = \"sleep 0.05\"\n")
+	_, stderr, code = runGateTest(t, "-C", e2e, "--e2e", "--budget", "1ms")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.StringContains(stderr, "is over the 1ms budget"), qt.Commentf("stderr = %q", stderr))
+	_, stderr, _ = runGateTest(t, "-C", e2e, "--e2e", "--budget", "0")
 	qt.Check(t, qt.Not(qt.StringContains(stderr, "budget")), qt.Commentf("stderr = %q", stderr))
 }
 

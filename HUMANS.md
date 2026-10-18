@@ -44,10 +44,21 @@ $ gate
 gate: ok  turbo run lint typecheck test build  20ms  /var/tmp/gate/turbo-run-ci-114970238.log  (cached)
 ```
 
-Browser e2e suites are skipped unless you pass `--e2e`, and a passing run over
-10s prints one line naming the slowest gates. CI still runs everything.
+Browser e2e suites are skipped unless you pass `--e2e` or `gate run <name>`.
+A passing run over 10s prints one line naming the slowest gates. GitHub Actions
+still runs the project's own e2e jobs.
 
 `--force-cache` re-runs it for real. `gate --list` shows what it picked.
 `gate run test` runs one gate by name. `gate doctor` reports what is cheap to
-fix here. `gate --help` lists every flag.
+fix here; `gate fix` applies the mechanical ones. `gate record` prints the last
+result for this tree. `gate --help` lists every flag.
 Detection, `.gate.toml`, cache awareness, and exit codes: [docs/USAGE.md](docs/USAGE.md).
+
+## Environment
+
+| Variable | What |
+| --- | --- |
+| `TMPDIR` | Default logs go under `$TMPDIR/gate/` (`/var/tmp/gate/` if unset). On Windows, `TMP`/`TEMP`. |
+| `GATE_TMPDIR` | On unix, `TMPDIR` and `GOTMPDIR` every gate runs with (default `/var/tmp`), so Go's test cache does not miss across callers. |
+| `XDG_CONFIG_HOME` | User config: `$XDG_CONFIG_HOME/gate/config.toml`, else `~/.config/gate/config.toml`. |
+| `XDG_STATE_HOME` | Result records: `$XDG_STATE_HOME/gate/results/`, else `~/.local/state/gate/results/`. |
