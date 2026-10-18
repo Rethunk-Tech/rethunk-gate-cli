@@ -47,6 +47,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
       # govulncheck is on here, not merely available: this repo's own doctor
       # flags Go projects that leave it off, and shipping a tool that gives
       # advice it does not take would be the wrong kind of example.
@@ -57,15 +58,19 @@ jobs:
           run-govulncheck: "true"
       # Same commands local `gate` schedules for workflows and shell. !cancelled
       # so a red lint or vuln step still runs these instead of leaving them
-      # green on GitHub and red locally.
+      # green on GitHub and red locally. actionlint's version lives in the
+      # Makefile so CI and `gate run workflows` share one pin.
       - name: workflows
         if: ${{ !cancelled() }}
-        run: |
-          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
-          actionlint
+        run: make workflows
       - name: shell
         if: ${{ !cancelled() }}
         run: shellcheck -x scripts/bench.sh
+      - name: gitleaks
+        if: ${{ !cancelled() }}
+        run: |
+          go install github.com/gitleaks/gitleaks/v8@v8.28.0
+          gitleaks git --redact --no-banner
 
   # The release publishes a windows binary, so something has to run one.
   #
