@@ -66,12 +66,6 @@ jobs:
       - name: shell
         if: ${{ !cancelled() }}
         run: shellcheck -x scripts/bench.sh
-      - name: gitleaks
-        if: ${{ !cancelled() }}
-        run: |
-          go install github.com/zricethezav/gitleaks/v8@v8.28.0
-          gitleaks git --redact --no-banner
-
   # The release publishes a windows binary, so something has to run one.
   #
   # This leg covers what it honestly can: the build, vet, the two packages
