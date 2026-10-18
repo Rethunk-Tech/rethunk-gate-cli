@@ -150,14 +150,6 @@ func writeRecordText(w io.Writer, rec record) error {
 	return nil
 }
 
-// recordVerdict is why a loaded record is or is not fresh, in the same order
-// runRecord decides the exit: a tree or schema mismatch is stale even when
-// the run failed, a failed run is failed even when partial, and partial is
-// only the remaining case. An empty reason means fresh.
-func recordVerdict(rec record, state stored.State) (fresh bool, reason string) {
-	return stored.Verdict(rec.Schema, rec.Head, rec.Status, rec.Partial, rec.Exit, state)
-}
-
 // currentTree is the tree stored.ReadTree just returned, beside the stored record
 // so a reader can see which head the verdict compared.
 type currentTree struct {
@@ -221,7 +213,7 @@ func runRecord(ctx context.Context, dir string, asJSON bool, stdout, stderr io.W
 		return Fatal
 	}
 	state := stored.ReadTree(ctx, proj.Root)
-	fresh, reason := recordVerdict(rec, state)
+	fresh, reason := stored.Verdict(rec.Schema, rec.Head, rec.Status, rec.Partial, rec.Exit, state)
 	if asJSON {
 		if err := writeRecordView(stdout, &rec, state, fresh, reason); err != nil {
 			fmt.Fprintf(stderr, "gate: cannot write the record: %v\n", err)
