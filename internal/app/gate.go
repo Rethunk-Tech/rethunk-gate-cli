@@ -69,6 +69,10 @@ type options struct {
 	// depend on who is reading it.
 	ndjson bool
 
+	// actions is GITHUB_ACTIONS=true. Report-only: a failed or timed-out
+	// gate then prints one workflow command. Off under --json/--ndjson.
+	actions bool
+
 	// stream prints every output line live, prefixed with the gate's name.
 	// Display only; streamOut is the serialised stdout runGates sets from it.
 	stream    bool
@@ -558,6 +562,9 @@ func report(results []gateResult, opts options, stdout, stderr io.Writer) Code {
 		// still reported above, so allowing is never hiding.
 		if aggregate == Success && !res.excused() {
 			aggregate = code
+		}
+		if line := actionsError(res, opts.actions, opts.ndjson || opts.jsonList); line != "" {
+			fmt.Fprint(stderr, line)
 		}
 	}
 	if sawTimeout {

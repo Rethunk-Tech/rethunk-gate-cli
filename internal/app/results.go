@@ -164,3 +164,27 @@ func toResult(res gateResult) result {
 	rec.Timeout = res.spec.listTimeout()
 	return rec
 }
+
+// actionsError is the GitHub Actions workflow command for one failed or
+// timed-out gate. It is built only from the same metadata toResult already
+// holds -- name, status, code, log path -- never from the child's output.
+// Off outside GitHub Actions and under the machine shapes, whose stdout is
+// a document a workflow command would corrupt.
+func actionsError(res gateResult, github, machine bool) string {
+	if !github || machine {
+		return ""
+	}
+	rec := toResult(res)
+	if rec.Status != "fail" && rec.Status != "timeout" {
+		return ""
+	}
+	name := rec.Name
+	if name == "" {
+		name = rec.Display
+	}
+	code := 0
+	if rec.Code != nil {
+		code = *rec.Code
+	}
+	return fmt.Sprintf("::error title=gate %s::%s %d log: %s\n", name, rec.Status, code, rec.Log)
+}

@@ -89,6 +89,20 @@ On by default when `CI` is set and not `false`/`0`, or `GITHUB_ACTIONS=true`.
 `--stream` forces it on; `--no-stream` forces it off. Off under `--json` and
 `--ndjson`, whatever else is set.
 
+### GitHub Actions annotations
+
+When `GITHUB_ACTIONS=true`, each gate that fails or times out prints one
+workflow command, built only from that gate's metadata -- never by reading
+the child's output:
+
+```text
+::error title=gate <name>::<status> <exit/timeout> log: <path>
+```
+
+`<status>` is `fail` or `timeout`; the next field is the exit status, or
+`124` for a timeout. Off outside GitHub Actions and under `--json` /
+`--ndjson`.
+
 ### Budget and `--profile`
 
 `--profile` prints wall vs summed gate time, then slowest first. Output only.

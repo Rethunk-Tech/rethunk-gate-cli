@@ -97,6 +97,10 @@ Flags:
   --version     print the version and the settings in force, then exit
   -h, --help    show this help and exit
 
+On GitHub Actions (GITHUB_ACTIONS=true), a failed or timed-out gate also
+prints one ::error workflow command from its name, status, code and log
+path. Off under --json and --ndjson.
+
 The first non-flag argument begins the command, and everything after it --
 including its own flags -- belongs to the command. 'gate test' runs the
 program, not the gate; 'gate run test' runs the gate. Use -- when the
@@ -278,6 +282,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		opts.quiet = true
 	}
 	opts.stream = resolveStream(forceStream, noStream, opts.ndjson || opts.jsonList, os.Getenv)
+	opts.actions = os.Getenv("GITHUB_ACTIONS") == "true"
 
 	if refuseFix {
 		fmt.Fprintln(stderr, "gate: --fix is not a flag; run `gate fix`")
