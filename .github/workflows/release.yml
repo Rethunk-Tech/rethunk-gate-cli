@@ -36,6 +36,8 @@ jobs:
       attestations: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: Rethunk-Tech/gh-actions/setup-go@bc5fa5b1004205c9c9399fc941d79d5ada53c59b # v1.16
         with:
@@ -114,6 +116,13 @@ jobs:
     permissions:
       contents: write
     steps:
+      # Tag object, so --notes can be the annotation rather than a stub that
+      # points at a CHANGELOG the release does not attach.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: dist
@@ -122,12 +131,15 @@ jobs:
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
-          # Nothing is checked out here, so gh has no git remote to infer the
-          # repository from.
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          gh release create "${GITHUB_REF_NAME}" \
-            --title "${GITHUB_REF_NAME}" \
-            --notes "See CHANGELOG.md for what changed." \
+          tag="${GITHUB_REF_NAME}"
+          notes=$(git tag -l --format='%(contents)' "$tag")
+          if [ -z "$notes" ]; then
+            notes=$(git log -1 --pretty=%s "$tag")
+          fi
+          gh release create "$tag" \
+            --title "$tag" \
+            --notes "$notes" \
             dist/gate-* dist/SHA256SUMS
