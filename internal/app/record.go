@@ -106,23 +106,48 @@ func loadRecord(root string) (record, error) {
 	return rec, nil
 }
 
-func writeRecordText(w io.Writer, rec record) {
-	fmt.Fprintf(w, "%-9s%d\n", "schema", rec.Schema)
-	fmt.Fprintf(w, "%-9s%s\n", "root", rec.Root)
-	fmt.Fprintf(w, "%-9s%s\n", "head", rec.Head)
-	fmt.Fprintf(w, "%-9s%t\n", "dirty", rec.Dirty)
-	fmt.Fprintf(w, "%-9s%s\n", "status", rec.Status)
-	fmt.Fprintf(w, "%-9s%t\n", "partial", rec.Partial)
-	fmt.Fprintf(w, "%-9s%d\n", "exit", rec.Exit)
-	fmt.Fprintf(w, "%-9s%s\n", "started", rec.Started.Format(time.RFC3339Nano))
-	fmt.Fprintf(w, "%-9s%s\n", "finished", rec.Finished.Format(time.RFC3339Nano))
+func writeRecordText(w io.Writer, rec record) error {
+	write := func(format string, args ...any) error {
+		_, err := fmt.Fprintf(w, format, args...)
+		return err
+	}
+	if err := write("%-9s%d\n", "schema", rec.Schema); err != nil {
+		return err
+	}
+	if err := write("%-9s%s\n", "root", rec.Root); err != nil {
+		return err
+	}
+	if err := write("%-9s%s\n", "head", rec.Head); err != nil {
+		return err
+	}
+	if err := write("%-9s%t\n", "dirty", rec.Dirty); err != nil {
+		return err
+	}
+	if err := write("%-9s%s\n", "status", rec.Status); err != nil {
+		return err
+	}
+	if err := write("%-9s%t\n", "partial", rec.Partial); err != nil {
+		return err
+	}
+	if err := write("%-9s%d\n", "exit", rec.Exit); err != nil {
+		return err
+	}
+	if err := write("%-9s%s\n", "started", rec.Started.Format(time.RFC3339Nano)); err != nil {
+		return err
+	}
+	if err := write("%-9s%s\n", "finished", rec.Finished.Format(time.RFC3339Nano)); err != nil {
+		return err
+	}
 	for _, g := range rec.Gates {
 		name := g.Name
 		if name == "" {
 			name = g.Display
 		}
-		fmt.Fprintf(w, "%-9s%s\n", name, g.Status)
+		if err := write("%-9s%s\n", name, g.Status); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 // recordVerdict is why a loaded record is or is not fresh, in the same order
@@ -202,8 +227,9 @@ func runRecord(ctx context.Context, dir string, asJSON bool, stdout, stderr io.W
 			fmt.Fprintf(stderr, "gate: cannot write the record: %v\n", err)
 			return Fatal
 		}
-	} else {
-		writeRecordText(stdout, rec)
+	} else if err := writeRecordText(stdout, rec); err != nil {
+		fmt.Fprintf(stderr, "gate: cannot write the record: %v\n", err)
+		return Fatal
 	}
 	switch reason {
 	case "stale":

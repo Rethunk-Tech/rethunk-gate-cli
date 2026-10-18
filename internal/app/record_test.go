@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -501,4 +502,23 @@ func TestOnlyBareRecordIsClaimed(t *testing.T) {
 	_, stderr, code = runGateTest(t, "--log", tempLog(t), "--", "record")
 	qt.Check(t, qt.Not(qt.Equals(code, Success)))
 	qt.Check(t, qt.Not(qt.StringContains(stderr, "result record")))
+}
+
+type errWriter struct{}
+
+func (errWriter) Write([]byte) (int, error) { return 0, io.ErrClosedPipe }
+
+func TestRecordTextWriteErrorIsFatal(t *testing.T) {
+	setLogDir(t)
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "test:\n\ttrue\n")
+	committedRepo(t, root)
+	_, _, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Success))
+
+	var stderr bytes.Buffer
+	code = runRecord(context.Background(), root, false, errWriter{}, &stderr)
+	qt.Assert(t, qt.Equals(code, Fatal), qt.Commentf("stderr = %q", stderr.String()))
+	qt.Check(t, qt.StringContains(stderr.String(), "cannot write the record"))
 }
