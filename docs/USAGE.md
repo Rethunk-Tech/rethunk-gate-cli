@@ -78,6 +78,17 @@ stdout is the stream alone (`--quiet`). Cannot combine with `--json` or
 for d in ~/src/*/; do gate -C "$d" --ndjson; done | jq -r 'select(.status != "ok") | "\(.name) \(.status) \(.log)"'
 ```
 
+### Live output: `--stream` / `--no-stream`
+
+Each line a gate writes is printed to stdout as it arrives, prefixed
+`[<gate name>]`, so concurrent gates interleave line by line. Logs are
+unchanged and the end-of-run summary still prints, without re-quoting the
+failure tail. A line over 8 KiB is emitted in prefixed chunks.
+
+On by default when `CI` is set and not `false`/`0`, or `GITHUB_ACTIONS=true`.
+`--stream` forces it on; `--no-stream` forces it off. Off under `--json` and
+`--ndjson`, whatever else is set.
+
 ### Budget and `--profile`
 
 `--profile` prints wall vs summed gate time, then slowest first. Output only.

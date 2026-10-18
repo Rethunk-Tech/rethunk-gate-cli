@@ -69,6 +69,11 @@ type options struct {
 	// depend on who is reading it.
 	ndjson bool
 
+	// stream prints every output line live, prefixed with the gate's name.
+	// Display only; streamOut is the serialised stdout runGates sets from it.
+	stream    bool
+	streamOut *lockedWriter
+
 	// profile prints what the run cost after it finishes: wall time against
 	// summed gate time, and the slowest gates first. Output only, like the
 	// two above: it goes to stderr, so the machine shapes on stdout are
@@ -287,6 +292,9 @@ func (r gateResult) excused() bool {
 // the aggregate, whatever its own verdict was.
 func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code {
 	results := make([]gateResult, len(opts.gates))
+	if opts.stream {
+		opts.streamOut = &lockedWriter{w: stdout}
+	}
 	stream := newResultStream(stdout, stderr, opts.ndjson)
 
 	started := time.Now()
@@ -462,6 +470,11 @@ func profile(results []gateResult) (sum time.Duration, count int, slowest string
 // aggregate status.
 func report(results []gateResult, opts options, stdout, stderr io.Writer) Code {
 	aggregate := Success
+	// Streamed output was already shown line by line; quoting it again is noise.
+	quote := writeFailureRegion
+	if opts.stream {
+		quote = func(io.Writer, *lineTracker) {}
+	}
 	// The first gate a limit killed, for the remedy printed once at the end.
 	// A run where three gates overran has one thing to say, not three.
 	killed, sawTimeout := "", false
@@ -484,7 +497,7 @@ func report(results []gateResult, opts options, stdout, stderr io.Writer) Code {
 			// signal gate sent the child, which would name gate's own
 			// mechanism as the cause.
 			fmt.Fprintf(stderr, "gate: INTERRUPTED  %s  (stopped, not failed)\n", res.spec.short())
-			writeFailureRegion(stderr, res.tracker)
+			quote(stderr, res.tracker)
 			fmt.Fprintf(stderr, "gate: partial log  %s\n", res.logPath)
 			code = Interrupted
 		case outcomeTimedOut:
@@ -497,7 +510,7 @@ func report(results []gateResult, opts options, stdout, stderr io.Writer) Code {
 			}
 			fmt.Fprintf(stderr, "gate: TIMEOUT after %s  %s  (killed, not failed%s)\n",
 				res.spec.timeout, res.spec.short(), allowed)
-			writeFailureRegion(stderr, res.tracker)
+			quote(stderr, res.tracker)
 			fmt.Fprintf(stderr, "gate: partial log  %s\n", res.logPath)
 			code = TimedOut
 		case outcomeNotFound:
@@ -524,7 +537,7 @@ func report(results []gateResult, opts options, stdout, stderr io.Writer) Code {
 				}
 				fmt.Fprintf(stderr, "gate: FAIL%s exit %d  %s  %s\n",
 					allowed, int(res.code), res.spec.short(), res.elapsed.Round(time.Millisecond))
-				writeFailureRegion(stderr, res.tracker)
+				quote(stderr, res.tracker)
 				fmt.Fprintf(stderr, "gate: full log  %s\n", res.logPath)
 			}
 			code = res.code
@@ -624,7 +637,17 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 	// terminal would have shown. Splitting them would reorder the very lines
 	// a failure is read from.
 	logSink := &lenientWriter{w: logFile}
-	sink := io.MultiWriter(logSink, res.tracker, cache)
+	writers := []io.Writer{logSink, res.tracker, cache}
+	var live *prefixWriter
+	if opts.streamOut != nil {
+		name := spec.role
+		if name == "" {
+			name = spec.short()
+		}
+		live = newPrefixWriter(opts.streamOut, name)
+		writers = append(writers, live)
+	}
+	sink := io.MultiWriter(writers...)
 	cmd.Stdout = sink
 	cmd.Stderr = sink
 
@@ -644,6 +667,9 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 	danglingLine := res.tracker.pending()
 	res.tracker.close()
 	cache.close()
+	if live != nil {
+		live.close()
+	}
 	res.cache = cache.verdict()
 
 	switch {

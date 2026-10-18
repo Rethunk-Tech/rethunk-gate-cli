@@ -79,6 +79,9 @@ Flags:
   --json        the same listing as JSON, for a program to read
                 (with doctor, fix, or record, that report as JSON)
   --ndjson      stream one JSON line per gate as it finishes, and run them
+  --stream      print each gate's output live, prefixed [name] (default in CI:
+                CI set and not false/0, or GITHUB_ACTIONS=true); logs unchanged
+  --no-stream   never stream, even in CI (streaming is off under --json/--ndjson)
   --profile     after the run, print wall time, summed gate time, and slowest gates
   --budget D    warn when a passing run takes longer than D (default 10s, 0
                 disables; 2m when e2e gates run; .gate.toml: budget = "15s")
@@ -175,6 +178,9 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	flags.BoolVar(&opts.list, "list", false, "")
 	flags.BoolVar(&opts.jsonList, "json", false, "")
 	flags.BoolVar(&opts.ndjson, "ndjson", false, "")
+	var forceStream, noStream bool
+	flags.BoolVar(&forceStream, "stream", false, "")
+	flags.BoolVar(&noStream, "no-stream", false, "")
 	flags.BoolVar(&opts.profile, "profile", false, "")
 	flags.BoolVar(&opts.forceCache, "force-cache", false, "")
 	flags.BoolVar(&opts.e2e, "e2e", false, "")
@@ -271,6 +277,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	if opts.ndjson {
 		opts.quiet = true
 	}
+	opts.stream = resolveStream(forceStream, noStream, opts.ndjson || opts.jsonList, os.Getenv)
 
 	if refuseFix {
 		fmt.Fprintln(stderr, "gate: --fix is not a flag; run `gate fix`")
