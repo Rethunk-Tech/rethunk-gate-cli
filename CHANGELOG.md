@@ -8,6 +8,8 @@ Notable changes to `gate`. The format follows
 
 ### Added
 
+- `--jobs N` caps how many gates run at once (default: no cap, today's overlap; N>=1). Top-level `jobs = N` in `.gate.toml` is the same statement (flag wins). Serial groups and turbo/serial edges keep their order. A bad value is exit 129. Docs: docs/USAGE.md, `serial`.
+
 - `gate --failed` re-runs only the gates whose last result record status was `fail`, `timeout`, or `error`. Detection still runs. A missing or stale record, or a last run with none of those statuses, exits 129. Docs: docs/USAGE.md, `--failed`.
 
 - Hidden `gate completion <bash|zsh|fish|pwsh>` and `gate man` print shell completions and a man page generated from the same `--help` text. Releases attach `gate-completions-man.tar.gz`.

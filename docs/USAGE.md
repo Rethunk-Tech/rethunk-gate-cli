@@ -25,7 +25,9 @@ the `-C` directory.
 `--list` shows the decision and runs nothing. `--json` is the same listing for
 a program: `"schema": 1`, then each gate's `name`, resolved `argv`, `display`,
 `source`, `shadows`, `group`; plus `root`, `config`, `notes`, `warnings`. Gates
-sharing a `group` run serially; groups run concurrently. `--json` is global:
+sharing a `group` run serially; groups run concurrently unless `--jobs N` or
+top-level `jobs = N` caps how many gates run at once (flag wins; default no
+cap; N>=1). `--json` is global:
 `gate doctor --json` is the same document as `gate --json doctor`.
 
 A scalar with nothing to say is omitted (a wrapped command has no `root` /
@@ -315,9 +317,10 @@ MDBOOK_VERSION = "0.4"
 ```
 
 Gate keys: `run`, `serial`, `timeout`, `dir`, `env`, `allow-failure`, `e2e`.
-Outside: `budget`, `[detect] exclude`. `run` is a shell string (`sh` / `cmd`).
+Outside: `budget`, `jobs`, `[detect] exclude`. `run` is a shell string (`sh` / `cmd`).
 `timeout` is the same grammar as `--timeout` (`5m`, `90s`, `1m30s`, `0`).
-Unknown keys and bad durations refuse the file.
+`jobs` is an integer >= 1 (no cap when absent). Unknown keys, bad durations,
+and a bad `jobs` refuse the file.
 
 `dir` is relative to the project root; missing directory refuses the run.
 `env` merges per variable, literal, no `$VAR` expansion, after the inherited
@@ -349,7 +352,9 @@ Concurrent by default; nothing infers order. `--serial` for the run, or
 `serial = true` on gates that need another's *result* (`build` before `test`;
 Next `build` and `typecheck` both write `.next`). Cache contention is not a
 reason. `--serial` beats the file; `serial = false` turns off a user default
-(absent ≠ false).
+(absent ≠ false). `--jobs N` or top-level `jobs = N` caps how many gates run
+at once across groups that would otherwise overlap; serial groups and turbo
+edges keep their order. Flag wins. N>=1; a bad value is exit 129.
 
 A failure stops its group only. Skipped gates are named, have no verdict, and
 do not change the exit status.

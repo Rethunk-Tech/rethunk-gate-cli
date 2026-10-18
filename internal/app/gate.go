@@ -104,6 +104,12 @@ type options struct {
 	// zero means no warning.
 	budget time.Duration
 
+	// jobs caps how many gates run at once. Zero means no cap: every group
+	// that schedule made concurrent still starts together. Serial groups
+	// and turbo/serial edges keep their own order; this only bounds what
+	// would otherwise overlap.
+	jobs int
+
 	// root is the detected project root, empty for a command the caller
 	// named, which has no project to keep a result record for. partial says
 	// the caller named a subset of its gates.
@@ -313,6 +319,10 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 	if opts.root != "" {
 		go func() { tree <- stored.ReadTree(ctx, opts.root) }()
 	}
+	var slots chan struct{}
+	if opts.jobs > 0 {
+		slots = make(chan struct{}, opts.jobs)
+	}
 	var wg sync.WaitGroup
 	for _, group := range schedule(opts.gates, opts.serial) {
 		wg.Go(func() {
@@ -327,7 +337,11 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 				if ctx.Err() != nil {
 					break
 				}
+				if !acquireJob(ctx, slots) {
+					break
+				}
 				results[i] = runOne(ctx, opts.gates[i], opts)
+				releaseJob(slots)
 				// Emitted here rather than after the wait: the stream's
 				// value is that a gate's outcome is readable while the slow
 				// one beside it is still running.
@@ -424,6 +438,27 @@ func schedule(gates []gateSpec, serial bool) [][]int {
 		out[chain] = append(out[chain], i)
 	}
 	return out
+}
+
+// acquireJob takes one slot from a --jobs cap. A nil channel is no cap.
+// False means the run was cancelled while waiting, so this gate must not
+// start -- the same skip path a cancelled ctx hits before exec.
+func acquireJob(ctx context.Context, slots chan struct{}) bool {
+	if slots == nil {
+		return true
+	}
+	select {
+	case slots <- struct{}{}:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+func releaseJob(slots chan struct{}) {
+	if slots != nil {
+		<-slots
+	}
 }
 
 // writeProfile names what a run cost: wall time against summed gate time,

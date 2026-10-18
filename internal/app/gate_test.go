@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -376,6 +377,71 @@ func TestIndependentGatesOverlap(t *testing.T) {
 	if elapsed > 700*time.Millisecond {
 		t.Errorf("two 0.4s gates took %s, want them overlapped", elapsed)
 	}
+}
+
+// --jobs N (and top-level jobs = N) bound overlap: three independent gates
+// with N=2 must never have three pid files in the active dir at once.
+func TestJobsCapsConcurrency(t *testing.T) {
+	setLogDir(t)
+
+	for _, value := range []string{"0", "-1", "many"} {
+		_, stderr, code := runGateTest(t, "--jobs", value, "--log", tempLog(t), "true")
+		qt.Check(t, qt.Equals(code, InvalidUsage), qt.Commentf("--jobs %q = %d", value, code))
+		qt.Check(t, qt.StringContains(stderr, "jobs"), qt.Commentf("stderr = %q", stderr))
+	}
+
+	bad := t.TempDir()
+	testutil.Write(t, bad, ".gate.toml", "jobs = 0\n\n[gates.g0]\nrun = \"true\"\n")
+	_, stderr, code := runGateTest(t, "-C", bad)
+	qt.Check(t, qt.Equals(code, InvalidUsage), qt.Commentf("jobs = 0 = %d, stderr = %q", code, stderr))
+	qt.Check(t, qt.StringContains(stderr, "jobs"), qt.Commentf("stderr = %q", stderr))
+
+	peak := func(t *testing.T, prefix string, args ...string) int {
+		t.Helper()
+		root := t.TempDir()
+		qt.Assert(t, qt.IsNil(os.Mkdir(filepath.Join(root, "active"), 0o700)))
+		qt.Assert(t, qt.IsNil(os.Mkdir(filepath.Join(root, "seen"), 0o700)))
+		var b strings.Builder
+		b.WriteString(prefix)
+		for i := range 3 {
+			run := fmt.Sprintf(`touch active/%[1]d; i=0; max=0; while [ "$i" -lt 40 ]; do n=$(ls -1 active | wc -l); n=$((n)); if [ "$n" -gt "$max" ]; then max=$n; fi; i=$((i+1)); done; echo "$max" > seen/%[1]d; rm -f active/%[1]d`, i)
+			fmt.Fprintf(&b, "[gates.g%d]\nrun = %q\n\n", i, run)
+		}
+		testutil.Write(t, root, ".gate.toml", b.String())
+		argv := append([]string{"-C", root}, args...)
+		_, errBuf, code := runGateTest(t, argv...)
+		if code != Success {
+			t.Fatalf("gate = %d, stderr = %q", code, errBuf)
+		}
+		return peakSeen(t, filepath.Join(root, "seen"))
+	}
+
+	if n := peak(t, "", "--jobs", "2"); n > 2 {
+		t.Errorf("--jobs 2 ran %d gates at once", n)
+	}
+	if n := peak(t, "jobs = 2\n\n"); n > 2 {
+		t.Errorf("jobs = 2 ran %d gates at once", n)
+	}
+}
+
+func peakSeen(t *testing.T, dir string) int {
+	t.Helper()
+	ents, err := os.ReadDir(dir)
+	qt.Assert(t, qt.IsNil(err))
+	peak := 0
+	if len(ents) != 3 {
+		t.Fatalf("seen files = %d, want 3", len(ents))
+	}
+	for _, ent := range ents {
+		data, err := os.ReadFile(filepath.Join(dir, ent.Name())) //nolint:gosec // fixture path
+		qt.Assert(t, qt.IsNil(err))
+		n, err := strconv.Atoi(strings.TrimSpace(string(data)))
+		qt.Assert(t, qt.IsNil(err), qt.Commentf("seen %s = %q", ent.Name(), data))
+		if n > peak {
+			peak = n
+		}
+	}
+	return peak
 }
 
 // A failing gate must not hide another gate's outcome: the whole reason to

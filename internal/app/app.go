@@ -72,6 +72,8 @@ Global flags (before everything else):
 Flags:
   --serial      run every gate in order and stop at the first failure
                 (gates run concurrently unless this, or .gate.toml, says not to)
+  --jobs N      run at most N gates at once (default: no cap; N>=1;
+                .gate.toml: jobs = N; this flag wins)
   --failed      re-run only the gates that failed, timed out, or errored last time
                 (reads this root's result record; missing, stale, or none: exit 129)
   --e2e         also run the e2e gates a default run skips
@@ -159,6 +161,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	timeout := defaultTimeout
 	timeoutSet := false
 	budget, budgetSet := defaultBudget, false
+	jobsSet := false
 	showVersion := false
 	refuseFix := false
 
@@ -222,6 +225,14 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 			return err
 		}
 		budget, budgetSet = d, true
+		return nil
+	})
+	flags.Func("jobs", "", func(value string) error {
+		n, err := strconv.Atoi(value)
+		if err != nil || n < 1 {
+			return fmt.Errorf("wants an integer >= 1, got %q", value)
+		}
+		opts.jobs, jobsSet = n, true
 		return nil
 	})
 
@@ -604,6 +615,9 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		opts.skipE2E = !opts.e2e && len(roles) == 0 && !opts.failed
 		if cfg.HasBudget && !budgetSet {
 			budget = cfg.Budget
+		}
+		if cfg.HasJobs && !jobsSet {
+			opts.jobs = cfg.Jobs
 		}
 
 		// Never fall through to a program of that name. The caller is least

@@ -98,6 +98,12 @@ type Config struct {
 	Budget    time.Duration
 	HasBudget bool
 
+	// Jobs caps how many gates run at once. Zero means no cap (today's
+	// default). HasJobs distinguishes "not set" from a value the file named.
+	// Only N >= 1 is stored; 0 and negatives refuse the file.
+	Jobs    int
+	HasJobs bool
+
 	// Exclude names directories detection found that the project does not
 	// want gated: patterns for the name of a nested or CI-run gate (its
 	// directory), layered user file first. See Excluded.
@@ -115,6 +121,7 @@ type Config struct {
 // DisallowUnknownFields, the same as any typo, rather than silently accepted.
 type File struct {
 	Budget *string `toml:"budget"`
+	Jobs   *int    `toml:"jobs"`
 	Detect struct {
 		Exclude []string `toml:"exclude"`
 	} `toml:"detect"`
@@ -220,6 +227,14 @@ func (c *Config) merge(path string, data []byte) error {
 			unusable = append(unusable, fmt.Sprintf("budget %v", err))
 		} else {
 			c.Budget, c.HasBudget = d, true
+		}
+	}
+
+	if f.Jobs != nil {
+		if *f.Jobs < 1 {
+			unusable = append(unusable, fmt.Sprintf("jobs wants an integer >= 1, got %d", *f.Jobs))
+		} else {
+			c.Jobs, c.HasJobs = *f.Jobs, true
 		}
 	}
 
