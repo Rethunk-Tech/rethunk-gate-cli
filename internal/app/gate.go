@@ -96,6 +96,10 @@ type options struct {
 	skipE2E    bool
 	skippedE2E int
 
+	// failed re-runs only the gates whose last record status was fail,
+	// timeout, or error. Detection still runs; this only narrows selection.
+	failed bool
+
 	// budget is the wall time a passing run may take before gate warns;
 	// zero means no warning.
 	budget time.Duration

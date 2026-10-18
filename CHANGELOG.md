@@ -8,6 +8,8 @@ Notable changes to `gate`. The format follows
 
 ### Added
 
+- `gate --failed` re-runs only the gates whose last result record status was `fail`, `timeout`, or `error`. Detection still runs. A missing or stale record, or a last run with none of those statuses, exits 129. Docs: docs/USAGE.md, `--failed`.
+
 - Hidden `gate completion <bash|zsh|fish|pwsh>` and `gate man` print shell completions and a man page generated from the same `--help` text. Releases attach `gate-completions-man.tar.gz`.
 
 - `--list` and `--json` name a gate's configured `serial` where the file set it. A lone serial gate still lists under `-- all concurrent`; `--serial` does not print the key on gates the file left concurrent. Docs: docs/USAGE.md, configuration listing.

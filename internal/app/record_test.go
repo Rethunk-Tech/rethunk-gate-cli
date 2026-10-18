@@ -558,6 +558,111 @@ type errWriter struct{}
 
 func (errWriter) Write([]byte) (int, error) { return 0, io.ErrClosedPipe }
 
+func TestFailedRerunsOnlyLastFailures(t *testing.T) {
+	setLogDir(t)
+
+	for _, tc := range []struct {
+		name     string
+		makefile string
+		setup    func(*testing.T, string)
+		wantCode Code
+		err      string
+		want     []string
+		not      []string
+	}{
+		{
+			name:     "missing",
+			makefile: "build:\n\ttrue\n\ntest:\n\ttrue\n",
+			wantCode: InvalidUsage,
+			err:      "result record missing",
+		},
+		{
+			name:     "none",
+			makefile: "build:\n\ttrue\n\ntest:\n\ttrue\n",
+			setup: func(t *testing.T, root string) {
+				_, _, code := runGateTest(t, "-C", root)
+				qt.Assert(t, qt.Equals(code, Success))
+			},
+			wantCode: InvalidUsage,
+			err:      "no failed gates",
+		},
+		{
+			name:     "stale",
+			makefile: "build:\n\ttrue\n\ntest:\n\texit 3\n",
+			setup: func(t *testing.T, root string) {
+				_, _, code := runGateTest(t, "-C", root)
+				qt.Assert(t, qt.Equals(code, Code(2)))
+				testutil.Write(t, root, "untracked", "x")
+			},
+			wantCode: InvalidUsage,
+			err:      "result record stale",
+		},
+		{
+			name:     "fail",
+			makefile: "build:\n\ttrue\n\ntest:\n\texit 3\n",
+			setup: func(t *testing.T, root string) {
+				_, _, code := runGateTest(t, "-C", root)
+				qt.Assert(t, qt.Equals(code, Code(2)))
+			},
+			wantCode: Code(2),
+			want:     []string{`"name":"test"`},
+			not:      []string{`"name":"build"`},
+		},
+		{
+			name:     "timeout",
+			makefile: "build:\n\ttrue\n\ntest:\n\ttrue\n",
+			setup: func(t *testing.T, root string) {
+				_, _, code := runGateTest(t, "-C", root)
+				qt.Assert(t, qt.Equals(code, Success))
+				rec := readRecord(t, root)
+				rec.Gates[1].Status = "timeout"
+				qt.Assert(t, qt.IsNil(writeRecord(rec)))
+			},
+			wantCode: Success,
+			want:     []string{`"name":"test"`},
+			not:      []string{`"name":"build"`},
+		},
+		{
+			name:     "error",
+			makefile: "build:\n\ttrue\n\ntest:\n\ttrue\n",
+			setup: func(t *testing.T, root string) {
+				_, _, code := runGateTest(t, "-C", root)
+				qt.Assert(t, qt.Equals(code, Success))
+				rec := readRecord(t, root)
+				rec.Gates[0].Status = "error"
+				qt.Assert(t, qt.IsNil(writeRecord(rec)))
+			},
+			wantCode: Success,
+			want:     []string{`"name":"build"`},
+			not:      []string{`"name":"test"`},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("XDG_STATE_HOME", t.TempDir())
+			root := t.TempDir()
+			testutil.Write(t, root, "Makefile", tc.makefile)
+			committedRepo(t, root)
+			if tc.setup != nil {
+				tc.setup(t, root)
+			}
+			stdout, stderr, code := runGateTest(t, "-C", root, "--failed", "--ndjson")
+			qt.Assert(t, qt.Equals(code, tc.wantCode), qt.Commentf("stderr = %q stdout = %q", stderr, stdout))
+			if tc.err != "" {
+				qt.Check(t, qt.StringContains(stderr, tc.err))
+			}
+			for _, s := range tc.want {
+				qt.Check(t, qt.StringContains(stdout, s), qt.Commentf("stdout = %q", stdout))
+			}
+			for _, s := range tc.not {
+				qt.Check(t, qt.Not(qt.StringContains(stdout, s)), qt.Commentf("stdout = %q", stdout))
+			}
+			if tc.wantCode == Code(2) {
+				qt.Check(t, qt.IsTrue(readRecord(t, root).Partial))
+			}
+		})
+	}
+}
+
 func TestRecordTextWriteErrorIsFatal(t *testing.T) {
 	setLogDir(t)
 	t.Setenv("XDG_STATE_HOME", t.TempDir())

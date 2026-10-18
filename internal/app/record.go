@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/detect"
@@ -234,6 +235,53 @@ func runRecord(ctx context.Context, dir string, asJSON bool, stdout, stderr io.W
 	case "partial":
 		fmt.Fprintln(stderr, "gate: result record partial")
 		return recordNotFresh
+	}
+	return Success
+}
+
+func lastFailedName(g result) string {
+	switch g.Status {
+	case "fail", "timeout", "error":
+		return g.Name
+	}
+	return ""
+}
+
+// selectFailed keeps only the detected gates whose last record status was
+// fail, timeout, or error. Missing or stale records, and a last run with
+// none of those statuses, are a no-op: 129, with the reason on stderr.
+func selectFailed(ctx context.Context, root string, opts *options, stderr io.Writer) Code {
+	rec, err := loadRecord(root)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			fmt.Fprintln(stderr, "gate: result record missing")
+			return InvalidUsage
+		}
+		fmt.Fprintf(stderr, "gate: cannot read the result record: %v\n", err)
+		return Fatal
+	}
+	state := stored.ReadTree(ctx, root)
+	if !state.OK || rec.Schema != recordSchema || rec.Head != state.Head || rec.Status != state.Status {
+		fmt.Fprintln(stderr, "gate: result record stale")
+		return InvalidUsage
+	}
+	want := map[string]struct{}{}
+	for _, g := range rec.Gates {
+		if name := lastFailedName(g); name != "" {
+			want[name] = struct{}{}
+		}
+	}
+	if len(want) == 0 {
+		fmt.Fprintln(stderr, "gate: no failed gates")
+		return InvalidUsage
+	}
+	opts.gates = slices.DeleteFunc(opts.gates, func(g gateSpec) bool {
+		_, ok := want[g.role]
+		return !ok
+	})
+	if len(opts.gates) == 0 {
+		fmt.Fprintln(stderr, "gate: no failed gates")
+		return InvalidUsage
 	}
 	return Success
 }

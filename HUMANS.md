@@ -78,6 +78,7 @@ Browser e2e suites are skipped unless you pass `--e2e` or `gate run <name>`. A
 passing run over 10s prints one line naming the slowest gates.
 
 `gate --list` shows what it picked. `gate run test` runs one gate by name.
+`gate --failed` re-runs only the gates that failed last time.
 `gate doctor` reports what is cheap to fix here; `gate fix` applies the
 mechanical ones. `gate record` prints the last result for this tree.
 

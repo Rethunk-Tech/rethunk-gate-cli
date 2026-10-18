@@ -72,6 +72,8 @@ Global flags (before everything else):
 Flags:
   --serial      run every gate in order and stop at the first failure
                 (gates run concurrently unless this, or .gate.toml, says not to)
+  --failed      re-run only the gates that failed, timed out, or errored last time
+                (reads this root's result record; missing, stale, or none: exit 129)
   --e2e         also run the e2e gates a default run skips
   --list        print the gates that would run, and run nothing
                 (e2e gates are shown, marked skipped unless --e2e; a gate
@@ -187,6 +189,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	flags.BoolVar(&noStream, "no-stream", false, "")
 	flags.BoolVar(&opts.profile, "profile", false, "")
 	flags.BoolVar(&opts.forceCache, "force-cache", false, "")
+	flags.BoolVar(&opts.failed, "failed", false, "")
 	flags.BoolVar(&opts.e2e, "e2e", false, "")
 	flags.BoolVar(&showVersion, "version", false, "")
 	// Recognised so `gate --fix` is not "unrecognized". Refused below: a
@@ -390,6 +393,15 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		}
 	}
 
+	if opts.failed && len(roles) > 0 {
+		fmt.Fprintln(stderr, "gate: --failed selects from the last run; `gate run` names gates itself")
+		return InvalidUsage
+	}
+	if opts.failed && len(command) > 0 {
+		fmt.Fprintln(stderr, "gate: --failed re-runs project gates; a named command is not a last run")
+		return InvalidUsage
+	}
+
 	if len(command) > 0 {
 		opts.gates = append(opts.gates, gateSpec{
 			argv:    command,
@@ -587,8 +599,9 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 				g.e2e = detect.IsE2E(g.dir, g.role, g.argv)
 			}
 		}
-		// A name asked for outright is run whatever it is.
-		opts.skipE2E = !opts.e2e && len(roles) == 0
+		// A name asked for outright is run whatever it is. --failed is the
+		// same: the last run already chose those gates, including e2e.
+		opts.skipE2E = !opts.e2e && len(roles) == 0 && !opts.failed
 		if cfg.HasBudget && !budgetSet {
 			budget = cfg.Budget
 		}
@@ -618,6 +631,12 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		var merged []string
 		opts.gates, merged = dedupe(opts.gates)
 		project.Notes = append(project.Notes, merged...)
+
+		if opts.failed {
+			if code := selectFailed(ctx, proj.Root, &opts, stderr); code != Success {
+				return code
+			}
+		}
 	}
 
 	// The flag is the most local statement of intent, so it beats a gate's own
@@ -637,7 +656,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		}
 	}
 
-	if project.Root != "" && len(roles) == 0 && len(opts.gates) > 0 {
+	if project.Root != "" && len(roles) == 0 && !opts.failed && len(opts.gates) > 0 {
 		texts := make([]string, len(opts.gates))
 		for i, g := range opts.gates {
 			texts[i] = g.display + "\n" + detect.GateCommandText(project.Root, g.dir, g.argv, g.source)
@@ -702,7 +721,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	if code := frozenInstall(ctx, project, stderr); code != Success {
 		return code
 	}
-	opts.root, opts.partial = project.Root, len(roles) > 0
+	opts.root, opts.partial = project.Root, len(roles) > 0 || opts.failed
 	// A budget is the project's local gate, so a command the caller named
 	// has none.
 	if opts.root != "" {

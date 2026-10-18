@@ -45,6 +45,15 @@ under `--e2e`. A project whose every gate is e2e refuses a bare run.
 
 `--json` with `doctor`, `fix`, or `record` names that report instead.
 
+### `--failed`
+
+`gate --failed` still detects, then runs only the gates whose last result
+record for this root had status `fail`, `timeout`, or `error`. The record
+must name the current HEAD and this tree's status hash. Missing, stale, or
+no such gates: the reason on stderr, exit 129. The re-run is a subset, so
+the record it writes is `partial`. Not combined with `gate run` or a named
+command.
+
 ### Frozen install
 
 A bare `gate` or `gate run` first runs the workspace lockfile's frozen install
@@ -510,6 +519,10 @@ test     ok
 
 Missing/stale/partial/failed on stderr.
 
+`gate --failed` reads this file and runs only `fail`/`timeout`/`error` gates.
+Same missing and stale refusals (exit 129); a last run with none of those
+statuses is also 129 (`no failed gates`).
+
 ## Exit codes
 
 The wrapped command's status passes through **including values that collide
@@ -521,7 +534,7 @@ with the codes below**. These apply only when `gate` could not run it.
 | 124 | Timed out and was killed |
 | 127 | Could not be executed |
 | 128 | `gate` could not proceed (log, unresolved command line) |
-| 129 | Wrong invocation |
+| 129 | Wrong invocation; also `--failed` when the record is missing, stale, or has no fail/timeout/error gates |
 | 130 | Interrupted; generally 128+the signal that reached `gate` |
 
 Any other value is the command's own status.
