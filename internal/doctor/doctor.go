@@ -161,7 +161,7 @@ func resultWhy(reason string) string {
 // readFile is a convenience that treats an unreadable file as absent, since
 // every check here is best-effort by design.
 func readFile(path string) string {
-	data, err := os.ReadFile(path) //nolint:gosec // doctor reads paths it resolved from the project root
+	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return ""
 	}

@@ -91,7 +91,7 @@ func ciInvocations(root string) []ciInvocation {
 	slices.Sort(files)
 	var steps []ciInvocation
 	for _, file := range files {
-		f, err := os.Open(file) //nolint:gosec // files come from the fixed workflow glob under the project root
+		f, err := os.Open(filepath.Clean(file))
 		if err != nil {
 			continue
 		}
@@ -247,7 +247,7 @@ func workspaceScripts(root string) string {
 			if strings.Contains(f, "node_modules") {
 				continue
 			}
-			if data, err := os.ReadFile(f); err == nil { //nolint:gosec // globbed under the project root
+			if data, err := os.ReadFile(filepath.Clean(f)); err == nil {
 				b.Write(data)
 				b.WriteByte('\n')
 			}

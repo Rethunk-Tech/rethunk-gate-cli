@@ -93,7 +93,7 @@ func tempLog(t *testing.T) string {
 
 func readLog(t *testing.T, path string) string {
 	t.Helper()
-	data, err := os.ReadFile(path) //nolint:gosec // path is a temporary test log
+	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		t.Fatalf("reading log: %v", err)
 	}
@@ -433,7 +433,7 @@ func peakSeen(t *testing.T, dir string) int {
 		t.Fatalf("seen files = %d, want 3", len(ents))
 	}
 	for _, ent := range ents {
-		data, err := os.ReadFile(filepath.Join(dir, ent.Name())) //nolint:gosec // fixture path
+		data, err := os.ReadFile(filepath.Clean(filepath.Join(dir, ent.Name())))
 		qt.Assert(t, qt.IsNil(err))
 		n, err := strconv.Atoi(strings.TrimSpace(string(data)))
 		qt.Assert(t, qt.IsNil(err), qt.Commentf("seen %s = %q", ent.Name(), data))
@@ -698,7 +698,7 @@ func TestResolvedPathIsShortenedOnTheVerdictLineOnly(t *testing.T) {
 			continue
 		}
 		found = true
-		if body, err := os.ReadFile(filepath.Join(logs, "gate", e.Name())); err != nil { //nolint:gosec // path is a gate log created under the temporary test directory
+		if body, err := os.ReadFile(filepath.Clean(filepath.Join(logs, "gate", e.Name()))); err != nil {
 			t.Fatal(err)
 		} else if !strings.Contains(string(body), bin) {
 			t.Errorf("log trailer dropped the resolved path: %q", body)
@@ -2022,7 +2022,7 @@ func TestLogFlagRefusesASymlink(t *testing.T) {
 
 	_, stderr, code := runGateTest(t, "--log", log, "true")
 	qt.Assert(t, qt.Equals(code, Fatal), qt.Commentf("stderr = %q", stderr))
-	body, err := os.ReadFile(target) //nolint:gosec // test fixture
+	body, err := os.ReadFile(filepath.Clean(target))
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.Equals(string(body), "secret"))
 }
@@ -2363,7 +2363,7 @@ func TestFixDryRunWritesNothingAndJSONNamesTheOutcome(t *testing.T) {
 	testutil.Write(t, root, "bun.lock", "")
 	wf := filepath.Join(".github", "workflows", "ci.yml")
 	testutil.Write(t, root, wf, "jobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-bun@main\n      - run: npx tsc\n")
-	before, err := os.ReadFile(filepath.Join(root, wf)) //nolint:gosec // path is a temporary workflow fixture
+	before, err := os.ReadFile(filepath.Clean(filepath.Join(root, wf)))
 	qt.Assert(t, qt.IsNil(err))
 
 	stdout, stderr, code := runGateTest(t, "-C", root, "--json", "fix", "--dry-run")
@@ -2394,7 +2394,7 @@ func TestFixDryRunWritesNothingAndJSONNamesTheOutcome(t *testing.T) {
 	qt.Check(t, qt.IsTrue(sawDry), qt.Commentf("no dry-run outcome: %+v", got.Findings))
 	qt.Check(t, qt.IsTrue(sawSkip), qt.Commentf("no skip outcome: %+v", got.Findings))
 
-	after, err := os.ReadFile(filepath.Join(root, wf)) //nolint:gosec // path is a temporary workflow fixture
+	after, err := os.ReadFile(filepath.Clean(filepath.Join(root, wf)))
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.Equals(string(after), string(before)))
 }
@@ -2412,14 +2412,14 @@ func TestFixAppliesAndDoctorStillWritesNothing(t *testing.T) {
 	qt.Check(t, qt.StringContains(stdout, "npx-in-bun-workspace"))
 	qt.Check(t, qt.StringContains(stdout, "applied"))
 
-	body, err := os.ReadFile(filepath.Join(root, wf)) //nolint:gosec // path is a temporary workflow fixture
+	body, err := os.ReadFile(filepath.Clean(filepath.Join(root, wf)))
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.StringContains(string(body), "bunx tsc"))
 
 	before := string(body)
 	_, _, code = runGateTest(t, "-C", root, "doctor")
 	qt.Assert(t, qt.Equals(code, Success))
-	after, err := os.ReadFile(filepath.Join(root, wf)) //nolint:gosec // path is a temporary workflow fixture
+	after, err := os.ReadFile(filepath.Clean(filepath.Join(root, wf)))
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.Equals(string(after), before), qt.Commentf("doctor wrote to the repository"))
 }
@@ -2938,7 +2938,7 @@ func TestForceCacheBustsMakeAndGoTestInsideARunString(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, "stamp.ran")); !os.IsNotExist(err) {
 		t.Fatalf("make rebuilt an up-to-date target without --force-cache: %v", err)
 	}
-	without, err := os.ReadFile(seen) //nolint:gosec // path is inside the test temp root
+	without, err := os.ReadFile(filepath.Clean(seen))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2946,12 +2946,12 @@ func TestForceCacheBustsMakeAndGoTestInsideARunString(t *testing.T) {
 
 	_, stderr, code = runGateTest(t, "-C", root, "--force-cache")
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
-	ran, err := os.ReadFile(filepath.Join(root, "stamp.ran")) //nolint:gosec // path is inside the test temp root
+	ran, err := os.ReadFile(filepath.Clean(filepath.Join(root, "stamp.ran")))
 	if err != nil {
 		t.Fatal(err)
 	}
 	qt.Assert(t, qt.Equals(strings.TrimSpace(string(ran)), "RAN"))
-	with, err := os.ReadFile(seen) //nolint:gosec // path is inside the test temp root
+	with, err := os.ReadFile(filepath.Clean(seen))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2991,7 +2991,7 @@ func TestFrozenInstallRunsOnceInTheWorkspaceBeforeTheGates(t *testing.T) {
 	_, stderr, code := runGateTest(t, "-C", member)
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
 	qt.Check(t, qt.StringContains(stderr, "gate: install: bun install --frozen-lockfile (in "+ws+")"))
-	got, err := os.ReadFile(calls) //nolint:gosec // path is a temporary fake-tool log
+	got, err := os.ReadFile(filepath.Clean(calls))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3032,7 +3032,7 @@ func TestUvSyncLockedRunsInTheWorkspaceBeforeTheGates(t *testing.T) {
 	_, stderr, code := runGateTest(t, "-C", member)
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
 	qt.Check(t, qt.StringContains(stderr, "gate: install: uv sync --locked (in "+ws+")"))
-	got, err := os.ReadFile(calls) //nolint:gosec // path is a temporary fake-tool log
+	got, err := os.ReadFile(filepath.Clean(calls))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3048,7 +3048,7 @@ func TestUvSyncLockedRunsInTheWorkspaceBeforeTheGates(t *testing.T) {
 		_, _, code = runGateTest(t, args...)
 		qt.Assert(t, qt.Equals(code, Success), qt.Commentf("args = %q", args))
 	}
-	after, err := os.ReadFile(calls) //nolint:gosec // path is a temporary fake-tool log
+	after, err := os.ReadFile(filepath.Clean(calls))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3092,11 +3092,11 @@ func TestNodeAndUvInstallsBothRun(t *testing.T) {
 	uvAt := strings.Index(stderr, "gate: install: uv sync --locked (in "+root+")")
 	qt.Check(t, qt.IsTrue(bunAt >= 0 && uvAt > bunAt), qt.Commentf("stderr = %q", stderr))
 
-	bunGot, err := os.ReadFile(bunCalls) //nolint:gosec // path is a temporary fake-tool log
+	bunGot, err := os.ReadFile(filepath.Clean(bunCalls))
 	if err != nil {
 		t.Fatal(err)
 	}
-	uvGot, err := os.ReadFile(uvCalls) //nolint:gosec // path is a temporary fake-tool log
+	uvGot, err := os.ReadFile(filepath.Clean(uvCalls))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3123,7 +3123,7 @@ func TestCIRunPackageGateRunsInItsDirectoryUnlessConfigured(t *testing.T) {
 
 	_, stderr, code := runGateTest(t, "-C", root, "run", "frontend")
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
-	got, err := os.ReadFile(calls) //nolint:gosec // path is a temporary fake-tool log
+	got, err := os.ReadFile(filepath.Clean(calls))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3159,7 +3159,7 @@ func TestCIRunPackageCoveredByAConfiguredGateIsNotGated(t *testing.T) {
 
 	_, stderr, code = runGateTest(t, "-C", root, "run", "web")
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
-	got, err := os.ReadFile(calls) //nolint:gosec // path is a temporary fake-tool log
+	got, err := os.ReadFile(filepath.Clean(calls))
 	if err != nil {
 		t.Fatal(err)
 	}

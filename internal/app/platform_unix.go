@@ -46,13 +46,13 @@ func shellArgv(command string) []string {
 // openLogFile creates or truncates a log without following a last-component
 // symlink, so `--log` cannot O_TRUNC a file the path only points at.
 func openLogFile(path string) (*os.File, error) {
-	return os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC|syscall.O_NOFOLLOW, 0o600) //nolint:gosec // --log path is caller-chosen; O_NOFOLLOW refuses a symlink
+	return os.OpenFile(filepath.Clean(path), os.O_WRONLY|os.O_CREATE|os.O_TRUNC|syscall.O_NOFOLLOW, 0o600)
 }
 
 // secureLogDir opens dir without following a symlink and tightens mode only
 // when this process owns the inode.
 func secureLogDir(dir string) error {
-	f, err := os.OpenFile(dir, syscall.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW, 0) //nolint:gosec // logDir is TMPDIR/gate or /var/tmp/gate, opened O_DIRECTORY|O_NOFOLLOW
+	f, err := os.OpenFile(filepath.Clean(dir), syscall.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW, 0)
 	if err != nil {
 		return err
 	}

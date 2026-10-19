@@ -933,7 +933,7 @@ func pruneLogs(dir string) {
 	// interrupted, or a directory too large for the time a gate has --
 	// still moves the schedule forward instead of being retried in full
 	// on every run from then on.
-	if f, err := os.Create(stamp); err == nil { //nolint:gosec // stamp is fixed inside gate's private log directory
+	if f, err := os.Create(filepath.Clean(stamp)); err == nil {
 		_ = f.Close()
 	}
 	entries, err := os.ReadDir(dir)

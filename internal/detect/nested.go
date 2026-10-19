@@ -162,7 +162,7 @@ func shadowedGate(root, chain string, parts []Gate, proj *Project) Gate {
 func embedsGenerated(root string) bool {
 	files, _ := filepath.Glob(filepath.Join(root, "*.go"))
 	for _, f := range files {
-		data, err := os.ReadFile(f) //nolint:gosec // globbed from the project root
+		data, err := os.ReadFile(filepath.Clean(f))
 		if err == nil && strings.Contains(string(data), "//go:embed") {
 			return true
 		}

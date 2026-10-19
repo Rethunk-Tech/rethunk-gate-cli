@@ -46,7 +46,7 @@ func TestSIGTERMEndsGateWith143AndALogTrailer(t *testing.T) {
 	qt.Assert(t, qt.IsTrue(errors.As(cmd.Wait(), &exit)))
 	qt.Check(t, qt.Equals(exit.ExitCode(), 128+int(syscall.SIGTERM)))
 
-	data, err := os.ReadFile(logPath) //nolint:gosec // path is a temporary test log
+	data, err := os.ReadFile(filepath.Clean(logPath))
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.StringContains(strings.TrimSpace(string(data)), "interrupted"))
 }

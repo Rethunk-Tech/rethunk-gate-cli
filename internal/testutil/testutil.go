@@ -21,21 +21,26 @@ import (
 // addition or deletion changes the result.
 func TreeDigest(t *testing.T, root string) string {
 	t.Helper()
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = r.Close() }()
+	fsys := r.FS()
 	var entries []string
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+	err = fs.WalkDir(fsys, ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if d.IsDir() {
 			return nil
 		}
-		data, err := os.ReadFile(path) //nolint:gosec // path comes from the temporary fixture walk
+		data, err := fs.ReadFile(fsys, path)
 		if err != nil {
 			return err
 		}
 		sum := sha256.Sum256(data)
-		rel, _ := filepath.Rel(root, path)
-		entries = append(entries, rel+":"+hex.EncodeToString(sum[:]))
+		entries = append(entries, path+":"+hex.EncodeToString(sum[:]))
 		return nil
 	})
 	if err != nil {

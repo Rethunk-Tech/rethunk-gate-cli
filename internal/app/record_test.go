@@ -77,7 +77,7 @@ func readRecord(t *testing.T, root string) record {
 	t.Helper()
 	path, err := stored.Path(stored.Canonical(root))
 	qt.Assert(t, qt.IsNil(err))
-	data, err := os.ReadFile(path) //nolint:gosec // path is the temporary test record
+	data, err := os.ReadFile(filepath.Clean(path))
 	qt.Assert(t, qt.IsNil(err))
 	var rec record
 	qt.Assert(t, qt.IsNil(json.Unmarshal(data, &rec)))

@@ -169,7 +169,7 @@ func writeFile(path, body string) (err error) {
 func applySerialTOML(f doctor.Finding, dryRun bool) (Result, error) {
 	path := filepath.Join(filepath.Dir(f.Path), config.ProjectFile)
 	var body string
-	data, err := os.ReadFile(path) //nolint:gosec // path is the doctor finding's project-local config location
+	data, err := os.ReadFile(filepath.Clean(path))
 	switch {
 	case err == nil:
 		body = string(data)

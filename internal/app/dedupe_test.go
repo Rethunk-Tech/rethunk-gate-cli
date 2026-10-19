@@ -117,7 +117,7 @@ run = "./count.sh a && ./count.sh b"
 
 	_, stderr, code := runGateTest(t, "-C", root)
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
-	data, err := os.ReadFile(filepath.Join(root, "ran")) //nolint:gosec // path is a temporary test fixture
+	data, err := os.ReadFile(filepath.Clean(filepath.Join(root, "ran")))
 	qt.Assert(t, qt.IsNil(err))
 	lines := strings.Fields(string(data))
 	qt.Check(t, qt.HasLen(lines, 2), qt.Commentf("ran %q", lines))

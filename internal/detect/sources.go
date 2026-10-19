@@ -81,7 +81,7 @@ func makeRuleHead(line string) (targets []string, prereqs string, ok bool) {
 // the project's pipeline and running one that merely resembles it.
 func makefileGates(root string) []Gate {
 	path := filepath.Join(root, "Makefile")
-	data, err := os.ReadFile(path) //nolint:gosec // path is the fixed Makefile location under the project root
+	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return nil
 	}
@@ -123,7 +123,7 @@ func (p packageJSON) hasWorkspaces() bool {
 }
 
 func readPackageJSON(path string) (packageJSON, bool) {
-	data, err := os.ReadFile(path) //nolint:gosec // callers pass the fixed package.json location under the project root
+	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return packageJSON{}, false
 	}
@@ -552,13 +552,19 @@ func dotnetUsesTestingPlatform(root string) bool {
 // csproj/fsproj that references Microsoft.NET.Test.Sdk. bin/ and obj/ are
 // skipped so a copied-in publish output is not read as the project.
 func hasDotnetTest(root string) bool {
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = r.Close() }()
+	fsys := r.FS()
 	found := false
-	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+	_ = fs.WalkDir(fsys, ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil || found {
 			return err
 		}
 		if d.IsDir() {
-			if path != root && (d.Name() == "bin" || d.Name() == "obj" || d.Name() == ".git") {
+			if path != "." && (d.Name() == "bin" || d.Name() == "obj" || d.Name() == ".git") {
 				return fs.SkipDir
 			}
 			return nil
@@ -571,7 +577,7 @@ func hasDotnetTest(root string) bool {
 			found = true
 			return fs.SkipAll
 		}
-		data, err := os.ReadFile(path) //nolint:gosec // walk is rooted at the detected project
+		data, err := fs.ReadFile(fsys, path)
 		if err == nil && strings.Contains(string(data), "Microsoft.NET.Test.Sdk") {
 			found = true
 			return fs.SkipAll
@@ -746,7 +752,7 @@ type turboTask struct {
 
 // readTurboTasks reads turbo.json's tasks, under either spelling turbo has used.
 func readTurboTasks(dir string) (map[string]turboTask, bool) {
-	data, err := os.ReadFile(filepath.Join(dir, "turbo.json")) //nolint:gosec // filename is fixed and dir is a detected project root
+	data, err := os.ReadFile(filepath.Clean(filepath.Join(dir, "turbo.json")))
 	if err != nil {
 		return nil, false
 	}
@@ -859,7 +865,7 @@ func turboGates(workspace string, proj *Project) []Gate {
 // Textual, like declaresPytest: tsconfig is often JSONC, and a parser that
 // rejected comments would miss the file the compiler accepts.
 func tsconfigHasProjectReferences(root string) bool {
-	data, err := os.ReadFile(filepath.Join(root, "tsconfig.json")) //nolint:gosec // filename is fixed and root is a detected project root
+	data, err := os.ReadFile(filepath.Clean(filepath.Join(root, "tsconfig.json")))
 	if err != nil {
 		return false
 	}
@@ -876,7 +882,7 @@ func declaresPytest(root string) bool {
 		}
 	}
 	for _, name := range []string{"pyproject.toml", "setup.cfg", "tox.ini"} {
-		if data, err := os.ReadFile(filepath.Join(root, name)); err == nil && strings.Contains(string(data), "pytest") { //nolint:gosec // names are fixed project manifests
+		if data, err := os.ReadFile(filepath.Clean(filepath.Join(root, name))); err == nil && strings.Contains(string(data), "pytest") {
 			return true
 		}
 	}
@@ -889,7 +895,7 @@ func ciPackageDirs(root string) []string {
 	files, _ := filepath.Glob(filepath.Join(root, ".github", "workflows", "*.y*ml"))
 	var dirs []string
 	for _, file := range files {
-		data, err := os.ReadFile(file) //nolint:gosec // files come from the fixed workflow glob under the project root
+		data, err := os.ReadFile(filepath.Clean(file))
 		if err != nil {
 			continue
 		}
@@ -1008,7 +1014,7 @@ func gateText(root string, g Gate) string {
 // reaches in root's Makefile. Read textually, like makefileGates: evaluating
 // the file would mean running make.
 func makeRecipes(root, target string) string {
-	data, err := os.ReadFile(filepath.Join(root, "Makefile")) //nolint:gosec // filename is fixed and root is a detected project root
+	data, err := os.ReadFile(filepath.Clean(filepath.Join(root, "Makefile")))
 	if err != nil {
 		return ""
 	}

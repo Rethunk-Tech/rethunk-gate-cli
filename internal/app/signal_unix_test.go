@@ -55,7 +55,7 @@ func TestAGateIgnoringSigintIsKilledAfterTheGrace(t *testing.T) {
 	qt.Check(t, qt.IsTrue(elapsed >= stopGrace), qt.Commentf("killed before the grace ran out: %s", elapsed))
 	qt.Check(t, qt.IsTrue(elapsed < stopGrace+3*time.Second), qt.Commentf("the grace did not bound the stop: %s", elapsed))
 
-	data, err := os.ReadFile(pidFile) //nolint:gosec // path is a temporary signal-test fixture
+	data, err := os.ReadFile(filepath.Clean(pidFile))
 	qt.Assert(t, qt.IsNil(err), qt.Commentf("the worker never started, so nothing here is proven"))
 	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
 	qt.Assert(t, qt.IsNil(err))
