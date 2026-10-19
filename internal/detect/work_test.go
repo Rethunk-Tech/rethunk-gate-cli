@@ -92,6 +92,10 @@ func TestScriptReadersLeaveNonChainScriptsWhole(t *testing.T) {
 		{"bun", "run", "quoted"}, {"echo", "a", "&&", "b"}, {"bun", "run", "piped"},
 	}))
 
+	viaShell, ok := ScriptLines(dir, Step{Text: "CI=1 sh scripts/gate.sh"})
+	qt.Assert(t, qt.IsTrue(ok))
+	qt.Check(t, qt.DeepEquals(viaShell, lines), qt.Commentf("env assignments and the shell are not the script"))
+
 	run := [][]string{{"tsc", "tee", "out"}, {"vitest", "run"}}
 	qt.Check(t, qt.IsFalse(Covered(dir, Step{Key: "run piped"}, run)))
 }
