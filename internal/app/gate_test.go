@@ -605,7 +605,9 @@ func TestFailFastInterruptsOtherGroups(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
 			testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
-			testutil.Write(t, root, ".gate.toml", tc.toml+"[gates.slow]\nrun = \"sleep 10\"\n\n[gates.fast]\nrun = \"exit 7\"\n")
+			// fast fails only once slow is running, so slow is interrupted rather than never started.
+			started := filepath.Join(root, "slow-started")
+			testutil.Write(t, root, ".gate.toml", tc.toml+"[gates.slow]\nrun = \"touch "+started+" && sleep 10\"\n\n[gates.fast]\nrun = \"while [ ! -f "+started+" ]; do sleep 0.01; done; exit 7\"\n")
 			args := append([]string{"-C", root, "--timeout", "0"}, tc.args...)
 			_, stderr, code := runGateTest(t, args...)
 			qt.Assert(t, qt.Equals(code, Code(7)), qt.Commentf("gate = %d, stderr = %q", code, stderr))
