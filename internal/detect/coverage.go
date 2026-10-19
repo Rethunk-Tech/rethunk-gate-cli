@@ -155,8 +155,9 @@ func invocationsIn(line, file string, number int) []ciInvocation {
 var makeInvocation = regexp.MustCompile(`\bmake\s+(?:-\S+\s+)*([a-zA-Z][a-zA-Z0-9_-]*)`)
 
 // GateCommandText is everything a gate runs that can be read without running
-// it, for CIGaps: its command, its source, and the recipes of every make
-// target it names, read from the Makefile in dir (root when dir is empty).
+// it, for CIGaps: its command, its source, the recipes of every make target it
+// names, read from the Makefile in dir (root when dir is empty), and the lines
+// of the script it runs.
 func GateCommandText(root, dir string, argv []string, source string) string {
 	where := root
 	if dir != "" {
@@ -169,6 +170,15 @@ func GateCommandText(root, dir string, argv []string, source string) string {
 	text.WriteString(gateText(where, Gate{Argv: argv, Source: source}))
 	for _, m := range makeInvocation.FindAllStringSubmatch(shellJoin(argv), -1) {
 		text.WriteString("\n" + makeRecipes(where, m[1]))
+	}
+	command := shellJoin(argv)
+	if len(argv) == 3 && argv[0] == "sh" && argv[1] == "-c" {
+		command = argv[2]
+	}
+	if lines, ok := ScriptLines(where, Step{Text: command}); ok {
+		for _, line := range lines {
+			text.WriteString("\n" + strings.Join(line, " "))
+		}
 	}
 	return text.String()
 }

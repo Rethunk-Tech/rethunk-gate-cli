@@ -50,6 +50,16 @@ func TestCIGapsNamesGoVetAndRaceTests(t *testing.T) {
 	qt.Check(t, qt.HasLen(gaps(t, workflow, "go build ./... && go vet ./... && go test -race ./..."), 0))
 }
 
+// The citadel-cli shape: a .gate.toml run string names a script that race-tests.
+func TestCIGapsCreditsTheScriptAGateRuns(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, ".github/workflows/ci.yml", "      - run: go test -race ./...\n")
+	testutil.Write(t, root, "scripts/cov.sh", "#!/bin/sh\ngo test -race ./... -cover >\"$tmp\" 2>&1 || exit 1\n")
+	text := GateCommandText(root, "", []string{"sh", "-c", "bash scripts/cov.sh"}, ".gate.toml")
+	qt.Check(t, qt.HasLen(CIGaps(root, []string{text}), 0))
+}
+
 // The global-ai-alliance shape: osv-scanner and govulncheck run in CI only.
 func TestCIGapsNamesScannersNoGateRuns(t *testing.T) {
 	t.Parallel()
