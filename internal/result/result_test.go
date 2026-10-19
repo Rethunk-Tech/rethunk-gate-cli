@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/go-quicktest/qt"
@@ -132,4 +133,59 @@ func TestLoad(t *testing.T) {
 	got, err := Load(root)
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.Equals(got, Loaded{Schema: 2, Head: "abc", Status: "def", Partial: true, Exit: 1, Path: path}))
+}
+
+func TestVerdict(t *testing.T) {
+	ok := State{Head: "h", Status: "s", OK: true}
+	for _, tc := range []struct {
+		name    string
+		schema  int
+		head    string
+		status  string
+		partial bool
+		exit    int
+		state   State
+		fresh   bool
+		reason  string
+	}{
+		{name: "fresh", schema: Schema, head: "h", status: "s", state: ok, fresh: true},
+		{name: "unreadable tree", schema: Schema, head: "h", status: "s", state: State{}, reason: "stale"},
+		{name: "old schema", schema: Schema - 1, head: "h", status: "s", state: ok, reason: "stale"},
+		{name: "moved head", schema: Schema, head: "x", status: "s", state: ok, reason: "stale"},
+		{name: "edited tree", schema: Schema, head: "h", status: "x", state: ok, reason: "stale"},
+		{name: "stale wins over failed", schema: Schema, head: "x", status: "s", exit: 1, state: ok, reason: "stale"},
+		{name: "failed wins over partial", schema: Schema, head: "h", status: "s", exit: 2, partial: true, state: ok, reason: "failed"},
+		{name: "partial", schema: Schema, head: "h", status: "s", partial: true, state: ok, reason: "partial"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fresh, reason := Verdict(tc.schema, tc.head, tc.status, tc.partial, tc.exit, tc.state)
+			qt.Check(t, qt.Equals(fresh, tc.fresh))
+			qt.Check(t, qt.Equals(reason, tc.reason))
+		})
+	}
+}
+
+func TestUntrackedPaths(t *testing.T) {
+	// A rename's second path and a too-short record are skipped, never read as untracked.
+	status := "?? a\x00 M b\x00R  new\x00?? old-looking\x00??\x00C  copy\x00src\x00?? c\x00"
+	qt.Assert(t, qt.DeepEquals(UntrackedPaths([]byte(status)), []string{"a", "c"}))
+}
+
+func TestHashObjectsBatchesFifty(t *testing.T) {
+	files := make([]string, 51)
+	for i := range files {
+		files[i] = filepath.Join("d", string(rune('a'+i%26)))
+	}
+	var calls [][]string
+	out, ok := hashObjects(func(args ...string) ([]byte, bool) {
+		calls = append(calls, args)
+		return []byte(strconv.Itoa(len(calls))), true
+	}, files)
+	qt.Assert(t, qt.IsTrue(ok))
+	qt.Check(t, qt.Equals(string(out), "12"))
+	qt.Assert(t, qt.HasLen(calls, 2))
+	qt.Check(t, qt.HasLen(calls[0], 2+50))
+	qt.Check(t, qt.HasLen(calls[1], 2+1))
+	_, ok = hashObjects(func(...string) ([]byte, bool) { return nil, false }, files)
+	qt.Check(t, qt.IsFalse(ok))
 }
