@@ -126,3 +126,20 @@ func TestCovered(t *testing.T) {
 		qt.Check(t, qt.Equals(Covered(dir, Step{Key: c.key}, c.lines), c.want), qt.Commentf("%s", c.key))
 	}
 }
+
+// A script's named scripts are read once each, and a named file is read only
+// when it is a script: text with a shebang or a .sh name.
+func TestScriptLinesFollowsNamedScriptsOnceAndOnlyScripts(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	testutil.Write(t, dir, "scripts/a.sh", "#!/bin/sh\nscripts/b.sh\nscripts/a.sh\nscripts/blob.sh\nscripts/notes.txt\n")
+	testutil.Write(t, dir, "scripts/b.sh", "#!/bin/sh\nmake lint # the linters\n")
+	testutil.Write(t, dir, "scripts/blob.sh", "#!/bin/sh\nnot\x00text\n")
+	testutil.Write(t, dir, "scripts/notes.txt", "make secret\n")
+
+	lines, ok := ScriptLines(dir, Step{Text: "bash scripts/a.sh"})
+	qt.Assert(t, qt.IsTrue(ok))
+	qt.Check(t, qt.DeepEquals(lines, [][]string{
+		{"scripts/b.sh"}, {"make", "lint"}, {"scripts/a.sh"}, {"scripts/blob.sh"}, {"scripts/notes.txt"},
+	}))
+}
