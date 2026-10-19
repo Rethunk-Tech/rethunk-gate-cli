@@ -6,9 +6,16 @@ Notable changes to `gate`. The format follows
 
 ## [Unreleased]
 
+## [0.6.9] - 2026-10-18
+
 ### Added
 
 - `--fail-fast` interrupts every still-running gate when the first non-allowed failure lands (SIGINT to the group, SIGKILL after the grace; those gates are `interrupted` and still get a log trailer). Top-level `fail-fast = true` in `.gate.toml` is the same statement (flag wins; default off). The aggregate is that first failure. `allow-failure` does not trigger it. Docs: docs/USAGE.md, `serial`.
+
+### Fixed
+
+- A `--log` path that is an existing symlink is refused instead of followed, and the log directory is opened without following a symlink.
+- The result record hashes only untracked paths inside the worktree, so a nested checkout no longer changes the hash.
 
 ## [0.6.8] - 2026-10-18
 
