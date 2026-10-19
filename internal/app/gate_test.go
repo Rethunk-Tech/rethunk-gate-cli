@@ -588,6 +588,43 @@ func TestGatesRunConcurrentlyUnlessMarkedSerial(t *testing.T) {
 		qt.Commentf("a concurrent gate was reported as skipped: %q", stderr))
 }
 
+// --fail-fast (and top-level fail-fast = true) is the opt-in that a failure
+// in one group interrupts every other group. The sleeper is declared first
+// so a broken aggregate would report Interrupted instead of the exit 7.
+func TestFailFastInterruptsOtherGroups(t *testing.T) {
+	setLogDir(t)
+
+	for _, tc := range []struct {
+		name string
+		toml string
+		args []string
+	}{
+		{name: "flag", args: []string{"--fail-fast"}},
+		{name: "toml", toml: "fail-fast = true\n\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
+			testutil.Write(t, root, ".gate.toml", tc.toml+"[gates.slow]\nrun = \"sleep 10\"\n\n[gates.fast]\nrun = \"exit 7\"\n")
+			args := append([]string{"-C", root, "--timeout", "0"}, tc.args...)
+			_, stderr, code := runGateTest(t, args...)
+			qt.Assert(t, qt.Equals(code, Code(7)), qt.Commentf("gate = %d, stderr = %q", code, stderr))
+			qt.Check(t, qt.StringContains(stderr, "INTERRUPTED"), qt.Commentf("stderr = %q", stderr))
+			qt.Check(t, qt.StringContains(stderr, "sleep 10"), qt.Commentf("stderr = %q", stderr))
+			var interruptedLog string
+			for line := range strings.SplitSeq(stderr, "\n") {
+				if after, ok := strings.CutPrefix(line, "gate: partial log  "); ok {
+					interruptedLog = after
+					break
+				}
+			}
+			qt.Assert(t, qt.Not(qt.Equals(interruptedLog, "")), qt.Commentf("no interrupted log in %q", stderr))
+			_, trailer := splitLog(t, interruptedLog)
+			qt.Check(t, qt.StringContains(trailer, "interrupted"))
+		})
+	}
+}
+
 // The other way a gate is stopped, and the one --serial does not cover: gates
 // a project marked serial run in sequence inside one group, so a failure there
 // stops the rest of that group while other groups carry on. Those gates were

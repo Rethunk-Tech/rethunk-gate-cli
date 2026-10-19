@@ -110,6 +110,12 @@ type options struct {
 	// would otherwise overlap.
 	jobs int
 
+	// failFast interrupts every still-running gate when the first
+	// non-allowed failure lands, across groups. Default off: a failure
+	// stops only its own group. The flag and top-level fail-fast = true
+	// are the same statement; the flag wins when both are present.
+	failFast bool
+
 	// root is the detected project root, empty for a command the caller
 	// named, which has no project to keep a result record for. partial says
 	// the caller named a subset of its gates.
@@ -323,24 +329,32 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 	if opts.jobs > 0 {
 		slots = make(chan struct{}, opts.jobs)
 	}
+	runCtx := ctx
+	var stopFast context.CancelFunc
+	if opts.failFast {
+		runCtx, stopFast = context.WithCancel(ctx)
+		defer stopFast()
+	}
 	var wg sync.WaitGroup
 	for _, group := range schedule(opts.gates, opts.serial) {
 		wg.Go(func() {
 			// A group holds gates that were marked serial, so they run in
 			// sequence and a failure stops the rest of it -- a gate whose
 			// build just failed has nothing left to say. It never touches
-			// the other groups, which asked for no such order.
+			// the other groups, which asked for no such order -- unless
+			// fail-fast cancelled runCtx, which is the existing interrupt
+			// path applied to every group.
 			for _, i := range group {
 				// A cancelled run starts nothing further. Leaving these
 				// zero-valued reports them as skipped below, rather than
 				// as failures from an exec that was never going to happen.
-				if ctx.Err() != nil {
+				if runCtx.Err() != nil {
 					break
 				}
-				if !acquireJob(ctx, slots) {
+				if !acquireJob(runCtx, slots) {
 					break
 				}
-				results[i] = runOne(ctx, opts.gates[i], opts)
+				results[i] = runOne(runCtx, opts.gates[i], opts)
 				releaseJob(slots)
 				// Emitted here rather than after the wait: the stream's
 				// value is that a gate's outcome is readable while the slow
@@ -352,6 +366,9 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 				// the project allowed this failure, in which case the
 				// group runs on past it.
 				if !results[i].started || (results[i].code != Success && !results[i].excused()) {
+					if stopFast != nil && results[i].started {
+						stopFast()
+					}
 					break
 				}
 			}
@@ -509,6 +526,21 @@ func profile(results []gateResult) (sum time.Duration, count int, slowest string
 	return sum, len(ran), strings.Join(parts, ", ")
 }
 
+// failFastTrigger reports whether some gate produced a non-allowed verdict
+// of its own. Those are what --fail-fast interrupts the others for; a run
+// that was only signalled has none, and Interrupted must stay the aggregate.
+func failFastTrigger(results []gateResult) bool {
+	for _, r := range results {
+		if !r.started || r.interrupted || r.skipped {
+			continue
+		}
+		if r.code != Success && !r.excused() {
+			return true
+		}
+	}
+	return false
+}
+
 // report prints every gate's outcome in declaration order and returns the
 // aggregate status.
 func report(results []gateResult, opts options, stdout, stderr io.Writer) Code {
@@ -521,6 +553,10 @@ func report(results []gateResult, opts options, stdout, stderr io.Writer) Code {
 	// The first gate a limit killed, for the remedy printed once at the end.
 	// A run where three gates overran has one thing to say, not three.
 	killed, sawTimeout := "", false
+	// Fail-fast interrupts are collateral of a command's own failure.
+	// They must not become the aggregate -- that verdict is the first
+	// non-allowed failure -- the way a user signal's Interrupted must.
+	ignoreInterrupt := opts.failFast && failFastTrigger(results)
 	for _, res := range results {
 		code := Success
 		switch res.outcome() {
@@ -600,6 +636,9 @@ func report(results []gateResult, opts options, stdout, stderr io.Writer) Code {
 		// failure is not a verdict on the run. Everything else about it is
 		// still reported above, so allowing is never hiding.
 		if aggregate == Success && !res.excused() {
+			if ignoreInterrupt && res.outcome() == outcomeInterrupted {
+				continue
+			}
 			aggregate = code
 		}
 		if line := actionsError(res, opts.actions, opts.ndjson || opts.jsonList); line != "" {

@@ -72,6 +72,9 @@ Global flags (before everything else):
 Flags:
   --serial      run every gate in order and stop at the first failure
                 (gates run concurrently unless this, or .gate.toml, says not to)
+  --fail-fast   interrupt every still-running gate when one fails
+                (default off; allow-failure does not trigger it;
+                .gate.toml: fail-fast = true; this flag wins)
   --jobs N      run at most N gates at once (default: no cap; N>=1;
                 .gate.toml: jobs = N; this flag wins)
   --failed      re-run only the gates that failed, timed out, or errored last time
@@ -162,6 +165,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	timeoutSet := false
 	budget, budgetSet := defaultBudget, false
 	jobsSet := false
+	failFastSet := false
 	showVersion := false
 	refuseFix := false
 
@@ -184,6 +188,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	flags.BoolVar(&opts.quiet, "q", false, "")
 	flags.BoolVar(&opts.quiet, "quiet", false, "")
 	flags.BoolVar(&opts.serial, "serial", false, "")
+	flags.BoolVar(&opts.failFast, "fail-fast", false, "")
 	flags.BoolVar(&opts.list, "list", false, "")
 	flags.BoolVar(&opts.jsonList, "json", false, "")
 	flags.BoolVar(&opts.ndjson, "ndjson", false, "")
@@ -249,6 +254,11 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		fmt.Fprint(stderr, gateHelp)
 		return InvalidUsage
 	}
+	flags.Visit(func(f *flag.Flag) {
+		if f.Name == "fail-fast" {
+			failFastSet = true
+		}
+	})
 
 	// Everything after a `--` is the caller's, including a word gate would
 	// otherwise claim -- `gate -- run x` runs a program called run. flag
@@ -618,6 +628,9 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		}
 		if cfg.HasJobs && !jobsSet {
 			opts.jobs = cfg.Jobs
+		}
+		if cfg.HasFailFast && !failFastSet {
+			opts.failFast = cfg.FailFast
 		}
 
 		// Never fall through to a program of that name. The caller is least

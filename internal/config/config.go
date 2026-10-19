@@ -104,6 +104,12 @@ type Config struct {
 	Jobs    int
 	HasJobs bool
 
+	// FailFast interrupts every still-running gate when the first
+	// non-allowed failure lands. HasFailFast distinguishes "not set" from
+	// a deliberate false, so a project can turn off a user-level default.
+	FailFast    bool
+	HasFailFast bool
+
 	// Exclude names directories detection found that the project does not
 	// want gated: patterns for the name of a nested or CI-run gate (its
 	// directory), layered user file first. See Excluded.
@@ -120,9 +126,10 @@ type Config struct {
 // `workdir` or `continue-on-error` is refused as an unknown key by
 // DisallowUnknownFields, the same as any typo, rather than silently accepted.
 type File struct {
-	Budget *string `toml:"budget"`
-	Jobs   *int    `toml:"jobs"`
-	Detect struct {
+	Budget   *string `toml:"budget"`
+	Jobs     *int    `toml:"jobs"`
+	FailFast *bool   `toml:"fail-fast"`
+	Detect   struct {
 		Exclude []string `toml:"exclude"`
 	} `toml:"detect"`
 	Gates map[string]struct {
@@ -236,6 +243,10 @@ func (c *Config) merge(path string, data []byte) error {
 		} else {
 			c.Jobs, c.HasJobs = *f.Jobs, true
 		}
+	}
+
+	if f.FailFast != nil {
+		c.FailFast, c.HasFailFast = *f.FailFast, true
 	}
 
 	for _, pattern := range f.Detect.Exclude {

@@ -27,7 +27,9 @@ a program: `"schema": 1`, then each gate's `name`, resolved `argv`, `display`,
 `source`, `shadows`, `group`; plus `root`, `config`, `notes`, `warnings`. Gates
 sharing a `group` run serially; groups run concurrently unless `--jobs N` or
 top-level `jobs = N` caps how many gates run at once (flag wins; default no
-cap; N>=1). `--json` is global:
+cap; N>=1). `--fail-fast` (or top-level `fail-fast = true`; flag wins;
+default off) interrupts every still-running gate when the first non-allowed
+failure lands. `--json` is global:
 `gate doctor --json` is the same document as `gate --json doctor`.
 
 A scalar with nothing to say is omitted (a wrapped command has no `root` /
@@ -317,9 +319,10 @@ MDBOOK_VERSION = "0.4"
 ```
 
 Gate keys: `run`, `serial`, `timeout`, `dir`, `env`, `allow-failure`, `e2e`.
-Outside: `budget`, `jobs`, `[detect] exclude`. `run` is a shell string (`sh` / `cmd`).
+Outside: `budget`, `jobs`, `fail-fast`, `[detect] exclude`. `run` is a shell string (`sh` / `cmd`).
 `timeout` is the same grammar as `--timeout` (`5m`, `90s`, `1m30s`, `0`).
-`jobs` is an integer >= 1 (no cap when absent). Unknown keys, bad durations,
+`jobs` is an integer >= 1 (no cap when absent). `fail-fast` is a bool
+(default off). Unknown keys, bad durations,
 and a bad `jobs` refuse the file.
 
 `dir` is relative to the project root; missing directory refuses the run.
@@ -356,8 +359,13 @@ reason. `--serial` beats the file; `serial = false` turns off a user default
 at once across groups that would otherwise overlap; serial groups and turbo
 edges keep their order. Flag wins. N>=1; a bad value is exit 129.
 
-A failure stops its group only. Skipped gates are named, have no verdict, and
-do not change the exit status.
+A failure stops its group only. `--fail-fast` or top-level `fail-fast = true`
+(flag wins; default off) interrupts every still-running gate in every group
+on the first non-allowed failure (SIGINT to the group, SIGKILL after the
+grace; those gates are `interrupted` and still get a log trailer). The
+aggregate is that failure, not Interrupted. `allow-failure` does not trigger
+it. Skipped gates are named, have no verdict, and do not change the exit
+status.
 
 ## `gate doctor`
 

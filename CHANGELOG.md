@@ -6,6 +6,10 @@ Notable changes to `gate`. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `--fail-fast` interrupts every still-running gate when the first non-allowed failure lands (SIGINT to the group, SIGKILL after the grace; those gates are `interrupted` and still get a log trailer). Top-level `fail-fast = true` in `.gate.toml` is the same statement (flag wins; default off). The aggregate is that first failure. `allow-failure` does not trigger it. Docs: docs/USAGE.md, `serial`.
+
 ## [0.6.8] - 2026-10-18
 
 ### Added
