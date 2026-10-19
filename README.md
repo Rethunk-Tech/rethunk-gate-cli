@@ -21,37 +21,9 @@ authoritative and the log complete.
 brew install rethunk-tech/tap/gate
 ```
 
-Windows:
-
-```powershell
-scoop bucket add rethunk https://github.com/Rethunk-Tech/scoop-bucket
-scoop install gate
-```
-
-```bash
-go install github.com/Rethunk-Tech/rethunk-gate-cli/cmd/gate@latest
-```
-
-From a clone: [HUMANS.md](HUMANS.md). Flags: `gate --help`. Detection,
-`.gate.toml`, cache awareness, and exit codes: [docs/USAGE.md](docs/USAGE.md).
-
-Completions and a man page ship as `gate-completions-man.tar.gz`:
-
-```bash
-install -Dm644 gate.bash ~/.local/share/bash-completion/completions/gate
-```
-
-```zsh
-install -Dm644 _gate ~/.local/share/zsh/site-functions/_gate
-```
-
-```fish
-install -Dm644 gate.fish ~/.config/fish/completions/gate.fish
-```
-
-```powershell
-Add-Content $PROFILE ". $PWD/gate.ps1"
-```
+Scoop, `go install`, release binaries and shell completions: [HUMANS.md](HUMANS.md#install).
+Flags: `gate --help`. Detection, `.gate.toml`, cache awareness and exit codes:
+[docs/USAGE.md](docs/USAGE.md).
 
 ## Quick start
 

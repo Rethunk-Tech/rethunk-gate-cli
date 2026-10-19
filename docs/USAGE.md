@@ -25,11 +25,8 @@ the `-C` directory.
 `--list` shows the decision and runs nothing. `--json` is the same listing for
 a program: `"schema": 1`, then each gate's `name`, resolved `argv`, `display`,
 `source`, `shadows`, `group`; plus `root`, `config`, `notes`, `warnings`. Gates
-sharing a `group` run serially; groups run concurrently unless `--jobs N` or
-top-level `jobs = N` caps how many gates run at once (flag wins; default no
-cap; N>=1). `--fail-fast` (or top-level `fail-fast = true`; flag wins;
-default off) interrupts every still-running gate when the first non-allowed
-failure lands. `--json` is global:
+sharing a `group` run serially; groups run concurrently (`--jobs`,
+`--fail-fast`: [serial](#serial)). `--json` is global:
 `gate doctor --json` is the same document as `gate --json doctor`.
 
 A scalar with nothing to say is omitted (a wrapped command has no `root` /
@@ -204,7 +201,7 @@ them.
 ### Nested projects
 
 A Go module, Python project or Rust crate one or two levels down is its own
-one-gate project. Discovery asks git (so `.gitignore` is honour); skips
+one-gate project. Discovery asks git (so `.gitignore` is honoured); skips
 `node_modules`, `vendor`, `testdata`, `.venv`, hidden dirs. Nested Python
 under Python, or crate under crate, is a workspace member. JavaScript still
 needs CI to name it.
@@ -214,7 +211,7 @@ package scripts win those roles; the other toolchain runs as one gate named
 for it (`go`) when CI runs that toolchain. `//go:embed` makes that gate follow
 the build, serially. A Makefile wrapper wins without a second gate.
 
-A root gate that `cd`s into a Go module no longer hides the roles it never
+A root gate that `cd`s into a Go module does not hide the roles it never
 runs there (lint, vuln become a directory-named gate).
 
 `typescript`, `@biomejs/biome`, `knip` in `package.json` are detected before
@@ -530,11 +527,7 @@ finished 2026-09-23T10:00:04.5-07:00
 test     ok
 ```
 
-Missing/stale/partial/failed on stderr.
-
-`gate --failed` reads this file and runs only `fail`/`timeout`/`error` gates.
-Same missing and stale refusals (exit 129); a last run with none of those
-statuses is also 129 (`no failed gates`).
+Missing/stale/partial/failed on stderr. [`--failed`](#--failed) reads this file.
 
 ## Exit codes
 

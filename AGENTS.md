@@ -10,9 +10,6 @@ Reference: [docs/USAGE.md](docs/USAGE.md).
 `gate` never judges output. Every byte the command wrote reaches the log,
 followed by exactly one trailer line — the only thing `gate` writes into a log.
 
-Go, not a scripting language: median gate is 0.14s; a 100ms interpreter start
-is ~71% overhead on the common case.
-
 ## Delegation boundary
 
 `gate` owns **capture** (both streams merged), **summary** (bounded tail,
@@ -106,8 +103,6 @@ turbo `dependsOn` between roles, `gates.<role>.serial`, `--serial`. Turbo
 concurrently. A failure stops its group unless `allow-failure`; stopped gates
 are skipped. `--fail-fast` / top-level `fail-fast = true` (flag wins; default
 off) interrupts every still-running gate across groups on the first
-non-allowed failure; the aggregate is that failure. `--fail-fast` / top-level `fail-fast = true` (flag wins; default
-off) interrupts every still-running gate across groups on the first
 non-allowed failure; the aggregate is that failure.
 
 ## Cache awareness
@@ -138,10 +133,7 @@ directory >14 days, at most once a day. `--log` paths are never swept.
 
 ## Gate budget
 
-Load average 3–8 on 32 cores. CI parity: build, lint, `make test`
-(`go test -race ./...`), govulncheck, actionlint, shellcheck; windows-only
-leg is not local. Warm: 6.8 s wall / 6.7 CPU-s with two packages uncached;
-0.8 s / 5 CPU-s when cached. Cold (fresh `GOCACHE` and golangci-lint): 12.8 s
-wall, 73 CPU-s, under the 30 s cold bar (`make test` is 12.8 s of it).
-`serial = true` on build+lint+test: 58 CPU-s, 16.6 s wall — so they stay
-concurrent.
+CI parity locally: build, lint, `make test` (`go test -race ./...`),
+govulncheck, actionlint, shellcheck; the windows-only leg is not local. Under
+10 s warm and 30 s cold (fresh `GOCACHE` and golangci-lint cache). Build, lint
+and test stay concurrent: `serial = true` on them roughly doubles wall time.

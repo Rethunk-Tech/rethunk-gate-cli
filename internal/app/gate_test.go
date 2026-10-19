@@ -1921,9 +1921,9 @@ func (failWriter) Write([]byte) (int, error) {
 	return 0, errors.New("broken pipe")
 }
 
-// A failed stdout write used to drop the line with no stderr and no other
-// signal. The command's status is still the verdict; the encode error is
-// what a caller reading the stream would otherwise never see.
+// A failed stdout write must not drop the line silently. The command's status
+// is still the verdict; the encode error is what a caller reading the stream
+// would otherwise never see.
 func TestNDJSONReportsEncodeError(t *testing.T) {
 	t.Parallel()
 	var stderr bytes.Buffer
