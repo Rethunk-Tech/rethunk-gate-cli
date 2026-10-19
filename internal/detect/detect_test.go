@@ -1088,6 +1088,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       SHARED: job # overridden below
+      GATE_ACTIVE_ROOTS: /tmp/x
     steps:
       - uses: actions/checkout@v4
       - name: Lint

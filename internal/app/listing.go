@@ -70,8 +70,10 @@ type listedGate struct {
 	// other detected gate, so a listing without it reads as it always did.
 	Dir string `json:"dir,omitempty"`
 
-	// Env carries the gate's configured environment variables. Absent
-	// where the gate inherits the process environment unchanged.
+	// Env names the gate's configured environment variables. Values are
+	// omitted: a listing is often captured in CI logs, and the values can
+	// be tokens. Absent where the gate inherits the process environment
+	// unchanged.
 	Env map[string]string `json:"env,omitempty"`
 
 	// AllowFailure marks a gate whose failure does not fail the run.
@@ -128,7 +130,7 @@ func writeListingJSON(w io.Writer, project detect.Project, files []string, opts 
 				Source:       spec.source,
 				Shadows:      array(spec.shadowed),
 				Dir:          spec.listDir(),
-				Env:          spec.env,
+				Env:          listedEnv(spec.env),
 				AllowFailure: spec.allowFailure,
 				Timeout:      spec.listTimeout(),
 				E2E:          spec.e2e,
@@ -286,14 +288,23 @@ func (s gateSpec) listTimeout() string {
 	return describeTimeout(s.timeout)
 }
 
-// formatEnv renders configured variables in a stable order, so two runs
+// formatEnv renders configured variable names in a stable order, so two runs
 // print the same line. Map iteration is not ordered, which a listing must be.
+// Values stay off the line: --list is copied into CI logs.
 func formatEnv(env map[string]string) string {
-	pairs := make([]string, 0, len(env))
-	for _, k := range slices.Sorted(maps.Keys(env)) {
-		pairs = append(pairs, k+"="+env[k])
+	return strings.Join(slices.Sorted(maps.Keys(env)), " ")
+}
+
+// listedEnv is the JSON form of formatEnv: keys present, values empty.
+func listedEnv(env map[string]string) map[string]string {
+	if len(env) == 0 {
+		return nil
 	}
-	return strings.Join(pairs, " ")
+	out := make(map[string]string, len(env))
+	for k := range env {
+		out[k] = ""
+	}
+	return out
 }
 
 // writeNotes prints what detection found but deliberately did not turn into a

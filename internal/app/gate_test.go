@@ -828,6 +828,23 @@ func TestTheActiveProjectReachesTheChildEnvironment(t *testing.T) {
 	qt.Check(t, qt.StringContains(output, root), qt.Commentf("child did not see its project root in %s: %q", activeRootsVar, output))
 }
 
+// CI-derived env can name GATE_ACTIVE_ROOTS; config cannot. The mark still
+// has to win, or a workflow env on a bun run step that itself runs gate
+// re-enters detection.
+func TestGateEnvCannotOverrideActiveRoots(t *testing.T) {
+	root := t.TempDir()
+	log := tempLog(t)
+	res := runOne(t.Context(), gateSpec{
+		argv: []string{"sh", "-c", "printf '%s' \"$" + activeRootsVar + "\""},
+		dir:  root,
+		env:  map[string]string{activeRootsVar: "/tmp/x"},
+	}, options{logPath: log})
+	qt.Assert(t, qt.Equals(res.code, Success), qt.Commentf("fatal = %v", res.fatalErr))
+	output, _ := splitLog(t, log)
+	qt.Check(t, qt.StringContains(output, root), qt.Commentf("child = %q", output))
+	qt.Check(t, qt.Not(qt.Equals(output, "/tmp/x")), qt.Commentf("child = %q", output))
+}
+
 // The doctor package is tested directly, but nothing exercised the command
 // that renders it -- so the output a user actually sees, and the promise that
 // advice never fails the build, were both unverified.
@@ -1962,6 +1979,52 @@ func TestPruneRemovesOldLogsAndKeepsRecentOnes(t *testing.T) {
 	qt.Check(t, qt.IsTrue(exists(recent)), qt.Commentf("the stamp did not stop a second sweep"))
 }
 
+// A planted $TMPDIR/gate symlink is not chmod'd, written, or pruned through.
+func TestDefaultLogDirRefusesASymlink(t *testing.T) {
+	tmp := t.TempDir()
+	victim := t.TempDir()
+	t.Setenv("TMPDIR", tmp)
+	qt.Assert(t, qt.IsNil(os.Symlink(victim, filepath.Join(tmp, "gate"))))
+	keep := filepath.Join(victim, "keep.log")
+	qt.Assert(t, qt.IsNil(os.WriteFile(keep, []byte("x"), 0o600)))
+	aged := time.Now().Add(-pruneAge - time.Hour)
+	qt.Assert(t, qt.IsNil(os.Chtimes(keep, aged, aged)))
+
+	_, stderr, code := runGateTest(t, "-C", t.TempDir(), "true")
+	qt.Assert(t, qt.Equals(code, Fatal), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.StringContains(stderr, "symlink"))
+	qt.Check(t, qt.IsTrue(exists(keep)), qt.Commentf("prune followed the symlink"))
+}
+
+func TestPruneLogsDoesNotFollowASymlink(t *testing.T) {
+	t.Parallel()
+	victim := t.TempDir()
+	old := filepath.Join(victim, "old.log")
+	qt.Assert(t, qt.IsNil(os.WriteFile(old, []byte("x"), 0o600)))
+	aged := time.Now().Add(-pruneAge - time.Hour)
+	qt.Assert(t, qt.IsNil(os.Chtimes(old, aged, aged)))
+	link := filepath.Join(t.TempDir(), "gate")
+	qt.Assert(t, qt.IsNil(os.Symlink(victim, link)))
+
+	pruneLogs(link)
+	qt.Check(t, qt.IsTrue(exists(old)), qt.Commentf("prune deleted through a symlink"))
+}
+
+// --log must not O_TRUNC a file the named path only points at.
+func TestLogFlagRefusesASymlink(t *testing.T) {
+	t.Parallel()
+	target := filepath.Join(t.TempDir(), "target")
+	qt.Assert(t, qt.IsNil(os.WriteFile(target, []byte("secret"), 0o600)))
+	log := filepath.Join(t.TempDir(), "log")
+	qt.Assert(t, qt.IsNil(os.Symlink(target, log)))
+
+	_, stderr, code := runGateTest(t, "--log", log, "true")
+	qt.Assert(t, qt.Equals(code, Fatal), qt.Commentf("stderr = %q", stderr))
+	body, err := os.ReadFile(target) //nolint:gosec // test fixture
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.Equals(string(body), "secret"))
+}
+
 // A warning that names its own remedy gets read; one that only says what
 // happened gets skipped. The default kills roughly one working gate in ninety,
 // so this line is reached regularly.
@@ -2527,9 +2590,10 @@ func TestListingShowsConfiguredEnvDirAndAllowFailure(t *testing.T) {
 
 	stdout, _, code := runGateTest(t, "-C", root, "--list")
 	qt.Assert(t, qt.Equals(code, Success))
-	for _, want := range []string{"dir " + filepath.Join(root, "sub"), "env A=1 B=2", "allow-failure"} {
+	for _, want := range []string{"dir " + filepath.Join(root, "sub"), "env A B", "allow-failure"} {
 		qt.Check(t, qt.StringContains(stdout, want), qt.Commentf("listing = %q", stdout))
 	}
+	qt.Check(t, qt.Not(qt.StringContains(stdout, "A=1")), qt.Commentf("listing leaked env values: %q", stdout))
 
 	jsonOut, _, code := runGateTest(t, "-C", root, "--json")
 	qt.Assert(t, qt.Equals(code, Success))
@@ -2538,7 +2602,7 @@ func TestListingShowsConfiguredEnvDirAndAllowFailure(t *testing.T) {
 	qt.Assert(t, qt.Equals(len(got.Gates), 1), qt.Commentf("gates = %+v", got.Gates))
 	gate := got.Gates[0]
 	qt.Check(t, qt.Equals(gate.Dir, filepath.Join(root, "sub")))
-	qt.Check(t, qt.DeepEquals(gate.Env, map[string]string{"A": "1", "B": "2"}))
+	qt.Check(t, qt.DeepEquals(gate.Env, map[string]string{"A": "", "B": ""}))
 	qt.Check(t, qt.IsTrue(gate.AllowFailure))
 }
 
@@ -3111,7 +3175,8 @@ func TestCIStepEnvLayersUnderConfiguredEnv(t *testing.T) {
 
 	stdout, stderr, code := runGateTest(t, "-C", root, "--list")
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
-	qt.Check(t, qt.StringContains(stdout, "env CI=true CONFIG=min.yaml PORT=2"))
+	qt.Check(t, qt.StringContains(stdout, "env CI CONFIG PORT"))
+	qt.Check(t, qt.Not(qt.StringContains(stdout, "min.yaml")), qt.Commentf("listing leaked env values: %q", stdout))
 }
 
 // e2e is opt-in: a default run skips it and says so in one line, --e2e and a

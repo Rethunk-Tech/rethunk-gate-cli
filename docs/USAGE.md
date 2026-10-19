@@ -344,7 +344,7 @@ for want of a tool clears that missing-tool note.
 3. `$XDG_CONFIG_HOME/gate/config.toml` or `~/.config/gate/config.toml`
 
 Merge **per key** (`env` per variable) from the *detected* project root.
-`--list` / `--json` name configured `dir`, stable-order `env`,
+`--list` / `--json` name configured `dir`, stable-order `env` keys (not values),
 `allow-failure`, `serial`, and `timeout` (`off` for `0`) only where they
 differ from the default. Unreadable files are refused; every unknown key
 in one report.

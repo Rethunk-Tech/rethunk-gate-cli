@@ -368,6 +368,9 @@ func listItems(lines []string, i, end int) [][2]int {
 func mapping(lines []string, i int) map[string]string {
 	m := map[string]string{}
 	for key, j := range children(lines, i) {
+		if key == "GATE_ACTIVE_ROOTS" {
+			continue
+		}
 		_, value, _ := strings.Cut(lines[j], ":")
 		m[key] = unquote(stripComment(strings.TrimSpace(value)))
 	}

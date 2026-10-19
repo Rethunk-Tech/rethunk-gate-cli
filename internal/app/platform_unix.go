@@ -3,8 +3,10 @@
 package app
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"syscall"
 )
 
 // logDir is where gate keeps its own logs. It honours TMPDIR and otherwise
@@ -39,4 +41,35 @@ func childTempDir() string {
 // means it has to reach a shell to be split.
 func shellArgv(command string) []string {
 	return []string{"sh", "-c", command}
+}
+
+// openLogFile creates or truncates a log without following a last-component
+// symlink, so `--log` cannot O_TRUNC a file the path only points at.
+func openLogFile(path string) (*os.File, error) {
+	return os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC|syscall.O_NOFOLLOW, 0o600) //nolint:gosec // --log path is caller-chosen; O_NOFOLLOW refuses a symlink
+}
+
+// secureLogDir opens dir without following a symlink and tightens mode only
+// when this process owns the inode.
+func secureLogDir(dir string) error {
+	f, err := os.OpenFile(dir, syscall.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW, 0) //nolint:gosec // logDir is TMPDIR/gate or /var/tmp/gate, opened O_DIRECTORY|O_NOFOLLOW
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+	info, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	st, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return fmt.Errorf("cannot stat %s", dir)
+	}
+	if int(st.Uid) != os.Getuid() {
+		return fmt.Errorf("%s is not owned by uid %d", dir, os.Getuid())
+	}
+	if info.Mode().Perm() == 0o700 {
+		return nil
+	}
+	return f.Chmod(0o700)
 }

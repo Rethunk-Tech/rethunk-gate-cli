@@ -36,7 +36,8 @@ func activeRoots() []string {
 // markRoot returns the child environment with dir added to the active roots.
 // os/exec keeps the last of duplicate keys, so appending is enough.
 // pinTempDir appends the pinned temp directory, when there is one, after the
-// inherited environment so it wins; a gate's own env is appended later still.
+// inherited environment so it wins; a gate's own env is appended later still,
+// and activeRootsVar is appended last so neither config nor CI can displace it.
 func pinTempDir(env []string) []string {
 	dir := childTempDir()
 	if dir == "" {
@@ -45,12 +46,16 @@ func pinTempDir(env []string) []string {
 	return append(env, "TMPDIR="+dir, "GOTMPDIR="+dir)
 }
 
-func markRoot(dir string) []string {
+func activeRootsValue(dir string) string {
 	root, err := filepath.Abs(dir)
 	if err != nil {
 		root = dir
 	}
-	return append(os.Environ(), activeRootsVar+"="+strings.Join(append(activeRoots(), root), "\n"))
+	return strings.Join(append(activeRoots(), root), "\n")
+}
+
+func markRoot(dir string) []string {
+	return append(os.Environ(), activeRootsVar+"="+activeRootsValue(dir))
 }
 
 // options is one resolved invocation of gate.
@@ -151,7 +156,7 @@ type gateSpec struct {
 	// env carries per-gate environment variables from configuration,
 	// appended after the process environment so the gate wins. Values are
 	// literal: no expansion happens here, so what runs is what the file
-	// said.
+	// said. GATE_ACTIVE_ROOTS is rewritten after these entries.
 	env map[string]string
 
 	// allowFailure keeps this gate's failure out of the aggregate status
@@ -711,12 +716,13 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 	// Appended after the process environment, so the gate wins over an
 	// inherited value the way a prefix on the command line would. os/exec
 	// keeps the last of duplicate keys, which is what makes appending an
-	// override rather than a second value. GATE_ACTIVE_ROOTS cannot be
-	// among them: config refuses it, so the recursion guard below survives
-	// whatever a gate's own env says.
+	// override rather than a second value. GATE_ACTIVE_ROOTS is rewritten
+	// after that loop: CI-derived env can carry the name, and leaving the
+	// last write to spec.env would reopen detection.
 	for k, v := range spec.env {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}
+	cmd.Env = append(cmd.Env, activeRootsVar+"="+activeRootsValue(spec.dir))
 	cmd.Stdin = nil
 	// One writer for both streams, so interleaving in the log matches what a
 	// terminal would have shown. Splitting them would reorder the very lines
@@ -834,23 +840,19 @@ func openLog(res *gateResult, spec gateSpec) (*os.File, error) {
 		if err := os.MkdirAll(filepath.Dir(res.logPath), 0o755); err != nil { //nolint:gosec // caller-owned --log directories keep their sharing policy
 			return nil, fmt.Errorf("cannot create log directory: %w", err)
 		}
-		f, err := os.OpenFile(res.logPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+		f, err := openLogFile(res.logPath)
 		if err != nil {
 			return nil, fmt.Errorf("cannot create log %s: %w", res.logPath, err)
 		}
 		return f, nil
 	}
 
-	// gate's own directory is private. MkdirAll leaves an existing directory's
-	// mode alone, so a looser one is tightened here.
+	// gate's own directory is private. An existing path that is a symlink is
+	// refused rather than followed: MkdirAll and Stat would otherwise chmod
+	// and write through a planted link in a shared 1777 parent.
 	dir := logDir()
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := prepareLogDir(dir); err != nil {
 		return nil, fmt.Errorf("cannot create log directory: %w", err)
-	}
-	if info, err := os.Stat(dir); err == nil && info.Mode().Perm() != 0o700 {
-		if err := os.Chmod(dir, 0o700); err != nil { //nolint:gosec // private log directories need owner execute permission
-			return nil, fmt.Errorf("cannot secure log directory: %w", err)
-		}
 	}
 	pruneOnce.Do(func() { pruneLogs(dir) })
 	// CreateTemp settles the collision two gates with the same slug would
@@ -884,7 +886,45 @@ var pruneOnce sync.Once
 //
 // Only ever gate's own directory. A directory --log named is the caller's,
 // and gate does not delete files it did not place there.
+func prepareLogDir(dir string) error {
+	if err := mkdirLogDir(dir); err != nil {
+		return err
+	}
+	info, err := os.Lstat(dir)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("%s is a symlink", dir)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%s is not a directory", dir)
+	}
+	return secureLogDir(dir)
+}
+
+func mkdirLogDir(dir string) error {
+	_, err := os.Lstat(dir)
+	if err == nil || !os.IsNotExist(err) {
+		return err
+	}
+	if err := os.Mkdir(dir, 0o700); err == nil || os.IsExist(err) {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(dir), 0o700); err != nil {
+		return err
+	}
+	if err := os.Mkdir(dir, 0o700); err != nil && !os.IsExist(err) {
+		return err
+	}
+	return nil
+}
+
 func pruneLogs(dir string) {
+	info, err := os.Lstat(dir)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return
+	}
 	stamp := filepath.Join(dir, pruneStamp)
 	if info, err := os.Stat(stamp); err == nil && time.Since(info.ModTime()) < 24*time.Hour {
 		return
