@@ -46,6 +46,25 @@ func TestReadTreeDoesNotRunGITExternalDiff(t *testing.T) {
 	qt.Assert(t, qt.IsTrue(os.IsNotExist(err)), qt.Commentf("GIT_EXTERNAL_DIFF ran"))
 }
 
+func TestUntrackedFilesRejectsEscapingInnerPaths(t *testing.T) {
+	status := []byte("?? dir/\x00")
+	for _, c := range []struct {
+		inner string
+		ok    bool
+		files []string
+	}{
+		{inner: "dir/a\x00", ok: true, files: []string{"dir/a"}},
+		{inner: "../secret\x00", ok: false},
+		{inner: "/etc/passwd\x00", ok: false},
+	} {
+		files, ok := untrackedFiles(status, func(...string) ([]byte, bool) {
+			return []byte(c.inner), true
+		})
+		qt.Check(t, qt.Equals(ok, c.ok), qt.Commentf("inner %q", c.inner))
+		qt.Check(t, qt.DeepEquals(files, c.files), qt.Commentf("inner %q", c.inner))
+	}
+}
+
 func TestWorktreePathRejectsEscape(t *testing.T) {
 	qt.Check(t, qt.IsTrue(worktreePath("ok.txt")))
 	qt.Check(t, qt.IsTrue(worktreePath("dir/ok.txt")))

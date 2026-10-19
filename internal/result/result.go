@@ -165,9 +165,14 @@ func untrackedFiles(status []byte, git func(...string) ([]byte, bool)) ([]string
 			return nil, false
 		}
 		for f := range bytes.SplitSeq(out, []byte{0}) {
-			if len(f) > 0 {
-				files = append(files, string(f))
+			if len(f) == 0 {
+				continue
 			}
+			inner := string(f)
+			if !worktreePath(inner) {
+				return nil, false
+			}
+			files = append(files, inner)
 		}
 	}
 	return files, true
