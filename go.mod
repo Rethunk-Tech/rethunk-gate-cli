@@ -1,6 +1,6 @@
 module github.com/Rethunk-Tech/rethunk-gate-cli
 
-go 1.27.2
+go 1.27.3
 
 require (
 	github.com/go-quicktest/qt v1.102.0
