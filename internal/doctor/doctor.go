@@ -557,7 +557,7 @@ func checkWorkflows(proj detect.Project, add func(Finding)) {
 			continue
 		}
 
-		if strings.Contains(body, "gh-actions/setup-go") {
+		if strings.Contains(body, "gh-actions/setup-go") && stepHasProject(body, "gh-actions/setup-go", []string{root, proj.Root}, []string{"go.mod", "go.work"}) {
 			usesSetupGo = true
 			if setupGoWhere == "" {
 				setupGoWhere = path
@@ -566,7 +566,7 @@ func checkWorkflows(proj detect.Project, add func(Finding)) {
 				enablesVuln = true
 			}
 		}
-		if strings.Contains(body, "gh-actions/setup-python") {
+		if strings.Contains(body, "gh-actions/setup-python") && stepHasProject(body, "gh-actions/setup-python", []string{root, proj.Root}, []string{"pyproject.toml", "uv.lock", "requirements.txt"}) {
 			usesSetupPython = true
 			if setupPythonWhere == "" {
 				setupPythonWhere = path
@@ -575,7 +575,7 @@ func checkWorkflows(proj detect.Project, add func(Finding)) {
 				enablesPythonAudit = true
 			}
 		}
-		if strings.Contains(body, "gh-actions/setup-rust") {
+		if strings.Contains(body, "gh-actions/setup-rust") && stepHasProject(body, "gh-actions/setup-rust", []string{root, proj.Root}, []string{"Cargo.toml"}) {
 			usesSetupRust = true
 			if setupRustWhere == "" {
 				setupRustWhere = path
@@ -584,7 +584,7 @@ func checkWorkflows(proj detect.Project, add func(Finding)) {
 				enablesClippy = true
 			}
 		}
-		if strings.Contains(body, "gh-actions/setup-bun") {
+		if strings.Contains(body, "gh-actions/setup-bun") && stepHasProject(body, "gh-actions/setup-bun", []string{root, proj.Root}, []string{"bun.lock", "bun.lockb", "package.json"}) {
 			usesSetupBun = true
 			if setupBunWhere == "" {
 				setupBunWhere = path
@@ -693,6 +693,36 @@ func checkWorkflows(proj detect.Project, add func(Finding)) {
 			Fix:   `set run-audit: "true" on the setup-bun step`,
 		})
 	}
+}
+
+// stepHasProject is true when a step that uses action runs where one of the
+// marker files lives: its own working-directory under each base, or the base
+// itself. The audit and lint inputs these checks recommend fail with "No
+// pyproject.toml found" in a workflow that sets the toolchain up only to run
+// a tool (uvx, bunx), so a repo without that project has no gap to report.
+func stepHasProject(body, action string, bases, markers []string) bool {
+	lines := strings.Split(body, "\n")
+	for i, line := range lines {
+		if !strings.Contains(line, action) {
+			continue
+		}
+		wd := ""
+		if start, end, ok := yamlStep(lines, i); ok {
+			for _, l := range lines[start:end] {
+				if v, found := strings.CutPrefix(strings.TrimSpace(l), "working-directory:"); found {
+					wd = strings.Trim(strings.TrimSpace(v), `"'`)
+				}
+			}
+		}
+		for _, base := range bases {
+			for _, m := range markers {
+				if exists(filepath.Join(base, wd, m)) {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // stepMentionsInput is true when a step that uses action mentions input.

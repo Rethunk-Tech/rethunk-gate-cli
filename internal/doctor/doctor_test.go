@@ -788,3 +788,48 @@ func TestMalformedConfigIsRefused(t *testing.T) {
 	qt.Check(t, qt.IsNil(findings))
 	qt.Check(t, qt.StringContains(err.Error(), ".gate.toml"))
 }
+
+// A setup action used only to provide a runner (uvx, bunx) has no project to
+// audit; recommending run-audit there is what broke mortar's release workflow.
+func TestCIInputGapsNeedAProjectToAct(t *testing.T) {
+	workflow := strings.Join([]string{
+		"jobs:",
+		"  a:",
+		"    steps:",
+		"      - uses: Rethunk-Tech/gh-actions/setup-python@v1.16",
+		"      - uses: Rethunk-Tech/gh-actions/setup-bun@v1.16",
+		"      - uses: Rethunk-Tech/gh-actions/setup-go@v1.16",
+		"      - uses: Rethunk-Tech/gh-actions/setup-rust@v1.16",
+	}, "\n") + "\n"
+	checks := []string{"ci-python-audit-off", "ci-bun-audit-off", "ci-govulncheck-off", "ci-clippy-off"}
+
+	isolatePath(t)
+	bare := t.TempDir()
+	testutil.Write(t, bare, ".github/workflows/release.yml", workflow)
+	findings, err := Run(t.Context(), bare)
+	qt.Assert(t, qt.IsNil(err))
+	for _, c := range checks {
+		qt.Check(t, qt.IsFalse(reported(findings, c)), qt.Commentf("%s with no project: %v", c, checkNames(findings)))
+	}
+
+	// A project in the step's working-directory counts; one elsewhere does not.
+	sub := t.TempDir()
+	testutil.Write(t, sub, "tools/pyproject.toml", "[project]\nname = \"demo\"\nversion = \"0\"\n")
+	testutil.Write(t, sub, ".github/workflows/ci.yml",
+		"jobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-python@v1.16\n        with:\n          working-directory: tools\n")
+	findings, err = Run(t.Context(), sub)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsTrue(reported(findings, "ci-python-audit-off")), qt.Commentf("%v", checkNames(findings)))
+
+	full := t.TempDir()
+	testutil.Write(t, full, "uv.lock", "version = 1\n")
+	testutil.Write(t, full, "bun.lock", "")
+	testutil.Write(t, full, "go.mod", "module demo\n\ngo 1.26\n")
+	testutil.Write(t, full, "Cargo.toml", "[package]\nname = \"demo\"\nversion = \"0.0.0\"\nedition = \"2021\"\n")
+	testutil.Write(t, full, ".github/workflows/ci.yml", workflow)
+	findings, err = Run(t.Context(), full)
+	qt.Assert(t, qt.IsNil(err))
+	for _, c := range checks {
+		qt.Check(t, qt.IsTrue(reported(findings, c)), qt.Commentf("%s missing with a project: %v", c, checkNames(findings)))
+	}
+}

@@ -6,6 +6,10 @@ Notable changes to `gate`. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `ci-python-audit-off`, `ci-bun-audit-off`, `ci-govulncheck-off` and `ci-clippy-off` are reported (and applied by `gate fix`) only when the setup step's working directory or the repository holds a project of that language; a setup action that only provides `uvx` or `bunx` no longer gains `run-audit`.
+
 ## [0.6.9] - 2026-10-18
 
 ### Added
