@@ -453,6 +453,18 @@ func TestARepositoryWithNoCIIsReported(t *testing.T) {
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.IsTrue(reported(findings, "no-ci")),
 		qt.Commentf("a repository with a lint gate and no CI was not reported: %v", checkNames(findings)))
+
+	// Azure Pipelines is CI too, in either of its two homes.
+	for _, ci := range []string{".azuredevops/pipelines/ci.yml", "azure-pipelines.yml"} {
+		azure := t.TempDir()
+		testutil.Write(t, azure, ".git/HEAD", "ref: refs/heads/main\n")
+		testutil.Write(t, azure, "Makefile", "lint:\n\tmarkdownlint .\n")
+		testutil.Write(t, azure, ci, "trigger: [main]\n")
+		findings, err = Run(t.Context(), azure)
+		qt.Assert(t, qt.IsNil(err))
+		qt.Check(t, qt.IsFalse(reported(findings, "no-ci")),
+			qt.Commentf("%s was not counted as CI: %v", ci, checkNames(findings)))
+	}
 }
 
 // An abbreviated pin is still a sha: it says nothing about its own age, so it

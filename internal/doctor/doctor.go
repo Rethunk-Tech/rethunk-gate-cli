@@ -489,8 +489,15 @@ func checkNoCI(proj detect.Project, cfg config.Config, add func(Finding)) {
 	// this fleet sit under a workspace root -- 71 against 32 lockfiles -- and
 	// a member never has a .github of its own, so judging from proj.Root would
 	// fire on the majority shape.
-	if exists(filepath.Join(repo, ".github", "workflows")) {
-		return
+	// Azure DevOps repositories run CI from pipeline YAML, not .github.
+	for _, ci := range []string{
+		filepath.Join(".github", "workflows"),
+		filepath.Join(".azuredevops", "pipelines"),
+		"azure-pipelines.yml",
+	} {
+		if exists(filepath.Join(repo, ci)) {
+			return
+		}
 	}
 	add(Finding{
 		Warn:  true,
