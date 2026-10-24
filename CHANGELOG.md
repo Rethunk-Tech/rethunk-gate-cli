@@ -9,6 +9,7 @@ Notable changes to `gate`. The format follows
 ### Fixed
 
 - `ci-python-audit-off`, `ci-bun-audit-off`, `ci-govulncheck-off` and `ci-clippy-off` are reported (and applied by `gate fix`) only when the setup step's working directory or the repository holds a project of that language; a setup action that only provides `uvx` or `bunx` no longer gains `run-audit`.
+- `ci-no-final-gate` is asked only of workflows that run on pull requests or the merge queue; a tag-triggered release matrix is not a branch-protection check.
 - `no-ci` counts Azure Pipelines (`.azuredevops/pipelines/` or `azure-pipelines.yml`) as CI.
 
 ## [0.6.9] - 2026-10-18

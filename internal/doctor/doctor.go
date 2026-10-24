@@ -634,7 +634,7 @@ func checkWorkflows(proj detect.Project, add func(Finding)) {
 			}
 		}
 
-		if usesMatrix(body) && !hasAggregatingGate(body) {
+		if usesMatrix(body) && gatesPullRequests(body) && !hasAggregatingGate(body) {
 			add(Finding{
 				Warn:  true,
 				Check: "ci-no-final-gate",
@@ -924,6 +924,16 @@ func ParseTag(ref string) (major, minor int, ok bool) {
 
 func usesMatrix(body string) bool {
 	return strings.Contains(body, "strategy:") && strings.Contains(body, "matrix:")
+}
+
+// gatesPullRequests reports whether branch protection could require this
+// workflow's jobs. A tag, schedule or dispatch workflow never runs on a pull
+// request, so an aggregating job there would guard nothing.
+func gatesPullRequests(body string) bool {
+	if !strings.Contains(body, "\non:") && !strings.HasPrefix(body, "on:") {
+		return true
+	}
+	return strings.Contains(body, "pull_request") || strings.Contains(body, "merge_group")
 }
 
 func hasAggregatingGate(body string) bool {

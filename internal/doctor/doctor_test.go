@@ -266,6 +266,24 @@ func TestWorkflowGapsAreReported(t *testing.T) {
 	}
 }
 
+// A release matrix feeding one downstream job runs on tags, where branch
+// protection never looks, so it needs no aggregating job.
+func TestFinalGateIsOnlyAskedOfPullRequestWorkflows(t *testing.T) {
+	isolatePath(t)
+	matrix := "jobs:\n  build:\n    strategy:\n      matrix:\n        os: [a, b]\n    steps: []\n  release:\n    needs: build\n    steps: []\n"
+	for trigger, want := range map[string]bool{
+		"on:\n  push:\n    tags: ['v*']\n": false,
+		"on:\n  pull_request:\n":           true,
+	} {
+		dir := t.TempDir()
+		testutil.Write(t, dir, ".github/workflows/w.yml", trigger+matrix)
+		findings, err := Run(t.Context(), dir)
+		qt.Assert(t, qt.IsNil(err))
+		qt.Check(t, qt.Equals(reported(findings, "ci-no-final-gate"), want),
+			qt.Commentf("trigger %q: %v", trigger, checkNames(findings)))
+	}
+}
+
 // Workflows are a property of the repository, not of the package doctor was
 // pointed at. A workspace member has no .github of its own, so a member
 // directory must reach the same verdict as the repository root rather than
