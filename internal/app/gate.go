@@ -58,6 +58,15 @@ func markRoot(dir string) []string {
 	return append(os.Environ(), activeRootsVar+"="+activeRootsValue(dir))
 }
 
+// quickRaceExit drops the second a race-built binary sleeps at exit, which a test
+// that re-executes its own binary pays per call. A GORACE the caller set stands.
+func quickRaceExit(env []string) []string {
+	if _, set := os.LookupEnv("GORACE"); set {
+		return env
+	}
+	return append(env, "GORACE=atexit_sleep_ms=0")
+}
+
 // options is one resolved invocation of gate.
 type options struct {
 	tail    int
@@ -712,7 +721,7 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 	// run it was supposed to bound.
 	cmd.WaitDelay = stopGrace
 	cmd.Dir = spec.dir
-	cmd.Env = pinTempDir(markRoot(spec.dir))
+	cmd.Env = quickRaceExit(pinTempDir(markRoot(spec.dir)))
 	// Appended after the process environment, so the gate wins over an
 	// inherited value the way a prefix on the command line would. os/exec
 	// keeps the last of duplicate keys, which is what makes appending an

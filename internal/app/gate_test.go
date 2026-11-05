@@ -3307,3 +3307,17 @@ func TestAFailingLogDoesNotChangeTheCommandsStatus(t *testing.T) {
 	qt.Check(t, qt.StringContains(stderr, "line 19999"))
 	qt.Check(t, qt.StringContains(stderr, "may be incomplete"))
 }
+
+func TestQuickRaceExitKeepsACallersGORACE(t *testing.T) {
+	t.Setenv("GORACE", "halt_on_error=1")
+	if got := quickRaceExit([]string{"A=1"}); !slices.Equal(got, []string{"A=1"}) {
+		t.Fatalf("with GORACE set: %q", got)
+	}
+	if err := os.Unsetenv("GORACE"); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"A=1", "GORACE=atexit_sleep_ms=0"}
+	if got := quickRaceExit([]string{"A=1"}); !slices.Equal(got, want) {
+		t.Fatalf("without GORACE: %q", got)
+	}
+}

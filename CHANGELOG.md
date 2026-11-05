@@ -6,6 +6,10 @@ Notable changes to `gate`. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Gates run with `GORACE=atexit_sleep_ms=0` unless `GORACE` is set, so a race-built test binary no longer sleeps a second at exit.
+
 ### Fixed
 
 - `ci-python-audit-off`, `ci-bun-audit-off`, `ci-govulncheck-off` and `ci-clippy-off` are reported (and applied by `gate fix`) only when the setup step's working directory or the repository holds a project of that language; a setup action that only provides `uvx` or `bunx` no longer gains `run-audit`.
