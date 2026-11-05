@@ -830,6 +830,18 @@ func TestTheActiveProjectReachesTheChildEnvironment(t *testing.T) {
 	qt.Check(t, qt.StringContains(output, root), qt.Commentf("child did not see its project root in %s: %q", activeRootsVar, output))
 }
 
+// Go's test cache keys on the PWD a test reads through os.Getwd, so a child that
+// inherited gate's would miss the cache whenever gate started somewhere else.
+func TestTheChildPWDIsItsOwnDirectory(t *testing.T) {
+	root := t.TempDir()
+	log := tempLog(t)
+
+	_, stderr, code := runGateTest(t, "-C", root, "--log", log, "env")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("gate = %d, stderr = %q", code, stderr))
+	output, _ := splitLog(t, log)
+	qt.Check(t, qt.StringContains(output, "PWD="+root+"\n"))
+}
+
 // CI-derived env can name GATE_ACTIVE_ROOTS; config cannot. The mark still
 // has to win, or a workflow env on a bun run step that itself runs gate
 // re-enters detection.

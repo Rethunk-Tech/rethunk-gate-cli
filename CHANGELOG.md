@@ -8,6 +8,7 @@ Notable changes to `gate`. The format follows
 
 ### Changed
 
+- Gates run with `PWD` set to their own directory, so Go's test cache still hits when `gate` starts from another one.
 - Gates run with `GORACE=atexit_sleep_ms=0` unless `GORACE` is set, so a race-built test binary no longer sleeps a second at exit.
 
 ### Fixed
