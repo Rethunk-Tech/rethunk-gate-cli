@@ -191,59 +191,11 @@ func writeListing(w io.Writer, project detect.Project, files []string, opts opti
 
 	for _, group := range groups {
 		for n, i := range group {
-			spec := opts.gates[i]
 			lead := "  "
 			if n > 0 {
 				lead = "  then "
 			}
-			if spec.role != "" {
-				fmt.Fprintf(w, "%s%-10s %s\n", lead, spec.role, spec.display)
-				fmt.Fprintf(w, "        from %s\n", spec.source)
-				// A gate showing a summary still has to show its working
-				// here: --list is the surface that answers "what exactly
-				// runs", and a detector you cannot inspect is one you end up
-				// fighting.
-				//
-				// Not for a shell gate, whose argv is the display with `sh -c`
-				// in front of it. Printing that restates the line above with a
-				// prefix, which is noise on every project that configures a
-				// gate -- and noise is how a listing stops being read.
-				argv := strings.Join(spec.argv, " ")
-				if argv != spec.display && !slices.Equal(spec.argv, shellArgv(spec.display)) {
-					fmt.Fprintf(w, "        runs %s\n", argv)
-				}
-				for _, shadowed := range spec.shadowed {
-					fmt.Fprintf(w, "        shadows %s\n", shadowed)
-				}
-				// Configuration beyond run, printed where it differs from
-				// the default. A gate without any of these prints exactly
-				// what it always did. serial is a flag with no value, like
-				// allow-failure: grouping already shows order among more
-				// than one, but a lone serial gate has no then line.
-				if dir := spec.listDir(); dir != "" {
-					fmt.Fprintf(w, "        dir %s\n", dir)
-				}
-				if len(spec.env) > 0 {
-					fmt.Fprintf(w, "        env %s\n", formatEnv(spec.env))
-				}
-				if spec.allowFailure {
-					fmt.Fprintf(w, "        allow-failure\n")
-				}
-				if spec.serial {
-					fmt.Fprintf(w, "        serial\n")
-				}
-				if timeout := spec.listTimeout(); timeout != "" {
-					fmt.Fprintf(w, "        timeout %s\n", timeout)
-				}
-				switch {
-				case spec.e2e && opts.skipE2E:
-					fmt.Fprintf(w, "        e2e, skipped by default\n")
-				case spec.e2e:
-					fmt.Fprintf(w, "        e2e\n")
-				}
-				continue
-			}
-			fmt.Fprintf(w, "%s%s\n", lead, spec.display)
+			writeListedGate(w, lead, opts.gates[i], opts.skipE2E)
 		}
 	}
 
@@ -251,6 +203,59 @@ func writeListing(w io.Writer, project detect.Project, files []string, opts opti
 		fmt.Fprintf(w, "config %s\n", f)
 	}
 	writeNotes(w, project)
+}
+
+// writeListedGate prints one gate: a role with where it came from and every
+// setting that differs from the default, or a bare command.
+func writeListedGate(w io.Writer, lead string, spec gateSpec, skipE2E bool) {
+	if spec.role == "" {
+		fmt.Fprintf(w, "%s%s\n", lead, spec.display)
+		return
+	}
+	fmt.Fprintf(w, "%s%-10s %s\n", lead, spec.role, spec.display)
+	fmt.Fprintf(w, "        from %s\n", spec.source)
+	// A gate showing a summary still has to show its working
+	// here: --list is the surface that answers "what exactly
+	// runs", and a detector you cannot inspect is one you end up
+	// fighting.
+	//
+	// Not for a shell gate, whose argv is the display with `sh -c`
+	// in front of it. Printing that restates the line above with a
+	// prefix, which is noise on every project that configures a
+	// gate -- and noise is how a listing stops being read.
+	argv := strings.Join(spec.argv, " ")
+	if argv != spec.display && !slices.Equal(spec.argv, shellArgv(spec.display)) {
+		fmt.Fprintf(w, "        runs %s\n", argv)
+	}
+	for _, shadowed := range spec.shadowed {
+		fmt.Fprintf(w, "        shadows %s\n", shadowed)
+	}
+	// Configuration beyond run, printed where it differs from
+	// the default. A gate without any of these prints exactly
+	// what it always did. serial is a flag with no value, like
+	// allow-failure: grouping already shows order among more
+	// than one, but a lone serial gate has no then line.
+	if dir := spec.listDir(); dir != "" {
+		fmt.Fprintf(w, "        dir %s\n", dir)
+	}
+	if len(spec.env) > 0 {
+		fmt.Fprintf(w, "        env %s\n", formatEnv(spec.env))
+	}
+	if spec.allowFailure {
+		fmt.Fprintf(w, "        allow-failure\n")
+	}
+	if spec.serial {
+		fmt.Fprintf(w, "        serial\n")
+	}
+	if timeout := spec.listTimeout(); timeout != "" {
+		fmt.Fprintf(w, "        timeout %s\n", timeout)
+	}
+	switch {
+	case spec.e2e && skipE2E:
+		fmt.Fprintf(w, "        e2e, skipped by default\n")
+	case spec.e2e:
+		fmt.Fprintf(w, "        e2e\n")
+	}
 }
 
 // skippedE2E counts the e2e gates this invocation leaves out.

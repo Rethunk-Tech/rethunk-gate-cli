@@ -34,7 +34,6 @@ import (
 // of another gate that the script's own lines run stays in the script, and
 // that gate is split or dropped. What the script never names still runs.
 func dedupe(gates []gateSpec) ([]gateSpec, []string) {
-	var notes []string
 	work := make([][]detect.Step, len(gates))
 	for i, g := range gates {
 		work[i] = detect.Work(g.dir, gateCommand(g))
@@ -44,6 +43,34 @@ func dedupe(gates []gateSpec) ([]gateSpec, []string) {
 	for i := range gates {
 		alive[i] = gates[i].role != ""
 	}
+	notes := mergeSameWork(gates, work, alive)
+
+	p := dedupePlan{gates: gates, work: work, claims: scriptClaims(gates, work, alive)}
+	p.holders = p.stepHolders(alive)
+
+	var out []gateSpec
+	for i := range gates {
+		if !alive[i] {
+			if gates[i].role == "" {
+				out = append(out, gates[i])
+			}
+			continue
+		}
+		g, keep, note := p.resolve(i)
+		if note != "" {
+			notes = append(notes, note)
+		}
+		if keep {
+			out = append(out, g)
+		}
+	}
+	return out, notes
+}
+
+// mergeSameWork folds gates whose steps are the same in the same directory
+// into the more specific one, clearing alive for the one merged away.
+func mergeSameWork(gates []gateSpec, work [][]detect.Step, alive []bool) []string {
+	var notes []string
 	for i := range gates {
 		for j := i + 1; j < len(gates) && alive[i]; j++ {
 			if !alive[j] || gates[i].dir != gates[j].dir || !slices.Equal(stepKeys(work[i]), stepKeys(work[j])) {
@@ -58,102 +85,117 @@ func dedupe(gates []gateSpec) ([]gateSpec, []string) {
 				": both run `"+keep.display+"` in the same directory")
 		}
 	}
+	return notes
+}
 
-	claims := scriptClaims(gates, work, alive)
-
+// dedupePlan is what deciding which gate keeps a shared step needs.
+type dedupePlan struct {
+	gates  []gateSpec
+	work   [][]detect.Step
+	claims [][]detect.Step
 	// holders[dir][key] is every live gate running that step there.
+	holders map[string]map[string][]int
+}
+
+func (p *dedupePlan) stepHolders(alive []bool) map[string]map[string][]int {
 	holders := map[string]map[string][]int{}
-	for i := range gates {
+	for i := range p.gates {
 		if !alive[i] {
 			continue
 		}
-		if holders[gates[i].dir] == nil {
-			holders[gates[i].dir] = map[string][]int{}
+		dir := p.gates[i].dir
+		if holders[dir] == nil {
+			holders[dir] = map[string][]int{}
 		}
-		for _, k := range stepKeys(append(slices.Clone(work[i]), claims[i]...)) {
-			holders[gates[i].dir][k] = append(holders[gates[i].dir][k], i)
+		for _, k := range stepKeys(append(slices.Clone(p.work[i]), p.claims[i]...)) {
+			holders[dir][k] = append(holders[dir][k], i)
 		}
 	}
-	claimed := func(i int, key string) bool {
-		return slices.ContainsFunc(claims[i], func(s detect.Step) bool { return s.Key == key })
-	}
-	size := func(i int) int { return len(stepKeys(work[i])) }
-	// owner is the gate a shared step stays in: a default run's gate before an
-	// opt-in e2e one, then a script that runs it, then the fewest steps, then
-	// the first scheduled.
-	owner := func(key string, held []int) int {
-		return slices.MinFunc(held, func(a, b int) int {
-			if gates[a].e2e != gates[b].e2e {
-				if gates[a].e2e {
-					return 1
-				}
-				return -1
-			}
-			if ca, cb := claimed(a, key), claimed(b, key); ca != cb {
-				if ca {
-					return -1
-				}
+	return holders
+}
+
+func (p *dedupePlan) claimed(i int, key string) bool {
+	return slices.ContainsFunc(p.claims[i], func(s detect.Step) bool { return s.Key == key })
+}
+
+func (p *dedupePlan) size(i int) int { return len(stepKeys(p.work[i])) }
+
+// owner is the gate a shared step stays in: a default run's gate before an
+// opt-in e2e one, then a script that runs it, then the fewest steps, then
+// the first scheduled.
+func (p *dedupePlan) owner(key string, held []int) int {
+	return slices.MinFunc(held, func(a, b int) int {
+		if p.gates[a].e2e != p.gates[b].e2e {
+			if p.gates[a].e2e {
 				return 1
 			}
-			if size(a) != size(b) {
-				return size(a) - size(b)
+			return -1
+		}
+		if ca, cb := p.claimed(a, key), p.claimed(b, key); ca != cb {
+			if ca {
+				return -1
 			}
-			return a - b
-		})
-	}
+			return 1
+		}
+		if p.size(a) != p.size(b) {
+			return p.size(a) - p.size(b)
+		}
+		return a - b
+	})
+}
 
-	var out []gateSpec
-	for i := range gates {
-		if !alive[i] {
-			if gates[i].role == "" {
-				out = append(out, gates[i])
-			}
-			continue
-		}
-		var kept []detect.Step
-		var coveredBy []string
-		instrumented := ""
-		for _, s := range work[i] {
-			by := -1
-			for _, k := range slices.Sorted(maps.Keys(holders[gates[i].dir])) {
-				held := holders[gates[i].dir][k]
-				if plain, how := (detect.Step{Key: k}).Instrumented(); how != "" && plain == s.Key && !slices.Contains(held, i) {
-					by, instrumented = owner(k, held), how
-					break
-				}
-			}
-			if by < 0 {
-				if o := owner(s.Key, holders[gates[i].dir][s.Key]); o != i {
-					by = o
-				}
-			}
-			if by < 0 {
-				kept = append(kept, s)
-			} else if !slices.Contains(coveredBy, gates[by].role) {
-				coveredBy = append(coveredBy, gates[by].role)
-			}
-		}
-		g := gates[i]
-		switch {
-		case len(coveredBy) == 0:
-			out = append(out, g)
-		case len(kept) == 0 && instrumented != "" && len(coveredBy) == 1:
-			notes = append(notes, "dropped "+g.role+" (`"+g.display+"`): "+coveredBy[0]+" runs the same suite with "+instrumented)
-		case len(kept) == 0:
-			notes = append(notes, "dropped "+g.role+" (`"+g.display+"`): "+already(coveredBy)+" everything it does")
-		default:
-			texts := make([]string, len(kept))
-			for n, s := range kept {
-				texts[n] = s.Text
-			}
-			g.display = strings.Join(texts, " && ")
-			g.argv = shellArgv(g.display)
-			g.source += ", split"
-			notes = append(notes, "split "+g.role+" to `"+g.display+"`: "+already(coveredBy)+" the rest")
-			out = append(out, g)
+// coveredBy is the gate that runs step s of gate i instead, or -1 when gate i
+// keeps it. instrumented names how, when the other gate runs it with coverage
+// or -race.
+func (p *dedupePlan) coveredBy(i int, s detect.Step) (by int, instrumented string) {
+	byKey := p.holders[p.gates[i].dir]
+	for _, k := range slices.Sorted(maps.Keys(byKey)) {
+		held := byKey[k]
+		if plain, how := (detect.Step{Key: k}).Instrumented(); how != "" && plain == s.Key && !slices.Contains(held, i) {
+			return p.owner(k, held), how
 		}
 	}
-	return out, notes
+	if o := p.owner(s.Key, byKey[s.Key]); o != i {
+		return o, ""
+	}
+	return -1, ""
+}
+
+// resolve decides what becomes of gate i: kept whole, dropped, or split to
+// the steps no other gate runs. note is empty when nothing changed.
+func (p *dedupePlan) resolve(i int) (g gateSpec, keep bool, note string) {
+	var kept []detect.Step
+	var covered []string
+	instrumented := ""
+	for _, s := range p.work[i] {
+		by, how := p.coveredBy(i, s)
+		switch {
+		case by < 0:
+			kept = append(kept, s)
+		case !slices.Contains(covered, p.gates[by].role):
+			covered = append(covered, p.gates[by].role)
+		}
+		if how != "" {
+			instrumented = how
+		}
+	}
+	g = p.gates[i]
+	switch {
+	case len(covered) == 0:
+		return g, true, ""
+	case len(kept) == 0 && instrumented != "" && len(covered) == 1:
+		return g, false, "dropped " + g.role + " (`" + g.display + "`): " + covered[0] + " runs the same suite with " + instrumented
+	case len(kept) == 0:
+		return g, false, "dropped " + g.role + " (`" + g.display + "`): " + already(covered) + " everything it does"
+	}
+	texts := make([]string, len(kept))
+	for n, s := range kept {
+		texts[n] = s.Text
+	}
+	g.display = strings.Join(texts, " && ")
+	g.argv = shellArgv(g.display)
+	g.source += ", split"
+	return g, true, "split " + g.role + " to `" + g.display + "`: " + already(covered) + " the rest"
 }
 
 // scriptClaims is, per gate that runs one script file, the steps of other

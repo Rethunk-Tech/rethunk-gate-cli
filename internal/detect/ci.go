@@ -53,97 +53,116 @@ func ciScriptGates(proj *Project) {
 		return
 	}
 	ws := proj.workspaceOrRoot()
-	runner := packageRunner(ws)
-	turbo := ""
+	b := &ciGateBuilder{proj: proj, pkg: pkg, runner: packageRunner(ws), blocked: map[string]string{}}
 	if exists(filepath.Join(ws, "turbo.json")) {
-		turbo = resolve(ws, proj, "turbo")
+		b.turbo = resolve(ws, proj, "turbo")
 	}
 
-	var added []Gate
-	blocked := map[string]string{}
-	have := func(name string) bool {
-		match := func(g Gate) bool { return g.Name == name }
-		return slices.ContainsFunc(proj.Gates, match) || slices.ContainsFunc(added, match)
-	}
-	add := func(name string, argv []string, st ciStep, via string) {
-		if slices.Contains(declaredNames, name) || have(name) {
-			return
-		}
-		if st.blocked != "" {
-			if _, seen := blocked[name]; !seen {
-				blocked[name] = "CI step `" + st.run + "` (" + st.where + ") is not run: " + st.blocked
-			}
-			return
-		}
-		added = append(added, Gate{
-			Name:     name,
-			Argv:     argv,
-			Source:   "CI step `" + st.run + "` (" + st.where + ")" + via,
-			Serial:   true,
-			Declared: true,
-			Env:      st.env,
-		})
-	}
-
-	var expand func(script string, st ciStep, seen []string)
-	expand = func(script string, st ciStep, seen []string) {
-		body, ok := pkg.Scripts[script]
-		if !ok || slices.Contains(seen, script) || slices.Contains(declaredNames, script) {
-			return
-		}
-		// An aggregate gate declined is one whose roles are already gates;
-		// what it runs beyond them is what is left to cover.
-		if !slices.Contains(aggregateNames, script) || have(script) {
-			via := ""
-			if len(seen) > 0 {
-				via = ", " + packageSource + script
-			}
-			add(script, append(slices.Clone(runner), script), st, via)
-			return
-		}
-		seen = append(seen, script)
-		segs, ok := andChain(body)
-		if !ok {
-			return
-		}
-		for _, seg := range segs {
-			c, ok := parseRun(seg)
-			if !ok {
-				continue
-			}
-			for _, task := range c.tasks() {
-				name := strings.TrimPrefix(task, "//#")
-				if turbo != "" {
-					add(name, []string{turbo, "run", task}, st, ", turbo task "+task)
-				} else if _, ok := pkg.Scripts[name]; ok {
-					add(name, append(slices.Clone(runner), name), st, ", "+packageSource+name)
-				}
-			}
-			if name := c.scriptName(); name != "" {
-				expand(name, st, seen)
-			}
-		}
-	}
 	for _, st := range steps {
 		if st.filter != "" {
-			if runner[0] == "bun" {
-				add(st.script, append(slices.Clone(runner), "--filter", st.filter, st.script), st, "")
+			if b.runner[0] == "bun" {
+				b.add(st.script, append(slices.Clone(b.runner), "--filter", st.filter, st.script), st, "")
 			}
 			continue
 		}
-		expand(st.script, st, nil)
+		b.expand(st.script, st, nil)
 	}
-	if len(added) > 0 {
+	b.finish()
+}
+
+// ciGateBuilder collects the gates CI steps add to a project.
+type ciGateBuilder struct {
+	proj    *Project
+	pkg     packageJSON
+	runner  []string
+	turbo   string
+	added   []Gate
+	blocked map[string]string
+}
+
+func (b *ciGateBuilder) have(name string) bool {
+	match := func(g Gate) bool { return g.Name == name }
+	return slices.ContainsFunc(b.proj.Gates, match) || slices.ContainsFunc(b.added, match)
+}
+
+func (b *ciGateBuilder) add(name string, argv []string, st ciStep, via string) {
+	if slices.Contains(declaredNames, name) || b.have(name) {
+		return
+	}
+	if st.blocked != "" {
+		if _, seen := b.blocked[name]; !seen {
+			b.blocked[name] = "CI step `" + st.run + "` (" + st.where + ") is not run: " + st.blocked
+		}
+		return
+	}
+	b.added = append(b.added, Gate{
+		Name:     name,
+		Argv:     argv,
+		Source:   "CI step `" + st.run + "` (" + st.where + ")" + via,
+		Serial:   true,
+		Declared: true,
+		Env:      st.env,
+	})
+}
+
+func (b *ciGateBuilder) expand(script string, st ciStep, seen []string) {
+	body, ok := b.pkg.Scripts[script]
+	if !ok || slices.Contains(seen, script) || slices.Contains(declaredNames, script) {
+		return
+	}
+	// An aggregate gate declined is one whose roles are already gates;
+	// what it runs beyond them is what is left to cover.
+	if !slices.Contains(aggregateNames, script) || b.have(script) {
+		via := ""
+		if len(seen) > 0 {
+			via = ", " + packageSource + script
+		}
+		b.add(script, append(slices.Clone(b.runner), script), st, via)
+		return
+	}
+	seen = append(seen, script)
+	segs, ok := andChain(body)
+	if !ok {
+		return
+	}
+	for _, seg := range segs {
+		c, ok := parseRun(seg)
+		if !ok {
+			continue
+		}
+		b.addTasks(c, st)
+		if name := c.scriptName(); name != "" {
+			b.expand(name, st, seen)
+		}
+	}
+}
+
+func (b *ciGateBuilder) addTasks(c runCall, st ciStep) {
+	for _, task := range c.tasks() {
+		name := strings.TrimPrefix(task, "//#")
+		if b.turbo != "" {
+			b.add(name, []string{b.turbo, "run", task}, st, ", turbo task "+task)
+		} else if _, ok := b.pkg.Scripts[name]; ok {
+			b.add(name, append(slices.Clone(b.runner), name), st, ", "+packageSource+name)
+		}
+	}
+}
+
+// finish adds the collected gates, behind a serial build, and notes the
+// blocked ones nothing else covers.
+func (b *ciGateBuilder) finish() {
+	proj := b.proj
+	if len(b.added) > 0 {
 		for i := range proj.Gates {
 			if proj.Gates[i].Name == "build" && (proj.Gates[i].Declared || !slices.Equal(proj.Gates[i].Argv, []string{"go", "build", "./..."})) {
 				proj.Gates[i].Serial = true
 			}
 		}
-		proj.Gates = append(proj.Gates, added...)
+		proj.Gates = append(proj.Gates, b.added...)
 	}
 	var notes []string
-	for name, note := range blocked {
-		if !have(name) {
+	for name, note := range b.blocked {
+		if !b.have(name) {
 			notes = append(notes, note)
 		}
 	}
@@ -229,51 +248,59 @@ func jobSteps(lines []string, job int, where string) []ciStep {
 
 	var out []ciStep
 	for _, item := range listItems(lines, stepsAt, end) {
-		step := slices.Clone(lines[item[0]:item[1]])
-		step[0] = strings.Replace(step[0], "- ", "  ", 1)
-		st := ciStep{where: where, blocked: blocked, env: map[string]string{}}
-		skip := false
-		for key, i := range children(append([]string{""}, step...), 0) {
-			_, value, _ := strings.Cut(step[i-1], ":")
-			switch key {
-			case "run":
-				st.run = stripComment(unquote(strings.TrimSpace(value)))
-			case "working-directory":
-				skip = true
-			case "env":
-				maps.Copy(st.env, mapping(step, i-1))
-			}
+		if st, ok := scriptStepOf(lines[item[0]:item[1]], where, blocked, env); ok {
+			out = append(out, st)
 		}
-		if skip {
-			continue
-		}
-		if m := scriptStep.FindStringSubmatch(st.run); m != nil {
-			st.script = m[1]
-		} else if m := filteredScriptStep.FindStringSubmatch(st.run); m != nil {
-			st.filter, st.script = m[1], m[2]
-		} else {
-			continue
-		}
-		for k, v := range env {
-			if _, set := st.env[k]; !set {
-				st.env[k] = v
-			}
-		}
-		for _, v := range st.env {
-			if strings.Contains(v, "${{") && st.blocked == "" {
-				st.blocked = "CI supplies it ${{ }} values"
-			}
-		}
-		// The runner sets CI on every step. Playwright's usual
-		// reuseExistingServer: !process.env.CI otherwise tests whatever app
-		// already holds the port -- another project's dev server passing
-		// this project's e2e suite.
-		if _, set := st.env["CI"]; !set {
-			st.env["CI"] = "true"
-		}
-		out = append(out, st)
 	}
 	return out
+}
+
+// scriptStepOf reads one step of a job, or reports that it runs no package
+// script at the root.
+func scriptStepOf(lines []string, where, blocked string, jobEnv map[string]string) (ciStep, bool) {
+	step := slices.Clone(lines)
+	step[0] = strings.Replace(step[0], "- ", "  ", 1)
+	st := ciStep{where: where, blocked: blocked, env: map[string]string{}}
+	skip := false
+	for key, i := range children(append([]string{""}, step...), 0) {
+		_, value, _ := strings.Cut(step[i-1], ":")
+		switch key {
+		case "run":
+			st.run = stripComment(unquote(strings.TrimSpace(value)))
+		case "working-directory":
+			skip = true
+		case "env":
+			maps.Copy(st.env, mapping(step, i-1))
+		}
+	}
+	if skip {
+		return st, false
+	}
+	if m := scriptStep.FindStringSubmatch(st.run); m != nil {
+		st.script = m[1]
+	} else if m := filteredScriptStep.FindStringSubmatch(st.run); m != nil {
+		st.filter, st.script = m[1], m[2]
+	} else {
+		return st, false
+	}
+	for k, v := range jobEnv {
+		if _, set := st.env[k]; !set {
+			st.env[k] = v
+		}
+	}
+	for _, v := range st.env {
+		if strings.Contains(v, "${{") && st.blocked == "" {
+			st.blocked = "CI supplies it ${{ }} values"
+		}
+	}
+	// The runner sets CI on every step. Playwright's usual
+	// reuseExistingServer: !process.env.CI otherwise tests whatever app
+	// already holds the port -- another project's dev server passing
+	// this project's e2e suite.
+	if _, set := st.env["CI"]; !set {
+		st.env["CI"] = "true"
+	}
+	return st, true
 }
 
 // workingDirectories lists every working-directory value in a workflow, on a

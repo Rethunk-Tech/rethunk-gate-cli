@@ -132,15 +132,18 @@ type File struct {
 	Detect   struct {
 		Exclude []string `toml:"exclude"`
 	} `toml:"detect"`
-	Gates map[string]struct {
-		Run          string            `toml:"run"`
-		Serial       *bool             `toml:"serial"`
-		Timeout      *string           `toml:"timeout"`
-		Env          map[string]string `toml:"env"`
-		Dir          *string           `toml:"dir"`
-		AllowFailure *bool             `toml:"allow-failure"`
-		E2E          *bool             `toml:"e2e"`
-	} `toml:"gates"`
+	Gates map[string]FileGate `toml:"gates"`
+}
+
+// FileGate is one [gates.<name>] table as written.
+type FileGate struct {
+	Run          string            `toml:"run"`
+	Serial       *bool             `toml:"serial"`
+	Timeout      *string           `toml:"timeout"`
+	Env          map[string]string `toml:"env"`
+	Dir          *string           `toml:"dir"`
+	AllowFailure *bool             `toml:"allow-failure"`
+	E2E          *bool             `toml:"e2e"`
 }
 
 // reservedEnv names variables a gate must not set. The runner appends a
@@ -224,8 +227,25 @@ func (c *Config) merge(path string, data []byte) error {
 	// Collected rather than returned at the first one, so a file with two bad
 	// durations is fixed in one pass -- the same reason unknown keys are
 	// reported all at once.
-	var unusable []string
+	unusable := c.mergeSettings(f)
 
+	for name, g := range f.Gates {
+		merged, problems := mergeGate(name, c.Gates[name], g, path)
+		unusable = append(unusable, problems...)
+		c.Gates[name] = merged
+	}
+
+	if len(unusable) > 0 {
+		// Sorted because map iteration is not: the same file must report the
+		// same message every time.
+		slices.Sort(unusable)
+		return fmt.Errorf("%s: unusable setting(s):\n%s", path, strings.Join(unusable, "\n"))
+	}
+	return nil
+}
+
+// mergeSettings layers the run-wide keys and returns the ones it refused.
+func (c *Config) mergeSettings(f File) (unusable []string) {
 	// Same parse as a gate's timeout, and the same refusal for a value that
 	// is not a duration.
 	if f.Budget != nil {
@@ -256,72 +276,73 @@ func (c *Config) merge(path string, data []byte) error {
 		}
 		c.Exclude = append(c.Exclude, pattern)
 	}
+	return unusable
+}
 
-	for name, g := range f.Gates {
-		merged := c.Gates[name]
-		merged.Source = path
-		if g.Run != "" {
-			merged.Run = g.Run
-		}
-		if g.Serial != nil {
-			merged.Serial, merged.HasSerial = *g.Serial, true
-		}
-		if g.Timeout != nil {
-			d, err := ParseTimeout(*g.Timeout)
-			if err != nil {
-				unusable = append(unusable, fmt.Sprintf("gates.%s.timeout %v", name, err))
-			} else {
-				merged.Timeout, merged.HasTimeout = d, true
-			}
-		}
-		// Env layers per variable, not per table: the nearer file overrides
-		// the variables it names and inherits the rest, the same promise
-		// Load makes per key. Sorted below with the rest, because map
-		// iteration would otherwise report the same file differently each
-		// time.
-		if g.Env != nil {
-			if merged.Env == nil {
-				merged.Env = map[string]string{}
-			}
-			for k, v := range g.Env {
-				if k == "" || strings.ContainsAny(k, "=\x00\n") || k == reservedEnv {
-					unusable = append(unusable, fmt.Sprintf("gates.%s.env has an unusable variable name %q", name, k))
-					continue
-				}
-				if strings.ContainsRune(v, 0) {
-					unusable = append(unusable, fmt.Sprintf("gates.%s.env %q has a NUL in its value", name, k))
-					continue
-				}
-				merged.Env[k] = v
-			}
-			merged.HasEnv = true
-		}
-		// `dir` is the one spelling, and an empty directory is refused
-		// rather than resolved against nothing, which would run the gate
-		// wherever the caller happened to stand.
-		if g.Dir != nil {
-			if *g.Dir == "" {
-				unusable = append(unusable, fmt.Sprintf("gates.%s.dir is empty", name))
-			} else {
-				merged.Dir, merged.HasDir = *g.Dir, true
-			}
-		}
-		if g.AllowFailure != nil {
-			merged.AllowFailure, merged.HasAllowFailure = *g.AllowFailure, true
-		}
-		if g.E2E != nil {
-			merged.E2E, merged.HasE2E = *g.E2E, true
-		}
-		c.Gates[name] = merged
+// mergeGate layers one file's table for a gate over what is already known
+// about it, and returns the settings it refused.
+func mergeGate(name string, merged Gate, g FileGate, path string) (Gate, []string) {
+	var unusable []string
+	merged.Source = path
+	if g.Run != "" {
+		merged.Run = g.Run
 	}
+	if g.Serial != nil {
+		merged.Serial, merged.HasSerial = *g.Serial, true
+	}
+	if g.Timeout != nil {
+		d, err := ParseTimeout(*g.Timeout)
+		if err != nil {
+			unusable = append(unusable, fmt.Sprintf("gates.%s.timeout %v", name, err))
+		} else {
+			merged.Timeout, merged.HasTimeout = d, true
+		}
+	}
+	// Env layers per variable, not per table: the nearer file overrides
+	// the variables it names and inherits the rest, the same promise
+	// Load makes per key. Sorted by the caller with the rest, because map
+	// iteration would otherwise report the same file differently each
+	// time.
+	if g.Env != nil {
+		if merged.Env == nil {
+			merged.Env = map[string]string{}
+		}
+		unusable = append(unusable, mergeEnv(name, merged.Env, g.Env)...)
+		merged.HasEnv = true
+	}
+	// `dir` is the one spelling, and an empty directory is refused
+	// rather than resolved against nothing, which would run the gate
+	// wherever the caller happened to stand.
+	if g.Dir != nil {
+		if *g.Dir == "" {
+			unusable = append(unusable, fmt.Sprintf("gates.%s.dir is empty", name))
+		} else {
+			merged.Dir, merged.HasDir = *g.Dir, true
+		}
+	}
+	if g.AllowFailure != nil {
+		merged.AllowFailure, merged.HasAllowFailure = *g.AllowFailure, true
+	}
+	if g.E2E != nil {
+		merged.E2E, merged.HasE2E = *g.E2E, true
+	}
+	return merged, unusable
+}
 
-	if len(unusable) > 0 {
-		// Sorted because map iteration is not: the same file must report the
-		// same message every time.
-		slices.Sort(unusable)
-		return fmt.Errorf("%s: unusable setting(s):\n%s", path, strings.Join(unusable, "\n"))
+// mergeEnv copies the usable variables into dst and returns the refused ones.
+func mergeEnv(gate string, dst, src map[string]string) (unusable []string) {
+	for k, v := range src {
+		if k == "" || strings.ContainsAny(k, "=\x00\n") || k == reservedEnv {
+			unusable = append(unusable, fmt.Sprintf("gates.%s.env has an unusable variable name %q", gate, k))
+			continue
+		}
+		if strings.ContainsRune(v, 0) {
+			unusable = append(unusable, fmt.Sprintf("gates.%s.env %q has a NUL in its value", gate, k))
+			continue
+		}
+		dst[k] = v
 	}
-	return nil
+	return unusable
 }
 
 // Excluded reports whether a nested or CI-run gate, named for its directory

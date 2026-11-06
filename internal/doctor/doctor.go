@@ -548,11 +548,32 @@ func checkWorkflows(proj detect.Project, add func(Finding)) {
 	// release workflow that omits it while CI enables it is not a gap, and
 	// flagging every such file would be the kind of noise that teaches
 	// people to skip the output.
-	var usesSetupGo, enablesVuln bool
-	var usesSetupPython, enablesPythonAudit bool
-	var usesSetupRust, enablesClippy bool
-	var usesSetupBun, enablesBunAudit bool
-	var setupGoWhere, setupPythonWhere, setupRustWhere, setupBunWhere string
+	tools := []*setupTool{
+		{
+			action: "gh-actions/setup-go", markers: []string{"go.mod", "go.work"},
+			input: "run-govulncheck", check: "ci-govulncheck-off", short: "setup-go",
+			effect:  "checks for known vulnerabilities",
+			enabled: func(body string) bool { return strings.Contains(body, "run-govulncheck") },
+		},
+		{
+			action: "gh-actions/setup-python", markers: []string{"pyproject.toml", "uv.lock", "requirements.txt"},
+			input: "run-audit", check: "ci-python-audit-off", short: "setup-python",
+			effect:  "runs uv audit",
+			enabled: func(body string) bool { return stepMentionsInput(body, "gh-actions/setup-python", "run-audit") },
+		},
+		{
+			action: "gh-actions/setup-rust", markers: []string{"Cargo.toml"},
+			input: "run-clippy", check: "ci-clippy-off", short: "setup-rust",
+			effect:  "runs clippy",
+			enabled: func(body string) bool { return strings.Contains(body, "run-clippy") },
+		},
+		{
+			action: "gh-actions/setup-bun", markers: []string{"bun.lock", "bun.lockb", "package.json"},
+			input: "run-audit", check: "ci-bun-audit-off", short: "setup-bun",
+			effect:  "runs audit-bun",
+			enabled: func(body string) bool { return stepMentionsInput(body, "gh-actions/setup-bun", "run-audit") },
+		},
+	}
 
 	for _, entry := range entries {
 		if entry.IsDir() || !isYAML(entry.Name()) {
@@ -563,141 +584,112 @@ func checkWorkflows(proj detect.Project, add func(Finding)) {
 		if body == "" {
 			continue
 		}
+		for _, t := range tools {
+			t.observe(body, path, []string{root, proj.Root})
+		}
+		checkWorkflowFile(body, path, root, proj, add)
+	}
+	for _, t := range tools {
+		t.report(add)
+	}
+}
 
-		if strings.Contains(body, "gh-actions/setup-go") && stepHasProject(body, "gh-actions/setup-go", []string{root, proj.Root}, []string{"go.mod", "go.work"}) {
-			usesSetupGo = true
-			if setupGoWhere == "" {
-				setupGoWhere = path
-			}
-			if strings.Contains(body, "run-govulncheck") {
-				enablesVuln = true
-			}
-		}
-		if strings.Contains(body, "gh-actions/setup-python") && stepHasProject(body, "gh-actions/setup-python", []string{root, proj.Root}, []string{"pyproject.toml", "uv.lock", "requirements.txt"}) {
-			usesSetupPython = true
-			if setupPythonWhere == "" {
-				setupPythonWhere = path
-			}
-			if stepMentionsInput(body, "gh-actions/setup-python", "run-audit") {
-				enablesPythonAudit = true
-			}
-		}
-		if strings.Contains(body, "gh-actions/setup-rust") && stepHasProject(body, "gh-actions/setup-rust", []string{root, proj.Root}, []string{"Cargo.toml"}) {
-			usesSetupRust = true
-			if setupRustWhere == "" {
-				setupRustWhere = path
-			}
-			if strings.Contains(body, "run-clippy") {
-				enablesClippy = true
-			}
-		}
-		if strings.Contains(body, "gh-actions/setup-bun") && stepHasProject(body, "gh-actions/setup-bun", []string{root, proj.Root}, []string{"bun.lock", "bun.lockb", "package.json"}) {
-			usesSetupBun = true
-			if setupBunWhere == "" {
-				setupBunWhere = path
-			}
-			if stepMentionsInput(body, "gh-actions/setup-bun", "run-audit") {
-				enablesBunAudit = true
-			}
-		}
+// setupTool tracks one shared setup action across a repository's workflows:
+// whether any of them sets it up for a project that has the markers, and
+// whether any enables the opt-in input.
+type setupTool struct {
+	action, input, check, short, effect string
+	markers                             []string
+	enabled                             func(body string) bool
 
-		if strings.Contains(body, "setup-bun") && strings.Contains(body, "corepack enable") {
+	used, on bool
+	where    string
+}
+
+func (t *setupTool) observe(body, path string, bases []string) {
+	if !strings.Contains(body, t.action) || !stepHasProject(body, t.action, bases, t.markers) {
+		return
+	}
+	t.used = true
+	if t.where == "" {
+		t.where = path
+	}
+	if t.enabled(body) {
+		t.on = true
+	}
+}
+
+func (t *setupTool) report(add func(Finding)) {
+	if !t.used || t.on {
+		return
+	}
+	add(Finding{
+		Warn:  true,
+		Check: t.check,
+		Where: t.where,
+		What:  "no workflow enables " + t.input + " on " + t.short,
+		Why:   "that input defaults to false, so CI never " + t.effect + " anywhere in this repo",
+		Fix:   "set " + t.input + `: "true" on the ` + t.short + " step",
+	})
+}
+
+// checkWorkflowFile reports the gaps one workflow file has on its own.
+func checkWorkflowFile(body, path, root string, proj detect.Project, add func(Finding)) {
+	if strings.Contains(body, "setup-bun") && strings.Contains(body, "corepack enable") {
+		add(Finding{
+			Warn:  true,
+			Check: "corepack-with-setup-bun",
+			Where: path,
+			What:  "corepack enable runs alongside setup-bun",
+			Why:   "corepack manages npm/yarn/pnpm shims and fights the bun toolchain this workflow already installed",
+			Fix:   "drop the corepack enable step",
+		})
+	}
+
+	for _, ref := range actionRefs(body) {
+		if floatingRef(ref.ref) {
 			add(Finding{
-				Warn:  true,
-				Check: "corepack-with-setup-bun",
+				Check: "actions-floating-ref",
 				Where: path,
-				What:  "corepack enable runs alongside setup-bun",
-				Why:   "corepack manages npm/yarn/pnpm shims and fights the bun toolchain this workflow already installed",
-				Fix:   "drop the corepack enable step",
+				What:  "shared action pinned to a moving ref (" + ref.ref + ")",
+				Why:   "a moving ref changes what CI runs without any commit here recording it",
+				Fix:   "pin to the commit SHA of tag " + knownGoodActionsTag + ", with the tag in a trailing comment",
 			})
+			continue
 		}
-
-		for _, ref := range actionRefs(body) {
-			if floatingRef(ref.ref) {
-				add(Finding{
-					Check: "actions-floating-ref",
-					Where: path,
-					What:  "shared action pinned to a moving ref (" + ref.ref + ")",
-					Why:   "a moving ref changes what CI runs without any commit here recording it",
-					Fix:   "pin to the commit SHA of tag " + knownGoodActionsTag + ", with the tag in a trailing comment",
-				})
-				continue
-			}
-			if olderThanKnownGood(ref.version()) {
-				add(Finding{
-					Check: "actions-stale-ref",
-					Where: path,
-					What:  "shared action pinned to " + ref.ref,
-					Why:   "that pin is " + ref.version() + " and this build knows of " + knownGoodActionsTag + "; newer tags are not flagged, so this really is behind",
-					Fix:   "bump to " + knownGoodActionsTag + " or newer",
-				})
-			}
-		}
-
-		if usesMatrix(body) && gatesPullRequests(body) && !hasAggregatingGate(body) {
+		if olderThanKnownGood(ref.version()) {
 			add(Finding{
-				Warn:  true,
-				Check: "ci-no-final-gate",
+				Check: "actions-stale-ref",
 				Where: path,
-				What:  "independent checks with no single aggregating job",
-				Why:   "branch protection can only require named jobs, so a matrix leg that never ran reads as 'not failing' rather than 'not run'",
-				Fix:   "add one job with `if: always()` that needs the others and fails unless every result is success",
-			})
-		}
-
-		// The lockfile is the repository's in a workspace and the package's in
-		// a standalone project living in a subdirectory; either one makes bunx
-		// the right tool for this workflow.
-		if strings.Contains(body, "npx ") && (detect.IsBunWorkspace(root) || detect.IsBunWorkspace(proj.Root)) {
-			add(Finding{
-				Warn:  true,
-				Check: "npx-in-bun-workspace",
-				Where: path,
-				What:  "npx runs inside a bun workspace",
-				Why:   "npx can strand a package-lock.json, which Next then takes as the Turbopack root",
-				Fix:   "use bunx",
+				What:  "shared action pinned to " + ref.ref,
+				Why:   "that pin is " + ref.version() + " and this build knows of " + knownGoodActionsTag + "; newer tags are not flagged, so this really is behind",
+				Fix:   "bump to " + knownGoodActionsTag + " or newer",
 			})
 		}
 	}
 
-	if usesSetupGo && !enablesVuln {
+	if usesMatrix(body) && gatesPullRequests(body) && !hasAggregatingGate(body) {
 		add(Finding{
 			Warn:  true,
-			Check: "ci-govulncheck-off",
-			Where: setupGoWhere,
-			What:  "no workflow enables run-govulncheck on setup-go",
-			Why:   "that input defaults to false, so CI never checks for known vulnerabilities anywhere in this repo",
-			Fix:   `set run-govulncheck: "true" on the setup-go step`,
+			Check: "ci-no-final-gate",
+			Where: path,
+			What:  "independent checks with no single aggregating job",
+			Why:   "branch protection can only require named jobs, so a matrix leg that never ran reads as 'not failing' rather than 'not run'",
+			Fix:   "add one job with `if: always()` that needs the others and fails unless every result is success",
 		})
 	}
-	if usesSetupPython && !enablesPythonAudit {
+
+	// The lockfile is the repository's in a workspace and the package's in
+	// a standalone project living in a subdirectory; either one makes bunx
+	// the right tool for this workflow.
+	if strings.Contains(body, "npx ") && (detect.IsBunWorkspace(root) || detect.IsBunWorkspace(proj.Root)) {
 		add(Finding{
 			Warn:  true,
-			Check: "ci-python-audit-off",
-			Where: setupPythonWhere,
-			What:  "no workflow enables run-audit on setup-python",
-			Why:   "that input defaults to false, so CI never runs uv audit anywhere in this repo",
-			Fix:   `set run-audit: "true" on the setup-python step`,
-		})
-	}
-	if usesSetupRust && !enablesClippy {
-		add(Finding{
-			Warn:  true,
-			Check: "ci-clippy-off",
-			Where: setupRustWhere,
-			What:  "no workflow enables run-clippy on setup-rust",
-			Why:   "that input defaults to false, so CI never runs clippy anywhere in this repo",
-			Fix:   `set run-clippy: "true" on the setup-rust step`,
-		})
-	}
-	if usesSetupBun && !enablesBunAudit {
-		add(Finding{
-			Warn:  true,
-			Check: "ci-bun-audit-off",
-			Where: setupBunWhere,
-			What:  "no workflow enables run-audit on setup-bun",
-			Why:   "that input defaults to false, so CI never runs audit-bun anywhere in this repo",
-			Fix:   `set run-audit: "true" on the setup-bun step`,
+			Check: "npx-in-bun-workspace",
+			Where: path,
+			What:  "npx runs inside a bun workspace",
+			Why:   "npx can strand a package-lock.json, which Next then takes as the Turbopack root",
+			Fix:   "use bunx",
 		})
 	}
 }

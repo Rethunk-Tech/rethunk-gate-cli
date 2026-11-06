@@ -149,6 +149,75 @@ func detectOne(ctx context.Context, dir string) (Project, error) {
 		return Project{}, err
 	}
 
+	proj := locateProject(abs)
+	c := newClaims()
+
+	// Highest precedence first. A Makefile target is a deliberate wrapper --
+	// it usually adds flags the bare convention would miss -- so it outranks
+	// a package script, and both outrank anything merely inferred.
+	for _, g := range makefileGates(proj.Root) {
+		c.claim(g)
+	}
+	// Turbo outranks the package scripts it orchestrates: where a task graph is
+	// declared, `turbo run test` is the project's real entry point and already
+	// handles caching and cross-package ordering.
+	if gates := turboGates(proj.workspaceOrRoot(), &proj); len(gates) > 0 {
+		proj.Notes = append(proj.Notes, "turbo.json found; delegating to turbo rather than scheduling its tasks here")
+		for _, g := range gates {
+			c.claim(g)
+		}
+	}
+	for _, g := range packageJSONGates(proj.Root, proj.workspaceOrRoot()) {
+		c.claim(g)
+	}
+	convention, skipped := conventionGates(ctx, proj.Root, &proj)
+	for _, g := range convention {
+		c.claim(g)
+	}
+	// A gate the ladder could not build is said out loud rather than dropped,
+	// but only where the role is still empty: a declaration outranks the
+	// convention that would have filled it, and a listing that shows the gate
+	// beside a note that it was skipped contradicts itself.
+	for _, s := range skipped {
+		if _, claimed := c.byName[s.Role]; !claimed {
+			proj.Notes = append(proj.Notes, s.Note)
+			proj.Skipped = append(proj.Skipped, s)
+		}
+	}
+
+	// One aggregate at most, whichever the project spelled first in
+	// aggregateNames. Several are the same thing under several names, and
+	// running two of them runs the pipeline twice.
+	var aggregate Gate
+	var hasAggregate bool
+	for _, name := range aggregateNames {
+		if g, ok := c.byName[name]; ok && !hasAggregate {
+			aggregate, hasAggregate = g, true
+		}
+		delete(c.byName, name)
+	}
+
+	for _, name := range gateOrder {
+		if g, ok := c.byName[name]; ok {
+			proj.Gates = append(proj.Gates, g)
+		}
+	}
+	for _, chain := range c.shadowOrder {
+		if !ciRunsToolchain(proj.Root, chain) {
+			proj.Notes = append(proj.Notes, chain+" gates share roles with another toolchain here, but CI never runs "+chain+"; not run")
+			continue
+		}
+		proj.Gates = append(proj.Gates, shadowedGate(proj.Root, chain, c.shadowed[chain], &proj))
+	}
+	if hasAggregate {
+		addAggregate(&proj, aggregate)
+	}
+	return proj, nil
+}
+
+// locateProject finds the project root and workspace above abs, and the
+// installs their lockfiles call for.
+func locateProject(abs string) Project {
 	proj := Project{Root: abs}
 	if root, ok := findUp(abs, manifestNames); ok {
 		proj.Root = root
@@ -167,132 +236,85 @@ func detectOne(ctx context.Context, dir string) (Project, error) {
 			proj.Installs = append(proj.Installs, Install{Dir: uvRoot, Argv: argv})
 		}
 	}
+	return proj
+}
 
-	byName := map[string]Gate{}
+// gateClaims holds the gates collected so far, one per role.
+type gateClaims struct {
+	byName map[string]Gate
 	// shadowed is the convention gates of one toolchain that lost a role to
 	// another source in the same directory: a Go module beside a package.json
 	// that declares build, lint and test. Dropping them left CI's go build,
 	// vet and race tests unrun.
-	shadowed := map[string][]Gate{}
-	var shadowOrder []string
-	claim := func(g Gate) {
-		if existing, taken := byName[g.Name]; taken {
-			if chain, lost := conventionToolchain(g.Source); lost && shadowsAcross(chain, existing.Source) {
-				if _, seen := shadowed[chain]; !seen {
-					shadowOrder = append(shadowOrder, chain)
-				}
-				shadowed[chain] = append(shadowed[chain], g)
-			}
-			// turbo runs the package script of the same name, so those two are
-			// one declaration written in two places rather than two that
-			// disagree. Reporting it would fire on the ordinary monorepo shape
-			// -- and the fix a shadow warning names, removing one of them,
-			// would break the project.
-			if strings.HasPrefix(existing.Source, turboSource) && strings.HasPrefix(g.Source, packageSource) {
-				return
-			}
-			// Two declarations for one role. The winner was decided by the
-			// order these are collected in, and the loser is recorded rather
-			// than dropped: quietly choosing between two stated intents is the
-			// one behaviour that would make this untrustable.
-			if g.Declared && existing.Display() != g.Display() {
-				existing.Shadowed = append(existing.Shadowed, g.Source+": "+g.Display())
-				byName[g.Name] = existing
-			}
-			return
-		}
-		byName[g.Name] = g
-	}
+	shadowed    map[string][]Gate
+	shadowOrder []string
+}
 
-	// Highest precedence first. A Makefile target is a deliberate wrapper --
-	// it usually adds flags the bare convention would miss -- so it outranks
-	// a package script, and both outrank anything merely inferred.
-	for _, g := range makefileGates(proj.Root) {
-		claim(g)
-	}
-	// Turbo outranks the package scripts it orchestrates: where a task graph is
-	// declared, `turbo run test` is the project's real entry point and already
-	// handles caching and cross-package ordering.
-	if gates := turboGates(proj.workspaceOrRoot(), &proj); len(gates) > 0 {
-		proj.Notes = append(proj.Notes, "turbo.json found; delegating to turbo rather than scheduling its tasks here")
-		for _, g := range gates {
-			claim(g)
-		}
-	}
-	for _, g := range packageJSONGates(proj.Root, proj.workspaceOrRoot()) {
-		claim(g)
-	}
-	convention, skipped := conventionGates(ctx, proj.Root, &proj)
-	for _, g := range convention {
-		claim(g)
-	}
-	// A gate the ladder could not build is said out loud rather than dropped,
-	// but only where the role is still empty: a declaration outranks the
-	// convention that would have filled it, and a listing that shows the gate
-	// beside a note that it was skipped contradicts itself.
-	for _, s := range skipped {
-		if _, claimed := byName[s.Role]; !claimed {
-			proj.Notes = append(proj.Notes, s.Note)
-			proj.Skipped = append(proj.Skipped, s)
-		}
-	}
+func newClaims() *gateClaims {
+	return &gateClaims{byName: map[string]Gate{}, shadowed: map[string][]Gate{}}
+}
 
-	// One aggregate at most, whichever the project spelled first in
-	// aggregateNames. Several are the same thing under several names, and
-	// running two of them runs the pipeline twice.
-	var aggregate Gate
-	var hasAggregate bool
-	for _, name := range aggregateNames {
-		if g, ok := byName[name]; ok && !hasAggregate {
-			aggregate, hasAggregate = g, true
-		}
-		delete(byName, name)
+func (c *gateClaims) claim(g Gate) {
+	existing, taken := c.byName[g.Name]
+	if !taken {
+		c.byName[g.Name] = g
+		return
 	}
+	if chain, lost := conventionToolchain(g.Source); lost && shadowsAcross(chain, existing.Source) {
+		if _, seen := c.shadowed[chain]; !seen {
+			c.shadowOrder = append(c.shadowOrder, chain)
+		}
+		c.shadowed[chain] = append(c.shadowed[chain], g)
+	}
+	// turbo runs the package script of the same name, so those two are
+	// one declaration written in two places rather than two that
+	// disagree. Reporting it would fire on the ordinary monorepo shape
+	// -- and the fix a shadow warning names, removing one of them,
+	// would break the project.
+	if strings.HasPrefix(existing.Source, turboSource) && strings.HasPrefix(g.Source, packageSource) {
+		return
+	}
+	// Two declarations for one role. The winner was decided by the
+	// order these are collected in, and the loser is recorded rather
+	// than dropped: quietly choosing between two stated intents is the
+	// one behaviour that would make this untrustable.
+	if g.Declared && existing.Display() != g.Display() {
+		existing.Shadowed = append(existing.Shadowed, g.Source+": "+g.Display())
+		c.byName[g.Name] = existing
+	}
+}
 
-	for _, name := range gateOrder {
-		if g, ok := byName[name]; ok {
-			proj.Gates = append(proj.Gates, g)
-		}
+// addAggregate runs the project's aggregate gate only when declining it would
+// leave the project unchecked.
+//
+// An aggregate target means "run the whole pipeline", and running it beside
+// the gates it aggregates runs each of them twice -- which is only true
+// when gate claimed those gates. A repository can declare twelve check
+// targets under none of the role names, leaving one inferred convention
+// gate as everything gate claims; there the aggregate is the only thing
+// that runs what the project actually checks, and refusing it leaves the
+// repository unchecked. So the refusal is conditional on the duplication
+// being real, and the decision is stated either way -- a note that appeared
+// in only one case would read as a bug in the other.
+//
+// The gates it would aggregate are declaredNames, whatever supplied them:
+// an inferred `go test` is still the test the project's ci target runs.
+// "workflows" is not among them, for the reason declaredNames already
+// gives -- linting workflow files is a different thing from a ci target,
+// and it was the whole claimed set in the repository measured above.
+//
+// Appended after gateOrder rather than placed in it, because the aggregate
+// is not a role -- it is every role at once, so no position among them is
+// the right one.
+func addAggregate(proj *Project, aggregate Gate) {
+	if slices.ContainsFunc(proj.Gates, func(g Gate) bool { return slices.Contains(declaredNames, g.Name) }) {
+		proj.Notes = append(proj.Notes, aggregate.Source+
+			" found but not run: it aggregates the gates gate is already scheduling")
+		return
 	}
-	for _, chain := range shadowOrder {
-		if !ciRunsToolchain(proj.Root, chain) {
-			proj.Notes = append(proj.Notes, chain+" gates share roles with another toolchain here, but CI never runs "+chain+"; not run")
-			continue
-		}
-		proj.Gates = append(proj.Gates, shadowedGate(proj.Root, chain, shadowed[chain], &proj))
-	}
-
-	// An aggregate target means "run the whole pipeline", and running it beside
-	// the gates it aggregates runs each of them twice -- which is only true
-	// when gate claimed those gates. A repository can declare twelve check
-	// targets under none of the role names, leaving one inferred convention
-	// gate as everything gate claims; there the aggregate is the only thing
-	// that runs what the project actually checks, and refusing it leaves the
-	// repository unchecked. So the refusal is conditional on the duplication
-	// being real, and the decision is stated either way -- a note that appeared
-	// in only one case would read as a bug in the other.
-	//
-	// The gates it would aggregate are declaredNames, whatever supplied them:
-	// an inferred `go test` is still the test the project's ci target runs.
-	// "workflows" is not among them, for the reason declaredNames already
-	// gives -- linting workflow files is a different thing from a ci target,
-	// and it was the whole claimed set in the repository measured above.
-	//
-	// Appended after gateOrder rather than placed in it, because the aggregate
-	// is not a role -- it is every role at once, so no position among them is
-	// the right one.
-	if hasAggregate {
-		if slices.ContainsFunc(proj.Gates, func(g Gate) bool { return slices.Contains(declaredNames, g.Name) }) {
-			proj.Notes = append(proj.Notes, aggregate.Source+
-				" found but not run: it aggregates the gates gate is already scheduling")
-		} else {
-			proj.Notes = append(proj.Notes, aggregate.Source+
-				" found and run: gate claimed none of the gates it aggregates, so declining it would leave this project unchecked")
-			proj.Gates = append(proj.Gates, aggregate)
-		}
-	}
-
-	return proj, nil
+	proj.Notes = append(proj.Notes, aggregate.Source+
+		" found and run: gate claimed none of the gates it aggregates, so declining it would leave this project unchecked")
+	proj.Gates = append(proj.Gates, aggregate)
 }
 
 func (p Project) workspaceOrRoot() string {

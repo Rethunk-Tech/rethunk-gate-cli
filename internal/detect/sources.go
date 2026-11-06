@@ -231,7 +231,31 @@ type Skip struct {
 func conventionGates(ctx context.Context, root string, proj *Project) ([]Gate, []Skip) {
 	var gates []Gate
 	var skipped []Skip
+	for _, ladder := range []func() ([]Gate, []Skip){
+		func() ([]Gate, []Skip) { return goConventionGates(root, proj) },
+		func() ([]Gate, []Skip) { return rustConventionGates(root, proj) },
+		func() ([]Gate, []Skip) { return dotnetConventionGates(root, proj) },
+		func() ([]Gate, []Skip) { return pythonConventionGates(root, proj) },
+		func() ([]Gate, []Skip) { return nodeConventionGates(root, proj) },
+		func() ([]Gate, []Skip) { return workflowConventionGates(root, proj) },
+		func() ([]Gate, []Skip) { return shellConventionGates(ctx, root, proj) },
+	} {
+		g, sk := ladder()
+		gates, skipped = append(gates, g...), append(skipped, sk...)
+	}
 
+	if exists(filepath.Join(root, "supabase")) {
+		// Deliberately no gate. Supabase commands show up often in this
+		// fleet, but none of them is an unambiguous pass/fail check of the
+		// working tree, and inventing one would report a verdict nobody
+		// asked for.
+		proj.Notes = append(proj.Notes, "supabase/ present, but no unambiguous pass/fail gate exists for it; not run")
+	}
+
+	return gates, skipped
+}
+
+func goConventionGates(root string, proj *Project) (gates []Gate, skipped []Skip) {
 	if exists(filepath.Join(root, "go.mod")) {
 		gates = append(gates,
 			Gate{Name: "build", Argv: []string{"go", "build", "./..."}, Source: "convention: go"},
@@ -264,7 +288,10 @@ func conventionGates(ctx context.Context, root string, proj *Project) ([]Gate, [
 			skipped = append(skipped, Skip{"vuln", "govulncheck not installed; skipping the vuln gate (go install golang.org/x/vuln/cmd/govulncheck@latest)"})
 		}
 	}
+	return gates, skipped
+}
 
+func rustConventionGates(root string, proj *Project) (gates []Gate, skipped []Skip) {
 	if exists(filepath.Join(root, "Cargo.toml")) {
 		gates = append(gates,
 			Gate{Name: "build", Argv: []string{"cargo", "build"}, Source: "convention: rust"},
@@ -294,7 +321,10 @@ func conventionGates(ctx context.Context, root string, proj *Project) ([]Gate, [
 			skipped = append(skipped, Skip{"vuln", "cargo-audit not installed; skipping the vuln gate (cargo install cargo-audit)"})
 		}
 	}
+	return gates, skipped
+}
 
+func dotnetConventionGates(root string, proj *Project) (gates []Gate, skipped []Skip) {
 	if target, ok := dotnetTarget(root); ok {
 		if resolve(root, proj, "dotnet") == "" {
 			skipped = append(skipped, Skip{"build", "dotnet not installed; skipping the build gate (install the .NET SDK)"})
@@ -315,7 +345,10 @@ func conventionGates(ctx context.Context, root string, proj *Project) ([]Gate, [
 			}
 		}
 	}
+	return gates, skipped
+}
 
+func pythonConventionGates(root string, proj *Project) (gates []Gate, skipped []Skip) {
 	if exists(filepath.Join(root, "pyproject.toml")) {
 		// Deliberately unprobed. `uv run` provisions the environment from the
 		// project's own declarations before executing, so a declared pytest or
@@ -372,7 +405,10 @@ func conventionGates(ctx context.Context, root string, proj *Project) ([]Gate, [
 			skipped = append(skipped, Skip{"vuln", "no uv.lock; skipping the vuln gate (uv lock)"})
 		}
 	}
+	return gates, skipped
+}
 
+func nodeConventionGates(root string, proj *Project) (gates []Gate, skipped []Skip) {
 	if pkg, ok := readPackageJSON(filepath.Join(root, "package.json")); ok {
 		// The RESOLVED path, not the bare name: biome and tsc usually live in
 		// node_modules/.bin and are absent from PATH, so a bare name would be
@@ -431,7 +467,10 @@ func conventionGates(ctx context.Context, root string, proj *Project) ([]Gate, [
 			gates = append(gates, Gate{Name: "test", Argv: []string{"bun", "test"}, Source: "convention: node (bun test)"})
 		}
 	}
+	return gates, skipped
+}
 
+func workflowConventionGates(root string, proj *Project) (gates []Gate, skipped []Skip) {
 	// actionlint runs on a different toolchain from everything above, so it
 	// overlaps cleanly with whatever else the project has.
 	if exists(filepath.Join(root, ".github", "workflows")) {
@@ -446,7 +485,10 @@ func conventionGates(ctx context.Context, root string, proj *Project) ([]Gate, [
 			skipped = append(skipped, Skip{"workflows", "actionlint not installed; skipping the workflows gate (brew install actionlint)"})
 		}
 	}
+	return gates, skipped
+}
 
+func shellConventionGates(ctx context.Context, root string, proj *Project) (gates []Gate, skipped []Skip) {
 	// Shell scripts belong to no toolchain, so nothing above ever claims
 	// them: 23 of 55 repositories in this fleet carry scripts outside their
 	// vendored directories, and two had to declare a shellcheck gate by hand
@@ -464,15 +506,6 @@ func conventionGates(ctx context.Context, root string, proj *Project) ([]Gate, [
 			skipped = append(skipped, Skip{"shell", "shellcheck not installed; skipping the shell gate (brew install shellcheck)"})
 		}
 	}
-
-	if exists(filepath.Join(root, "supabase")) {
-		// Deliberately no gate. Supabase commands show up often in this
-		// fleet, but none of them is an unambiguous pass/fail check of the
-		// working tree, and inventing one would report a verdict nobody
-		// asked for.
-		proj.Notes = append(proj.Notes, "supabase/ present, but no unambiguous pass/fail gate exists for it; not run")
-	}
-
 	return gates, skipped
 }
 
@@ -931,63 +964,74 @@ func ciPackageDirs(root string) []string {
 // repository's own gates, which already see every file.
 func ciPackageGates(ctx context.Context, proj *Project) {
 	for _, rel := range nestedCandidates(ctx, proj.Root) {
-		dir := filepath.Join(proj.Root, rel)
-		if !nestedProject(proj.Root, dir) {
-			continue
-		}
-		name := filepath.ToSlash(rel)
-		if IsRole(name) || slices.Contains(aggregateNames, name) {
-			proj.Notes = append(proj.Notes, "CI runs "+name+"/, but its name is a gate role; not run")
-			continue
-		}
-		var entered strings.Builder
-		enteredBy := ""
-		for _, g := range proj.Gates {
-			if text := gateText(proj.Root, g); Enters(text, name) {
-				entered.WriteString("\n" + text)
-				if enteredBy == "" {
-					enteredBy = g.Source
-				}
-			}
-		}
-		// A Go module is outside the root's ./..., so what a root gate that
-		// enters it never runs (CI's golangci-lint, govulncheck) is run beside
-		// it. Anything else a root gate enters is its own, whole.
-		if entered.Len() > 0 && !exists(filepath.Join(dir, "go.mod")) {
-			proj.Notes = append(proj.Notes, "CI runs "+name+"/, and "+enteredBy+" already enters it; not gated twice")
-			continue
-		}
-		sub, err := detectOne(ctx, dir)
-		if err != nil {
-			continue
-		}
-		var parts []Gate
-		for _, g := range sub.Gates {
-			if slices.Contains(declaredNames, g.Name) && (entered.Len() == 0 || !strings.Contains(entered.String(), toolKey(g.Argv))) {
-				parts = append(parts, g)
-			}
-		}
-		if entered.Len() > 0 && len(parts) == 0 {
-			proj.Notes = append(proj.Notes, "CI runs "+name+"/, and "+enteredBy+" already enters it; not gated twice")
-			continue
-		}
-		if len(parts) == 0 {
-			proj.Notes = append(proj.Notes, "CI runs "+name+"/, but gate found no gates there; not run")
-			continue
-		}
-		if entered.Len() > 0 {
-			proj.Notes = append(proj.Notes, name+"/ is entered by "+enteredBy+", which never runs "+
-				strings.Join(roleNames(parts), ", ")+"; those run as the "+name+" gate")
-		}
-		// A Go module under a JavaScript workspace finds that workspace
-		// upward, and the root's install already runs it.
-		for _, in := range sub.Installs {
-			if in.Dir == dir {
-				proj.Installs = append(proj.Installs, in)
-			}
-		}
-		proj.Gates = append(proj.Gates, packageGate(name, dir, parts))
+		ciPackageGate(ctx, proj, rel)
 	}
+}
+
+// ciPackageGate gates the package at rel, or notes why it does not.
+func ciPackageGate(ctx context.Context, proj *Project, rel string) {
+	dir := filepath.Join(proj.Root, rel)
+	if !nestedProject(proj.Root, dir) {
+		return
+	}
+	name := filepath.ToSlash(rel)
+	if IsRole(name) || slices.Contains(aggregateNames, name) {
+		proj.Notes = append(proj.Notes, "CI runs "+name+"/, but its name is a gate role; not run")
+		return
+	}
+	entered, enteredBy := enteringText(proj, name)
+	// A Go module is outside the root's ./..., so what a root gate that
+	// enters it never runs (CI's golangci-lint, govulncheck) is run beside
+	// it. Anything else a root gate enters is its own, whole.
+	if entered != "" && !exists(filepath.Join(dir, "go.mod")) {
+		proj.Notes = append(proj.Notes, "CI runs "+name+"/, and "+enteredBy+" already enters it; not gated twice")
+		return
+	}
+	sub, err := detectOne(ctx, dir)
+	if err != nil {
+		return
+	}
+	var parts []Gate
+	for _, g := range sub.Gates {
+		if slices.Contains(declaredNames, g.Name) && (entered == "" || !strings.Contains(entered, toolKey(g.Argv))) {
+			parts = append(parts, g)
+		}
+	}
+	if entered != "" && len(parts) == 0 {
+		proj.Notes = append(proj.Notes, "CI runs "+name+"/, and "+enteredBy+" already enters it; not gated twice")
+		return
+	}
+	if len(parts) == 0 {
+		proj.Notes = append(proj.Notes, "CI runs "+name+"/, but gate found no gates there; not run")
+		return
+	}
+	if entered != "" {
+		proj.Notes = append(proj.Notes, name+"/ is entered by "+enteredBy+", which never runs "+
+			strings.Join(roleNames(parts), ", ")+"; those run as the "+name+" gate")
+	}
+	// A Go module under a JavaScript workspace finds that workspace
+	// upward, and the root's install already runs it.
+	for _, in := range sub.Installs {
+		if in.Dir == dir {
+			proj.Installs = append(proj.Installs, in)
+		}
+	}
+	proj.Gates = append(proj.Gates, packageGate(name, dir, parts))
+}
+
+// enteringText is the text of every root gate that changes into the package
+// name, and the source of the first one.
+func enteringText(proj *Project, name string) (text, by string) {
+	var entered strings.Builder
+	for _, g := range proj.Gates {
+		if t := gateText(proj.Root, g); Enters(t, name) {
+			entered.WriteString("\n" + t)
+			if by == "" {
+				by = g.Source
+			}
+		}
+	}
+	return entered.String(), by
 }
 
 // Enters reports whether a shell command changes into rel, a directory

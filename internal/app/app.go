@@ -158,33 +158,35 @@ func isConventionShellGate(g gateSpec) bool {
 	return g.role == "shell" && strings.HasPrefix(g.source, "convention:")
 }
 
-// Run parses gate's own arguments and runs the gates that follow them.
-func Run(ctx context.Context, version string, args []string, stdout, stderr io.Writer) Code {
-	opts := options{tail: defaultTail}
-	timeout := defaultTimeout
-	timeoutSet := false
-	budget, budgetSet := defaultBudget, false
-	jobsSet := false
-	failFastSet := false
-	showVersion := false
-	refuseFix := false
+// runState is what gate's own flags set and the rest of Run still reads.
+type runState struct {
+	opts        options
+	timeout     time.Duration
+	timeoutSet  bool
+	budget      time.Duration
+	budgetSet   bool
+	jobsSet     bool
+	failFastSet bool
+	showVersion bool
+	refuseFix   bool
+	forceStream bool
+	noStream    bool
+}
 
-	dir, args, ok := parseChdir(args, stderr)
-	if !ok {
-		return InvalidUsage
+// durationFlag adapts a duration setter to flag.Func.
+func durationFlag(set func(time.Duration)) func(string) error {
+	return func(value string) error {
+		d, err := config.ParseTimeout(value)
+		if err != nil {
+			return err
+		}
+		set(d)
+		return nil
 	}
-	argv := args
-	if !enterable(dir, stderr) {
-		return Fatal
-	}
+}
 
-	flags := flag.NewFlagSet("gate", flag.ContinueOnError)
-	var flagOut bytes.Buffer
-	flags.SetOutput(&flagOut)
-	// flag would print the usage itself, to the same writer as the error. Help
-	// asked for is not a refusal and belongs on stdout, so both are printed
-	// here instead.
-	flags.Usage = func() {}
+func (st *runState) defineFlags(flags *flag.FlagSet) {
+	opts := &st.opts
 	flags.BoolVar(&opts.quiet, "q", false, "")
 	flags.BoolVar(&opts.quiet, "quiet", false, "")
 	flags.BoolVar(&opts.serial, "serial", false, "")
@@ -192,18 +194,17 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	flags.BoolVar(&opts.list, "list", false, "")
 	flags.BoolVar(&opts.jsonList, "json", false, "")
 	flags.BoolVar(&opts.ndjson, "ndjson", false, "")
-	var forceStream, noStream bool
-	flags.BoolVar(&forceStream, "stream", false, "")
-	flags.BoolVar(&noStream, "no-stream", false, "")
+	flags.BoolVar(&st.forceStream, "stream", false, "")
+	flags.BoolVar(&st.noStream, "no-stream", false, "")
 	flags.BoolVar(&opts.profile, "profile", false, "")
 	flags.BoolVar(&opts.forceCache, "force-cache", false, "")
 	flags.BoolVar(&opts.failed, "failed", false, "")
 	flags.BoolVar(&opts.e2e, "e2e", false, "")
-	flags.BoolVar(&showVersion, "version", false, "")
-	// Recognised so `gate --fix` is not "unrecognized". Refused below: a
+	flags.BoolVar(&st.showVersion, "version", false, "")
+	// Recognised so `gate --fix` is not "unrecognized". Refused later: a
 	// global flag would look like a silent rewrite of doctor, which this
 	// verb exists to keep from happening.
-	flags.BoolVar(&refuseFix, "fix", false, "")
+	flags.BoolVar(&st.refuseFix, "fix", false, "")
 	flags.StringVar(&opts.logPath, "log", "", "")
 	// Func rather than IntVar and DurationVar, so a refusal names what the
 	// flag takes. "invalid value for -timeout" is a worse message on the one
@@ -216,35 +217,34 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		opts.tail = n
 		return nil
 	})
-	flags.Func("timeout", "", func(value string) error {
-		d, err := config.ParseTimeout(value)
-		if err != nil {
-			return err
-		}
-		timeout, timeoutSet = d, true
-		return nil
-	})
-	flags.Func("budget", "", func(value string) error {
-		d, err := config.ParseTimeout(value)
-		if err != nil {
-			return err
-		}
-		budget, budgetSet = d, true
-		return nil
-	})
+	flags.Func("timeout", "", durationFlag(func(d time.Duration) { st.timeout, st.timeoutSet = d, true }))
+	flags.Func("budget", "", durationFlag(func(d time.Duration) { st.budget, st.budgetSet = d, true }))
 	flags.Func("jobs", "", func(value string) error {
 		n, err := strconv.Atoi(value)
 		if err != nil || n < 1 {
 			return fmt.Errorf("wants an integer >= 1, got %q", value)
 		}
-		opts.jobs, jobsSet = n, true
+		opts.jobs, st.jobsSet = n, true
 		return nil
 	})
+}
+
+// parseFlags returns the arguments left after gate's own flags. ok is false
+// when the run is over, with code as its status.
+func (st *runState) parseFlags(args []string, stdout, stderr io.Writer) (rest []string, code Code, ok bool) {
+	flags := flag.NewFlagSet("gate", flag.ContinueOnError)
+	var flagOut bytes.Buffer
+	flags.SetOutput(&flagOut)
+	// flag would print the usage itself, to the same writer as the error. Help
+	// asked for is not a refusal and belongs on stdout, so both are printed
+	// here instead.
+	flags.Usage = func() {}
+	st.defineFlags(flags)
 
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			fmt.Fprint(stdout, gateHelp)
-			return Success
+			return nil, Success, false
 		}
 		msg := strings.TrimSpace(flagOut.String())
 		if msg == "" {
@@ -252,52 +252,32 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		}
 		fmt.Fprintf(stderr, "gate: %s\n", msg)
 		fmt.Fprint(stderr, gateHelp)
-		return InvalidUsage
+		return nil, InvalidUsage, false
 	}
 	flags.Visit(func(f *flag.Flag) {
 		if f.Name == "fail-fast" {
-			failFastSet = true
+			st.failFastSet = true
 		}
 	})
+	return flags.Args(), Success, true
+}
 
-	// Everything after a `--` is the caller's, including a word gate would
-	// otherwise claim -- `gate -- run x` runs a program called run. flag
-	// consumes the terminator without reporting it, so it is recovered from
-	// where parsing stopped: the token before the first argument left over.
-	// Scanning for it beforehand would mean knowing which flags take values,
-	// which is the parser this replaced.
-	args = flags.Args()
-	explicit := len(args) < len(argv) && argv[len(argv)-len(args)-1] == "--"
-	// --json is global, so `gate doctor --json` is the same listing as
-	// `gate --json doctor`. Only the words gate claims are scanned: a
-	// wrapped command keeps its own flags, and `gate -- doctor --json`
-	// still runs a program called doctor.
-	if !explicit && len(args) > 0 {
-		switch args[0] {
-		case "doctor", "fix", "record", "run":
-			args = peelJSON(args, &opts.jsonList)
-		}
-	}
-
-	// Resolved after the flag loop rather than inside it, so
-	// `gate --timeout 5m --version` reports 5m instead of the default it
-	// would have printed had it exited on sight.
-	if showVersion {
-		writeVersion(stdout, version, timeout, budget)
-		return Success
-	}
-
+// finalizeFlags refuses contradictory flags and resolves the ones that depend
+// on others. ok is false when the run is over.
+func (st *runState) finalizeFlags(stderr io.Writer) (code Code, ok bool) {
+	opts := &st.opts
+	listing := opts.jsonList || opts.list
 	// --json and --list run nothing, so asking for both leaves the consumer
 	// an empty stream it cannot tell from a project with no gates.
-	if opts.ndjson && (opts.jsonList || opts.list) {
+	if opts.ndjson && listing {
 		fmt.Fprintln(stderr, "gate: --ndjson reports a run; --json and --list run nothing")
-		return InvalidUsage
+		return InvalidUsage, false
 	}
 	// A profile needs a run to measure. The listings run nothing, so there
 	// is no wall time and no slowest gate to name.
-	if opts.profile && (opts.jsonList || opts.list) {
+	if opts.profile && listing {
 		fmt.Fprintln(stderr, "gate: --profile reports a run; --json and --list run nothing")
-		return InvalidUsage
+		return InvalidUsage, false
 	}
 	// stdout carries the stream alone. A human ok line in the middle of it is
 	// a parse error for the consumer that asked for the machine shape, and
@@ -305,124 +285,175 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	if opts.ndjson {
 		opts.quiet = true
 	}
-	opts.stream = resolveStream(forceStream, noStream, opts.ndjson || opts.jsonList, os.Getenv)
+	opts.stream = resolveStream(st.forceStream, st.noStream, opts.ndjson || opts.jsonList, os.Getenv)
 	opts.actions = os.Getenv("GITHUB_ACTIONS") == "true"
 
-	if refuseFix {
+	if st.refuseFix {
 		fmt.Fprintln(stderr, "gate: --fix is not a flag; run `gate fix`")
-		return InvalidUsage
+		return InvalidUsage, false
 	}
+	return Success, true
+}
 
-	// "doctor", "fix", "record", "run", "completion", and "man" are the only
-	// words gate treats as its own rather than as a command. A real program
-	// by any of those names is still reachable as `gate -- doctor`, which is
-	// what -- is for. completion and man are hidden: they are not in --help.
-	if !explicit && len(args) > 0 && args[0] == "completion" {
+// runVerb serves the words gate claims as its own rather than as a command:
+// "doctor", "fix", "record", "completion" and "man". A real program by any of
+// those names is still reachable as `gate -- doctor`, which is what -- is for.
+// completion and man are hidden: they are not in --help. handled is false
+// when args name no verb.
+func (st *runState) runVerb(ctx context.Context, dir string, args []string, stdout, stderr io.Writer) (code Code, handled bool) {
+	opts := st.opts
+	// --ndjson and --profile describe a run, and a verb is not one.
+	refuse := func(ndjson []string, profile string) bool {
 		if opts.ndjson {
-			fmt.Fprintln(stderr, "gate: --ndjson streams a run; completion is not a run")
-			return InvalidUsage
+			for _, line := range ndjson {
+				fmt.Fprintln(stderr, "gate: "+line)
+			}
+			return true
 		}
 		if opts.profile {
-			fmt.Fprintln(stderr, "gate: --profile reports a run; completion is not a run")
-			return InvalidUsage
+			fmt.Fprintln(stderr, "gate: "+profile)
+			return true
 		}
-		return runCompletion(args[1:], stdout, stderr)
+		return false
 	}
-	if !explicit && len(args) > 0 && args[0] == "man" {
-		if opts.ndjson {
-			fmt.Fprintln(stderr, "gate: --ndjson streams a run; man is not a run")
-			return InvalidUsage
+	word := args[0]
+	switch {
+	case word == "completion":
+		if refuse([]string{"--ndjson streams a run; completion is not a run"}, "--profile reports a run; completion is not a run") {
+			return InvalidUsage, true
 		}
-		if opts.profile {
-			fmt.Fprintln(stderr, "gate: --profile reports a run; man is not a run")
-			return InvalidUsage
+		return runCompletion(args[1:], stdout, stderr), true
+	case word == "man":
+		if refuse([]string{"--ndjson streams a run; man is not a run"}, "--profile reports a run; man is not a run") {
+			return InvalidUsage, true
 		}
-		return runMan(args[1:], stdout, stderr)
-	}
-	if !explicit && len(args) == 1 && args[0] == "doctor" {
+		return runMan(args[1:], stdout, stderr), true
+	case word == "doctor" && len(args) == 1:
 		// --ndjson streams what a run did, and doctor runs nothing. --json
 		// is served: findings are a list with a stable schema, and a sweep
 		// that has to grep them out of prose is the failure the machine shape
 		// exists to prevent.
-		if opts.ndjson {
-			fmt.Fprintln(stderr, "gate: --ndjson streams a run; doctor runs nothing")
-			fmt.Fprintln(stderr, "gate: run `gate --json doctor` for the report a program can read")
-			return InvalidUsage
+		if refuse([]string{
+			"--ndjson streams a run; doctor runs nothing",
+			"run `gate --json doctor` for the report a program can read",
+		}, "--profile reports a run; doctor runs nothing") {
+			return InvalidUsage, true
 		}
-		if opts.profile {
-			fmt.Fprintln(stderr, "gate: --profile reports a run; doctor runs nothing")
-			return InvalidUsage
-		}
-		return runDoctor(ctx, dir, opts.jsonList, opts.forceCache, stdout, stderr)
-	}
-	// Only these two spellings are gate's; `gate doctor <anything else>` still
-	// means the program named doctor, reachable as `gate -- doctor` too.
-	if !explicit && len(args) == 2 && args[0] == "doctor" &&
-		(args[1] == "-h" || args[1] == "--help") {
+		return runDoctor(ctx, dir, opts.jsonList, opts.forceCache, stdout, stderr), true
+	case word == "doctor" && len(args) == 2 && (args[1] == "-h" || args[1] == "--help"):
+		// Only these two spellings are gate's; `gate doctor <anything else>`
+		// still means the program named doctor, reachable as `gate -- doctor` too.
 		fmt.Fprint(stdout, doctorHelp)
-		return Success
-	}
-
-	// fix takes its own flags (`--dry-run`), so the word is claimed the way
-	// `run` is: everything after it belongs to fix, and a program named fix
-	// is `gate -- fix`.
-	if !explicit && len(args) > 0 && args[0] == "fix" {
-		if opts.ndjson {
-			fmt.Fprintln(stderr, "gate: --ndjson streams a run; fix is not a run")
-			fmt.Fprintln(stderr, "gate: run `gate --json fix` for the report a program can read")
-			return InvalidUsage
+		return Success, true
+	case word == "fix":
+		// fix takes its own flags (`--dry-run`), so the word is claimed the way
+		// `run` is: everything after it belongs to fix, and a program named fix
+		// is `gate -- fix`.
+		if refuse([]string{
+			"--ndjson streams a run; fix is not a run",
+			"run `gate --json fix` for the report a program can read",
+		}, "--profile reports a run; fix is not a run") {
+			return InvalidUsage, true
 		}
-		if opts.profile {
-			fmt.Fprintln(stderr, "gate: --profile reports a run; fix is not a run")
-			return InvalidUsage
+		return runFix(ctx, dir, args[1:], opts.jsonList, stdout, stderr), true
+	case word == "record" && len(args) == 1:
+		// record reads the last run. It takes no arguments; a program named
+		// record is `gate -- record`, and `gate record --help` is the only
+		// other spelling.
+		if refuse([]string{
+			"--ndjson streams a run; record reads the last one",
+			"run `gate --json record` for the record a program can read",
+		}, "--profile reports a run; record reads the last one") {
+			return InvalidUsage, true
 		}
-		return runFix(ctx, dir, args[1:], opts.jsonList, stdout, stderr)
-	}
-
-	// record reads the last run. It takes no arguments; a program named record
-	// is `gate -- record`, and `gate record --help` is the only other spelling.
-	if !explicit && len(args) == 1 && args[0] == "record" {
-		if opts.ndjson {
-			fmt.Fprintln(stderr, "gate: --ndjson streams a run; record reads the last one")
-			fmt.Fprintln(stderr, "gate: run `gate --json record` for the record a program can read")
-			return InvalidUsage
-		}
-		if opts.profile {
-			fmt.Fprintln(stderr, "gate: --profile reports a run; record reads the last one")
-			return InvalidUsage
-		}
-		return runRecord(ctx, dir, opts.jsonList, stdout, stderr)
-	}
-	if !explicit && len(args) == 2 && args[0] == "record" &&
-		(args[1] == "-h" || args[1] == "--help") {
+		return runRecord(ctx, dir, opts.jsonList, stdout, stderr), true
+	case word == "record" && len(args) == 2 && (args[1] == "-h" || args[1] == "--help"):
 		fmt.Fprint(stdout, recordHelp)
-		return Success
+		return Success, true
 	}
+	return Success, false
+}
 
-	command := args
-	var roles []string
-
-	// `run` is how a gate is named, and the only word gate claims that takes
-	// arguments: `gate test` is /usr/bin/test, `gate run test` is the gate.
-	// See AGENTS.md, The words gate claims.
+// splitRun separates the gate names after `run` from a command to wrap.
+//
+// `run` is how a gate is named, and the only word gate claims that takes
+// arguments: `gate test` is /usr/bin/test, `gate run test` is the gate.
+// See AGENTS.md, The words gate claims.
+func (st *runState) splitRun(args []string, explicit bool, stderr io.Writer) (command, roles []string, code Code, ok bool) {
+	command = args
 	if !explicit && len(command) > 0 && command[0] == "run" {
 		roles, command = command[1:], nil
 		if len(roles) == 0 {
 			fmt.Fprintln(stderr, "gate: run wants at least one gate name, e.g. `gate run lint test`")
 			fmt.Fprintln(stderr, "gate: run `gate --list` for what this project has, or bare `gate` to run all of it")
-			return InvalidUsage
+			return nil, nil, InvalidUsage, false
+		}
+	}
+	if st.opts.failed && len(roles) > 0 {
+		fmt.Fprintln(stderr, "gate: --failed selects from the last run; `gate run` names gates itself")
+		return nil, nil, InvalidUsage, false
+	}
+	if st.opts.failed && len(command) > 0 {
+		fmt.Fprintln(stderr, "gate: --failed re-runs project gates; a named command is not a last run")
+		return nil, nil, InvalidUsage, false
+	}
+	return command, roles, Success, true
+}
+
+// Run parses gate's own arguments and runs the gates that follow them.
+func Run(ctx context.Context, version string, args []string, stdout, stderr io.Writer) Code {
+	st := runState{opts: options{tail: defaultTail}, timeout: defaultTimeout, budget: defaultBudget}
+
+	dir, args, ok := parseChdir(args, stderr)
+	if !ok {
+		return InvalidUsage
+	}
+	argv := args
+	if !enterable(dir, stderr) {
+		return Fatal
+	}
+
+	args, code, ok := st.parseFlags(args, stdout, stderr)
+	if !ok {
+		return code
+	}
+	opts := &st.opts
+
+	// Everything after a `--` is the caller's, including a word gate would
+	// otherwise claim -- `gate -- run x` runs a program called run. flag
+	// consumes the terminator without reporting it, so it is recovered from
+	// where parsing stopped: the token before the first argument left over.
+	// Scanning for it beforehand would mean knowing which flags take values,
+	// which is the parser this replaced.
+	explicit := len(args) < len(argv) && argv[len(argv)-len(args)-1] == "--"
+	// --json is global, so `gate doctor --json` is the same listing as
+	// `gate --json doctor`. Only the words gate claims are scanned: a
+	// wrapped command keeps its own flags, and `gate -- doctor --json`
+	// still runs a program called doctor.
+	if !explicit && len(args) > 0 && slices.Contains([]string{"doctor", "fix", "record", "run"}, args[0]) {
+		args = peelJSON(args, &opts.jsonList)
+	}
+
+	// Resolved after the flag loop rather than inside it, so
+	// `gate --timeout 5m --version` reports 5m instead of the default it
+	// would have printed had it exited on sight.
+	if st.showVersion {
+		writeVersion(stdout, version, st.timeout, st.budget)
+		return Success
+	}
+	if code, ok := st.finalizeFlags(stderr); !ok {
+		return code
+	}
+	if !explicit && len(args) > 0 {
+		if code, handled := st.runVerb(ctx, dir, args, stdout, stderr); handled {
+			return code
 		}
 	}
 
-	if opts.failed && len(roles) > 0 {
-		fmt.Fprintln(stderr, "gate: --failed selects from the last run; `gate run` names gates itself")
-		return InvalidUsage
+	command, roles, code, ok := st.splitRun(args, explicit, stderr)
+	if !ok {
+		return code
 	}
-	if opts.failed && len(command) > 0 {
-		fmt.Fprintln(stderr, "gate: --failed re-runs project gates; a named command is not a last run")
-		return InvalidUsage
-	}
-
 	if len(command) > 0 {
 		opts.gates = append(opts.gates, gateSpec{
 			argv:    command,
@@ -436,241 +467,41 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	var project detect.Project
 	var configured config.Config
 	if len(opts.gates) == 0 || len(roles) > 0 {
-		proj, err := detect.Detect(ctx, dir)
-		if err != nil {
-			fmt.Fprintf(stderr, "gate: cannot inspect this directory: %v\n", err)
-			return Fatal
-		}
-		// A project gate that runs gate re-enters detection, finds the same
-		// gates, and runs them again. gate's own test gate is `make test`,
-		// which runs a suite that calls Run, so the loop is reachable here and
-		// does not terminate. Only detection is refused: wrapping a command is
-		// not recursion.
-		if slices.Contains(activeRoots(), proj.Root) {
-			fmt.Fprintf(stderr, "gate: refusing to detect gates in %s\n", proj.Root)
-			fmt.Fprintln(stderr, "gate: a gate from that project is already running, so this would not terminate")
-			fmt.Fprintln(stderr, "gate: name the command instead, e.g. `gate go test ./...`")
-			return Fatal
-		}
-
-		// Configuration is found from the DETECTED root, which is what makes
-		// `gate -C <elsewhere>` pick up that project's config for free.
-		cfg, err := config.Load(proj.Root)
-		if err != nil {
-			fmt.Fprintf(stderr, "gate: %v\n", err)
-			return InvalidUsage
-		}
-
-		project = proj
-		// A config `run` fills a role detection left empty for want of a
-		// tool, so the note saying that role is skipped would contradict the
-		// gate --list prints for it.
-		project.Notes = slices.DeleteFunc(slices.Clone(proj.Notes), func(note string) bool {
-			return slices.ContainsFunc(proj.Skipped, func(s detect.Skip) bool {
-				return s.Note == note && cfg.Gates[s.Role].Run != ""
-			})
-		})
-		for _, g := range proj.Gates {
-			// Only a gate named for a directory can be excluded: a role is
-			// removed by configuring it, not by detect.exclude.
-			if g.Dir != "" && cfg.Excluded(g.Name) {
-				project.Notes = append(project.Notes, "CI runs "+g.Name+"/, but detect.exclude in .gate.toml leaves it out")
-				project.Installs = slices.DeleteFunc(slices.Clone(project.Installs), func(in detect.Install) bool { return in.Dir == g.Dir })
-				continue
-			}
-			if by := configEnters(cfg, proj.Root, g); by != "" {
-				project.Notes = append(project.Notes, "CI runs "+g.Name+"/, and "+by+" already enters it; not gated twice")
-				project.Installs = slices.DeleteFunc(slices.Clone(project.Installs), func(in detect.Install) bool { return in.Dir == g.Dir })
-				continue
-			}
-			if len(roles) > 0 && !slices.Contains(roles, g.Name) {
-				continue
-			}
-			spec := gateSpec{
-				argv:     g.Argv,
-				display:  g.Display(),
-				role:     g.Name,
-				source:   g.Source,
-				shadowed: g.Shadowed,
-				serial:   g.Serial,
-				env:      maps.Clone(g.Env),
-				// The project's own commands only work at its root, which
-				// is not necessarily where the caller stood.
-				dir: proj.Root,
-			}
-			if g.Dir != "" {
-				spec.dir, spec.hasDir = g.Dir, true
-			}
-			// Config overrides a detected gate; it never removes one, and the
-			// detected source stays on the line so --list still says where
-			// the gate came from as well as what changed it.
-			if c, ok := cfg.Gates[g.Name]; ok {
-				if c.Run != "" {
-					spec.argv, spec.display = shellArgv(c.Run), c.Run
-					// A configured command is written from the root, like
-					// every other one in the file; only `dir` moves it.
-					spec.dir, spec.hasDir = proj.Root, false
-					// A config `run` is a third declaration, and the most
-					// local one, so it settles a disagreement between the
-					// other two rather than muting the report of it. The
-					// resolution is visible in --list as this gate's source.
-					spec.shadowed = nil
-				}
-				// Only where the file actually said so: an absent key must
-				// not silently undo an order detection found for a reason.
-				if c.HasSerial {
-					spec.serial = c.Serial
-				}
-				// Same rule for the same reason: an absent key inherits, and
-				// a deliberate 0 disables the limit for this gate only.
-				if c.HasTimeout {
-					spec.timeout, spec.hasTimeout = c.Timeout, true
-				}
-				// The rest of the per-gate surface follows the same rule --
-				// set only where the file said so, so one gate's settings
-				// never leak onto another.
-				if c.HasEnv {
-					if spec.env == nil {
-						spec.env = map[string]string{}
-					}
-					maps.Copy(spec.env, c.Env)
-				}
-				if c.HasDir {
-					resolved, err := resolveGateDir(c.Dir, proj.Root)
-					if err != nil {
-						fmt.Fprintf(stderr, "gate: gates.%s.dir %q: %v\n", g.Name, c.Dir, err)
-						return InvalidUsage
-					}
-					spec.dir, spec.hasDir = resolved, true
-				}
-				if c.HasAllowFailure {
-					spec.allowFailure = c.AllowFailure
-				}
-				spec.source = g.Source + ", overridden by " + c.Source
-			}
-			opts.gates = append(opts.gates, spec)
-		}
-
-		// Gates configuration declares and detection could not infer -- an
-		// e2e suite, a migration check. Added in name order so a run is
-		// reproducible. These are selectable by name like any other gate, which
-		// is the whole point of `gate run`: a gate only config knows about was
-		// otherwise reachable only by running every gate in the project.
-		//
-		// The test is what detection actually produced, not whether the name
-		// is a role: detection emits names that are not roles, and adding a
-		// second gate for one of those would run it twice and make `gate run
-		// <name>` ambiguous. A name detection did produce was already
-		// overridden in the loop above.
-		for _, name := range slices.Sorted(maps.Keys(cfg.Gates)) {
-			c := cfg.Gates[name]
-			if c.Run == "" || slices.ContainsFunc(opts.gates, func(g gateSpec) bool { return g.role == name }) {
-				continue
-			}
-			if len(roles) > 0 && !slices.Contains(roles, name) {
-				continue
-			}
-			opts.gates = append(opts.gates, gateSpec{
-				argv:       shellArgv(c.Run),
-				display:    c.Run,
-				serial:     c.Serial,
-				timeout:    c.Timeout,
-				hasTimeout: c.HasTimeout,
-				env:        maps.Clone(c.Env),
-				role:       name,
-				source:     c.Source + " gates." + name,
-				dir:        proj.Root,
-			})
-			if c.HasDir {
-				resolved, err := resolveGateDir(c.Dir, proj.Root)
-				if err != nil {
-					fmt.Fprintf(stderr, "gate: gates.%s.dir %q: %v\n", name, c.Dir, err)
-					return InvalidUsage
-				}
-				opts.gates[len(opts.gates)-1].dir = resolved
-				opts.gates[len(opts.gates)-1].hasDir = true
-			}
-			if c.HasAllowFailure {
-				opts.gates[len(opts.gates)-1].allowFailure = c.AllowFailure
-			}
-		}
-
-		configured = cfg
-		// The project's own declaration always wins. Everywhere else that is
-		// decided by role name, which is enough while a project uses the
-		// role's name -- but two repositories in this fleet declare their
-		// shellcheck under a name of their own, and got the convention as
-		// well: the same tool twice, running concurrently, disagreeing about
-		// which scripts each covers.
-		//
-		// Silent, like every other convention that loses to a declaration
-		// (docs/USAGE.md). `gate run shell` still reaches the convention gate:
-		// a name asked for outright is not a tie to break.
-		if len(roles) == 0 && slices.ContainsFunc(opts.gates, declaresShellcheck) {
-			opts.gates = slices.DeleteFunc(opts.gates, isConventionShellGate)
-		}
-
-		// Only gates the project has are classified: a command the caller
-		// named is run because it was asked for, whatever it is.
-		for i := range opts.gates {
-			g := &opts.gates[i]
-			if c, ok := cfg.Gates[g.role]; ok && c.HasE2E {
-				g.e2e = c.E2E
-			} else {
-				g.e2e = detect.IsE2E(g.dir, g.role, g.argv)
-			}
-		}
-		// A name asked for outright is run whatever it is. --failed is the
-		// same: the last run already chose those gates, including e2e.
-		opts.skipE2E = !opts.e2e && len(roles) == 0 && !opts.failed
-		if cfg.HasBudget && !budgetSet {
-			budget = cfg.Budget
-		}
-		if cfg.HasJobs && !jobsSet {
-			opts.jobs = cfg.Jobs
-		}
-		if cfg.HasFailFast && !failFastSet {
-			opts.failFast = cfg.FailFast
-		}
-
-		// Never fall through to a program of that name. The caller is least
-		// sure what this project has in exactly the case where the fallback
-		// would fire, which is where running /usr/bin/test would be worst.
-		//
-		// Every name asked for has to resolve, not just one of them: running
-		// the subset that happened to match would report a pass for gates that
-		// never ran, which is the one answer this tool must never give.
-		var missing []string
-		for _, name := range roles {
-			if !slices.ContainsFunc(opts.gates, func(g gateSpec) bool { return g.role == name }) {
-				missing = append(missing, name)
-			}
-		}
-		if len(missing) > 0 {
-			fmt.Fprintf(stderr, "gate: no %s gate detected in %s\n", strings.Join(missing, ", "), proj.Root)
-			writeNotes(stderr, project)
-			fmt.Fprintf(stderr, "gate: run `gate --list` for what is here, or `gate -- %s` for a program by that name\n", missing[0])
-			return InvalidUsage
-		}
-
-		// After the names asked for are checked, so `gate run test test:unit`
-		// finds both before they become one.
-		var merged []string
-		opts.gates, merged = dedupe(opts.gates)
-		project.Notes = append(project.Notes, merged...)
-
-		if opts.failed {
-			if code := selectFailed(ctx, proj.Root, &opts, stderr); code != Success {
-				return code
-			}
+		project, configured, code, ok = st.detectGates(ctx, dir, roles, stderr)
+		if !ok {
+			return code
 		}
 	}
 
+	st.prepareGates(&project, roles)
+
+	if code, done := writeRequestedListing(stdout, stderr, project, configured, *opts); done {
+		return code
+	}
+	if code, ok := st.dropE2E(project, stderr); !ok {
+		return code
+	}
+
+	if code, ok := st.announceAndCheckLog(dir, project, stderr); !ok {
+		return code
+	}
+
+	if code := frozenInstall(ctx, project, stderr); code != Success {
+		return code
+	}
+	st.setBudget(project, configured, len(roles) > 0)
+	return runGates(ctx, *opts, stdout, stderr)
+}
+
+// prepareGates settles each gate's timeout and cache behaviour, and finds the
+// CI gaps the gates leave.
+func (st *runState) prepareGates(project *detect.Project, roles []string) {
+	opts := &st.opts
 	// The flag is the most local statement of intent, so it beats a gate's own
 	// key; a gate that names none takes the default.
 	for i := range opts.gates {
-		if timeoutSet || !opts.gates[i].hasTimeout {
-			opts.gates[i].timeout = timeout
+		if st.timeoutSet || !opts.gates[i].hasTimeout {
+			opts.gates[i].timeout = st.timeout
 		}
 	}
 
@@ -690,44 +521,12 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		}
 		project.Warnings = detect.CIGaps(project.Root, texts)
 	}
+}
 
-	// JSON first: both flags name the same listing, and a consumer that asked
-	// for the machine shape must not be handed the human one.
-	if opts.jsonList {
-		if err := writeListingJSON(stdout, project, configured.Files, opts); err != nil {
-			fmt.Fprintf(stderr, "gate: cannot write the listing: %v\n", err)
-			return Fatal
-		}
-		return Success
-	}
-	if opts.list {
-		writeListing(stdout, project, configured.Files, opts)
-		return Success
-	}
-
-	// Removed after the listings so the listings above still name every e2e gate.
-	var skipped []gateSpec
-	if opts.skipE2E {
-		skipped = slices.DeleteFunc(slices.Clone(opts.gates), func(g gateSpec) bool { return !g.e2e })
-		opts.gates = slices.DeleteFunc(opts.gates, func(g gateSpec) bool { return g.e2e })
-		opts.skippedE2E = len(skipped)
-	}
-	if len(opts.gates) == 0 && len(skipped) > 0 {
-		fmt.Fprintf(stderr, "gate: every gate in %s is e2e, which runs only on request\n", project.Root)
-		fmt.Fprintln(stderr, "gate: run `gate --e2e`, or `gate run <name>` for one")
-		return InvalidUsage
-	}
-
-	if len(opts.gates) == 0 {
-		// Detection always resolves a root -- the working directory itself
-		// when no manifest is found above it -- so there is no second
-		// "nothing was given" case to report here.
-		fmt.Fprintf(stderr, "gate: no gates detected in %s\n", project.Root)
-		writeNotes(stderr, project)
-		fmt.Fprintln(stderr, "gate: name a command to run one anyway, or --help for the flags")
-		return InvalidUsage
-	}
-
+// announceAndCheckLog prints what the gates disagree about and refuses a
+// single --log for several gates. ok is false when the run is over.
+func (st *runState) announceAndCheckLog(dir string, project detect.Project, stderr io.Writer) (code Code, ok bool) {
+	opts := &st.opts
 	// Two manifests declaring the same role differently is reported, never
 	// resolved quietly: choosing silently between two stated intents is the
 	// one behaviour that would make this untrustworthy.
@@ -742,25 +541,347 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		// One path cannot hold several gates' logs, and silently sharing it
 		// would destroy the output of every gate but the last.
 		fmt.Fprintln(stderr, "gate: --log names a single file; this run has several gates, so set TMPDIR to choose where their logs go")
-		return InvalidUsage
+		return InvalidUsage, false
 	}
+	return Success, true
+}
 
-	if code := frozenInstall(ctx, project, stderr); code != Success {
-		return code
-	}
-	opts.root, opts.partial = project.Root, len(roles) > 0 || opts.failed
+// setBudget records the project root and the wall-time budget for the run.
+func (st *runState) setBudget(project detect.Project, configured config.Config, named bool) {
+	opts := &st.opts
+	opts.root, opts.partial = project.Root, named || opts.failed
 	// A budget is the project's local gate, so a command the caller named
 	// has none.
-	if opts.root != "" {
-		opts.budget = budget
-		// 2m is the default when e2e actually runs, not a ceiling. --budget
-		// and a file's budget are the same statement of intent they are
-		// without e2e, including 0 to silence the warning.
-		if !budgetSet && !configured.HasBudget && slices.ContainsFunc(opts.gates, func(g gateSpec) bool { return g.e2e }) {
-			opts.budget = e2eBudget
+	if opts.root == "" {
+		return
+	}
+	opts.budget = st.budget
+	// 2m is the default when e2e actually runs, not a ceiling. --budget
+	// and a file's budget are the same statement of intent they are
+	// without e2e, including 0 to silence the warning.
+	if !st.budgetSet && !configured.HasBudget && slices.ContainsFunc(opts.gates, func(g gateSpec) bool { return g.e2e }) {
+		opts.budget = e2eBudget
+	}
+}
+
+// writeRequestedListing answers --json and --list, which run nothing. done is
+// false when neither was asked for.
+func writeRequestedListing(stdout, stderr io.Writer, project detect.Project, configured config.Config, opts options) (code Code, done bool) {
+	// JSON first: both flags name the same listing, and a consumer that asked
+	// for the machine shape must not be handed the human one.
+	if opts.jsonList {
+		if err := writeListingJSON(stdout, project, configured.Files, opts); err != nil {
+			fmt.Fprintf(stderr, "gate: cannot write the listing: %v\n", err)
+			return Fatal, true
+		}
+		return Success, true
+	}
+	if opts.list {
+		writeListing(stdout, project, configured.Files, opts)
+		return Success, true
+	}
+	return Success, false
+}
+
+// dropE2E removes the e2e gates a default run skips, and refuses a run left
+// with no gate at all. ok is false when the run is over.
+func (st *runState) dropE2E(project detect.Project, stderr io.Writer) (code Code, ok bool) {
+	opts := &st.opts
+	// Removed after the listings so the listings still name every e2e gate.
+	var skipped []gateSpec
+	if opts.skipE2E {
+		skipped = slices.DeleteFunc(slices.Clone(opts.gates), func(g gateSpec) bool { return !g.e2e })
+		opts.gates = slices.DeleteFunc(opts.gates, func(g gateSpec) bool { return g.e2e })
+		opts.skippedE2E = len(skipped)
+	}
+	if len(opts.gates) == 0 && len(skipped) > 0 {
+		fmt.Fprintf(stderr, "gate: every gate in %s is e2e, which runs only on request\n", project.Root)
+		fmt.Fprintln(stderr, "gate: run `gate --e2e`, or `gate run <name>` for one")
+		return InvalidUsage, false
+	}
+	if len(opts.gates) == 0 {
+		// Detection always resolves a root -- the working directory itself
+		// when no manifest is found above it -- so there is no second
+		// "nothing was given" case to report here.
+		fmt.Fprintf(stderr, "gate: no gates detected in %s\n", project.Root)
+		writeNotes(stderr, project)
+		fmt.Fprintln(stderr, "gate: name a command to run one anyway, or --help for the flags")
+		return InvalidUsage, false
+	}
+	return Success, true
+}
+
+// detectGates reads the project and the configuration found from its root
+// into st.opts.gates. ok is false when the run is over, with code as its status.
+func (st *runState) detectGates(ctx context.Context, dir string, roles []string, stderr io.Writer) (project detect.Project, cfg config.Config, code Code, ok bool) {
+	opts := &st.opts
+	proj, err := detect.Detect(ctx, dir)
+	if err != nil {
+		fmt.Fprintf(stderr, "gate: cannot inspect this directory: %v\n", err)
+		return project, cfg, Fatal, false
+	}
+	// A project gate that runs gate re-enters detection, finds the same
+	// gates, and runs them again. gate's own test gate is `make test`,
+	// which runs a suite that calls Run, so the loop is reachable here and
+	// does not terminate. Only detection is refused: wrapping a command is
+	// not recursion.
+	if slices.Contains(activeRoots(), proj.Root) {
+		fmt.Fprintf(stderr, "gate: refusing to detect gates in %s\n", proj.Root)
+		fmt.Fprintln(stderr, "gate: a gate from that project is already running, so this would not terminate")
+		fmt.Fprintln(stderr, "gate: name the command instead, e.g. `gate go test ./...`")
+		return project, cfg, Fatal, false
+	}
+
+	// Configuration is found from the DETECTED root, which is what makes
+	// `gate -C <elsewhere>` pick up that project's config for free.
+	cfg, err = config.Load(proj.Root)
+	if err != nil {
+		fmt.Fprintf(stderr, "gate: %v\n", err)
+		return project, cfg, InvalidUsage, false
+	}
+
+	project = proj
+	// A config `run` fills a role detection left empty for want of a
+	// tool, so the note saying that role is skipped would contradict the
+	// gate --list prints for it.
+	project.Notes = slices.DeleteFunc(slices.Clone(proj.Notes), func(note string) bool {
+		return slices.ContainsFunc(proj.Skipped, func(s detect.Skip) bool {
+			return s.Note == note && cfg.Gates[s.Role].Run != ""
+		})
+	})
+	for _, g := range proj.Gates {
+		if note := leftOutNote(cfg, proj.Root, g); note != "" {
+			project.Notes = append(project.Notes, note)
+			project.Installs = slices.DeleteFunc(slices.Clone(project.Installs), func(in detect.Install) bool { return in.Dir == g.Dir })
+			continue
+		}
+		if len(roles) > 0 && !slices.Contains(roles, g.Name) {
+			continue
+		}
+		spec, err := detectedSpec(g, cfg, proj.Root)
+		if err != nil {
+			fmt.Fprintf(stderr, "gate: %v\n", err)
+			return project, cfg, InvalidUsage, false
+		}
+		opts.gates = append(opts.gates, spec)
+	}
+
+	extra, err := configOnlyGates(cfg, opts.gates, roles, proj.Root)
+	if err != nil {
+		fmt.Fprintf(stderr, "gate: %v\n", err)
+		return project, cfg, InvalidUsage, false
+	}
+	opts.gates = append(opts.gates, extra...)
+
+	// The project's own declaration always wins. Everywhere else that is
+	// decided by role name, which is enough while a project uses the
+	// role's name -- but two repositories in this fleet declare their
+	// shellcheck under a name of their own, and got the convention as
+	// well: the same tool twice, running concurrently, disagreeing about
+	// which scripts each covers.
+	//
+	// Silent, like every other convention that loses to a declaration
+	// (docs/USAGE.md). `gate run shell` still reaches the convention gate:
+	// a name asked for outright is not a tie to break.
+	if len(roles) == 0 && slices.ContainsFunc(opts.gates, declaresShellcheck) {
+		opts.gates = slices.DeleteFunc(opts.gates, isConventionShellGate)
+	}
+	st.applyConfig(cfg, roles)
+
+	// Never fall through to a program of that name. The caller is least
+	// sure what this project has in exactly the case where the fallback
+	// would fire, which is where running /usr/bin/test would be worst.
+	//
+	// Every name asked for has to resolve, not just one of them: running
+	// the subset that happened to match would report a pass for gates that
+	// never ran, which is the one answer this tool must never give.
+	if missing := missingRoles(roles, opts.gates); len(missing) > 0 {
+		fmt.Fprintf(stderr, "gate: no %s gate detected in %s\n", strings.Join(missing, ", "), proj.Root)
+		writeNotes(stderr, project)
+		fmt.Fprintf(stderr, "gate: run `gate --list` for what is here, or `gate -- %s` for a program by that name\n", missing[0])
+		return project, cfg, InvalidUsage, false
+	}
+
+	// After the names asked for are checked, so `gate run test test:unit`
+	// finds both before they become one.
+	var merged []string
+	opts.gates, merged = dedupe(opts.gates)
+	project.Notes = append(project.Notes, merged...)
+
+	if opts.failed {
+		if code := selectFailed(ctx, proj.Root, opts, stderr); code != Success {
+			return project, cfg, code, false
 		}
 	}
-	return runGates(ctx, opts, stdout, stderr)
+	return project, cfg, Success, true
+}
+
+// applyConfig classifies the gates as e2e and takes the run-wide settings the
+// file states that no flag overrode.
+func (st *runState) applyConfig(cfg config.Config, roles []string) {
+	opts := &st.opts
+	// Only gates the project has are classified: a command the caller
+	// named is run because it was asked for, whatever it is.
+	for i := range opts.gates {
+		g := &opts.gates[i]
+		if c, ok := cfg.Gates[g.role]; ok && c.HasE2E {
+			g.e2e = c.E2E
+		} else {
+			g.e2e = detect.IsE2E(g.dir, g.role, g.argv)
+		}
+	}
+	// A name asked for outright is run whatever it is. --failed is the
+	// same: the last run already chose those gates, including e2e.
+	opts.skipE2E = !opts.e2e && len(roles) == 0 && !opts.failed
+	if cfg.HasBudget && !st.budgetSet {
+		st.budget = cfg.Budget
+	}
+	if cfg.HasJobs && !st.jobsSet {
+		opts.jobs = cfg.Jobs
+	}
+	if cfg.HasFailFast && !st.failFastSet {
+		opts.failFast = cfg.FailFast
+	}
+}
+
+func missingRoles(roles []string, gates []gateSpec) []string {
+	var missing []string
+	for _, name := range roles {
+		if !slices.ContainsFunc(gates, func(g gateSpec) bool { return g.role == name }) {
+			missing = append(missing, name)
+		}
+	}
+	return missing
+}
+
+// leftOutNote says why a detected gate is not run, or returns "".
+func leftOutNote(cfg config.Config, root string, g detect.Gate) string {
+	// Only a gate named for a directory can be excluded: a role is
+	// removed by configuring it, not by detect.exclude.
+	if g.Dir != "" && cfg.Excluded(g.Name) {
+		return "CI runs " + g.Name + "/, but detect.exclude in .gate.toml leaves it out"
+	}
+	if by := configEnters(cfg, root, g); by != "" {
+		return "CI runs " + g.Name + "/, and " + by + " already enters it; not gated twice"
+	}
+	return ""
+}
+
+// detectedSpec builds the gate detection found, with the configuration's
+// overrides applied.
+func detectedSpec(g detect.Gate, cfg config.Config, root string) (gateSpec, error) {
+	spec := gateSpec{
+		argv:     g.Argv,
+		display:  g.Display(),
+		role:     g.Name,
+		source:   g.Source,
+		shadowed: g.Shadowed,
+		serial:   g.Serial,
+		env:      maps.Clone(g.Env),
+		// The project's own commands only work at its root, which
+		// is not necessarily where the caller stood.
+		dir: root,
+	}
+	if g.Dir != "" {
+		spec.dir, spec.hasDir = g.Dir, true
+	}
+	// Config overrides a detected gate; it never removes one, and the
+	// detected source stays on the line so --list still says where
+	// the gate came from as well as what changed it.
+	c, ok := cfg.Gates[g.Name]
+	if !ok {
+		return spec, nil
+	}
+	if c.Run != "" {
+		spec.argv, spec.display = shellArgv(c.Run), c.Run
+		// A configured command is written from the root, like
+		// every other one in the file; only `dir` moves it.
+		spec.dir, spec.hasDir = root, false
+		// A config `run` is a third declaration, and the most
+		// local one, so it settles a disagreement between the
+		// other two rather than muting the report of it. The
+		// resolution is visible in --list as this gate's source.
+		spec.shadowed = nil
+	}
+	// Only where the file actually said so: an absent key must
+	// not silently undo an order detection found for a reason.
+	if c.HasSerial {
+		spec.serial = c.Serial
+	}
+	// Same rule for the same reason: an absent key inherits, and
+	// a deliberate 0 disables the limit for this gate only.
+	if c.HasTimeout {
+		spec.timeout, spec.hasTimeout = c.Timeout, true
+	}
+	// The rest of the per-gate surface follows the same rule --
+	// set only where the file said so, so one gate's settings
+	// never leak onto another.
+	if c.HasEnv {
+		if spec.env == nil {
+			spec.env = map[string]string{}
+		}
+		maps.Copy(spec.env, c.Env)
+	}
+	if err := applyDirAndAllow(&spec, g.Name, c, root); err != nil {
+		return spec, err
+	}
+	spec.source = g.Source + ", overridden by " + c.Source
+	return spec, nil
+}
+
+// applyDirAndAllow sets the keys both kinds of configured gate share.
+func applyDirAndAllow(spec *gateSpec, name string, c config.Gate, root string) error {
+	if c.HasDir {
+		resolved, err := resolveGateDir(c.Dir, root)
+		if err != nil {
+			return fmt.Errorf("gates.%s.dir %q: %w", name, c.Dir, err)
+		}
+		spec.dir, spec.hasDir = resolved, true
+	}
+	if c.HasAllowFailure {
+		spec.allowFailure = c.AllowFailure
+	}
+	return nil
+}
+
+// configOnlyGates returns the gates configuration declares and detection
+// could not infer -- an e2e suite, a migration check. Added in name order so a
+// run is reproducible. These are selectable by name like any other gate, which
+// is the whole point of `gate run`: a gate only config knows about was
+// otherwise reachable only by running every gate in the project.
+//
+// The test is what detection actually produced, not whether the name
+// is a role: detection emits names that are not roles, and adding a
+// second gate for one of those would run it twice and make `gate run
+// <name>` ambiguous. A name detection did produce was already
+// overridden when it was built.
+func configOnlyGates(cfg config.Config, detected []gateSpec, roles []string, root string) ([]gateSpec, error) {
+	var extra []gateSpec
+	for _, name := range slices.Sorted(maps.Keys(cfg.Gates)) {
+		c := cfg.Gates[name]
+		if c.Run == "" || slices.ContainsFunc(detected, func(g gateSpec) bool { return g.role == name }) {
+			continue
+		}
+		if len(roles) > 0 && !slices.Contains(roles, name) {
+			continue
+		}
+		spec := gateSpec{
+			argv:       shellArgv(c.Run),
+			display:    c.Run,
+			serial:     c.Serial,
+			timeout:    c.Timeout,
+			hasTimeout: c.HasTimeout,
+			env:        maps.Clone(c.Env),
+			role:       name,
+			source:     c.Source + " gates." + name,
+			dir:        root,
+		}
+		if err := applyDirAndAllow(&spec, name, c, root); err != nil {
+			return nil, err
+		}
+		extra = append(extra, spec)
+	}
+	return extra, nil
 }
 
 // frozenInstall runs the project's installs once each, before any gate,

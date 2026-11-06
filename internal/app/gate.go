@@ -350,54 +350,20 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 	if opts.root != "" {
 		go func() { tree <- stored.ReadTree(ctx, opts.root) }()
 	}
-	var slots chan struct{}
+	sc := groupRun{opts: opts, results: results, stream: stream}
 	if opts.jobs > 0 {
-		slots = make(chan struct{}, opts.jobs)
+		sc.slots = make(chan struct{}, opts.jobs)
 	}
 	runCtx := ctx
-	var stopFast context.CancelFunc
 	if opts.failFast {
+		var stopFast context.CancelFunc
 		runCtx, stopFast = context.WithCancel(ctx)
+		sc.stopFast = stopFast
 		defer stopFast()
 	}
 	var wg sync.WaitGroup
 	for _, group := range schedule(opts.gates, opts.serial) {
-		wg.Go(func() {
-			// A group holds gates that were marked serial, so they run in
-			// sequence and a failure stops the rest of it -- a gate whose
-			// build just failed has nothing left to say. It never touches
-			// the other groups, which asked for no such order -- unless
-			// fail-fast cancelled runCtx, which is the existing interrupt
-			// path applied to every group.
-			for _, i := range group {
-				// A cancelled run starts nothing further. Leaving these
-				// zero-valued reports them as skipped below, rather than
-				// as failures from an exec that was never going to happen.
-				if runCtx.Err() != nil {
-					break
-				}
-				if !acquireJob(runCtx, slots) {
-					break
-				}
-				results[i] = runOne(runCtx, opts.gates[i], opts)
-				releaseJob(slots)
-				// Emitted here rather than after the wait: the stream's
-				// value is that a gate's outcome is readable while the slow
-				// one beside it is still running.
-				stream.emit(results[i])
-				// A gate that never reached its command carries the zero
-				// Code, which is Success. Only a gate that started has a
-				// verdict to read, so the chain stops on either -- unless
-				// the project allowed this failure, in which case the
-				// group runs on past it.
-				if !results[i].started || (results[i].code != Success && !results[i].excused()) {
-					if stopFast != nil && results[i].started {
-						stopFast()
-					}
-					break
-				}
-			}
-		})
+		wg.Go(func() { sc.run(runCtx, group) })
 	}
 	wg.Wait()
 
@@ -435,22 +401,73 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 	}
 	if opts.root != "" {
 		if state := <-tree; state.OK {
-			rec := record{
-				Schema: recordSchema, Root: stored.Canonical(opts.root), Head: state.Head, Dirty: state.Dirty, Status: state.Status,
-				Partial: opts.partial, Started: started, Finished: started.Add(wall), Exit: int(code),
-				Gates: make([]result, 0, len(results)),
-			}
-			for _, res := range results {
-				rec.Gates = append(rec.Gates, toResult(res))
-			}
-			// Reported, never fatal: the record is a convenience for other
-			// tools, and the run's own status is the verdict.
-			if err := writeRecord(rec); err != nil {
-				fmt.Fprintf(stderr, "gate: cannot write the result record: %v\n", err)
-			}
+			saveRecord(stderr, opts, results, state, started, wall, code)
 		}
 	}
 	return code
+}
+
+// saveRecord writes the run's result record. Reported, never fatal: the
+// record is a convenience for other tools, and the run's own status is the
+// verdict.
+func saveRecord(stderr io.Writer, opts options, results []gateResult, state stored.State, started time.Time, wall time.Duration, code Code) {
+	rec := record{
+		Schema: recordSchema, Root: stored.Canonical(opts.root), Head: state.Head, Dirty: state.Dirty, Status: state.Status,
+		Partial: opts.partial, Started: started, Finished: started.Add(wall), Exit: int(code),
+		Gates: make([]result, 0, len(results)),
+	}
+	for _, res := range results {
+		rec.Gates = append(rec.Gates, toResult(res))
+	}
+	if err := writeRecord(rec); err != nil {
+		fmt.Fprintf(stderr, "gate: cannot write the result record: %v\n", err)
+	}
+}
+
+// groupRun is what running one schedule group needs from the run around it.
+type groupRun struct {
+	opts     options
+	results  []gateResult
+	slots    chan struct{}
+	stream   *resultStream
+	stopFast context.CancelFunc
+}
+
+// run executes a group's gates in order. A group holds gates that were marked
+// serial, so they run in sequence and a failure stops the rest of it -- a gate
+// whose build just failed has nothing left to say. It never touches the other
+// groups, which asked for no such order -- unless fail-fast cancelled ctx,
+// which is the existing interrupt path applied to every group.
+func (g *groupRun) run(ctx context.Context, group []int) {
+	for _, i := range group {
+		// A cancelled run starts nothing further. Leaving these
+		// zero-valued reports them as skipped, rather than
+		// as failures from an exec that was never going to happen.
+		if ctx.Err() != nil {
+			return
+		}
+		if !acquireJob(ctx, g.slots) {
+			return
+		}
+		g.results[i] = runOne(ctx, g.opts.gates[i], g.opts)
+		releaseJob(g.slots)
+		// Emitted here rather than after the wait: the stream's
+		// value is that a gate's outcome is readable while the slow
+		// one beside it is still running.
+		g.stream.emit(g.results[i])
+		// A gate that never reached its command carries the zero
+		// Code, which is Success. Only a gate that started has a
+		// verdict to read, so the chain stops on either -- unless
+		// the project allowed this failure, in which case the
+		// group runs on past it.
+		res := g.results[i]
+		if !res.started || (res.code != Success && !res.excused()) {
+			if g.stopFast != nil && res.started {
+				g.stopFast()
+			}
+			return
+		}
+	}
 }
 
 // schedule returns index groups: gates within a group run in sequence, and
@@ -583,68 +600,9 @@ func report(results []gateResult, opts options, stdout, stderr io.Writer) Code {
 	// non-allowed failure -- the way a user signal's Interrupted must.
 	ignoreInterrupt := opts.failFast && failFastTrigger(results)
 	for _, res := range results {
-		code := Success
-		switch res.outcome() {
-		case outcomeSkipped:
-			// Never affects the aggregate: a gate that did not run has no
-			// verdict, and inventing one would be the lie this reports to
-			// avoid. It goes to stderr because it only ever accompanies a
-			// failure.
-			fmt.Fprintf(stderr, "gate: SKIP  %s  (not run: %s)\n", res.spec.short(), res.skipReason)
-		case outcomeNoRun:
-			// No command, so no verdict to pass through: gate's own failure,
-			// printed below, is the whole report.
-			code = Fatal
-		case outcomeInterrupted:
-			// Stopped, not judged -- the same distinction a timeout gets. The
-			// status reported is the signal that reached gate, never the
-			// signal gate sent the child, which would name gate's own
-			// mechanism as the cause.
-			fmt.Fprintf(stderr, "gate: INTERRUPTED  %s  (stopped, not failed)\n", res.spec.short())
-			quote(stderr, res.tracker)
-			fmt.Fprintf(stderr, "gate: partial log  %s\n", res.logPath)
-			code = Interrupted
-		case outcomeTimedOut:
-			if !sawTimeout {
-				killed, sawTimeout = res.spec.role, true
-			}
-			allowed := ""
-			if res.excused() {
-				allowed = "; allowed"
-			}
-			fmt.Fprintf(stderr, "gate: TIMEOUT after %s  %s  (killed, not failed%s)\n",
-				res.spec.timeout, res.spec.short(), allowed)
-			quote(stderr, res.tracker)
-			fmt.Fprintf(stderr, "gate: partial log  %s\n", res.logPath)
-			code = TimedOut
-		case outcomeNotFound:
-			allowed := ""
-			if res.excused() {
-				allowed = " (allowed)"
-			}
-			fmt.Fprintf(stderr, "gate: cannot run %q%s\n", res.spec.short(), allowed)
-			code = NotFound
-		case outcomeRan:
-			if res.code == Success {
-				if !opts.quiet {
-					cached := ""
-					if label := res.cache.label(); label != "" {
-						cached = "  (" + label + ")"
-					}
-					fmt.Fprintf(stdout, "gate: ok  %s  %s  %s%s\n",
-						res.spec.short(), res.elapsed.Round(time.Millisecond), res.logPath, cached)
-				}
-			} else {
-				allowed := ""
-				if res.excused() {
-					allowed = " (allowed)"
-				}
-				fmt.Fprintf(stderr, "gate: FAIL%s exit %d  %s  %s\n",
-					allowed, int(res.code), res.spec.short(), res.elapsed.Round(time.Millisecond))
-				quote(stderr, res.tracker)
-				fmt.Fprintf(stderr, "gate: full log  %s\n", res.logPath)
-			}
-			code = res.code
+		code := reportOutcome(res, opts, quote, stdout, stderr)
+		if res.outcome() == outcomeTimedOut && !sawTimeout {
+			killed, sawTimeout = res.spec.role, true
 		}
 
 		// Said out loud whatever else happened to this gate: losing a log is
@@ -674,6 +632,74 @@ func report(results []gateResult, opts options, stdout, stderr io.Writer) Code {
 		writeTimeoutRemedy(stderr, killed)
 	}
 	return aggregate
+}
+
+// reportOutcome prints one gate's outcome and returns the status it carries.
+func reportOutcome(res gateResult, opts options, quote func(io.Writer, *lineTracker), stdout, stderr io.Writer) Code {
+	switch res.outcome() {
+	case outcomeSkipped:
+		// Never affects the aggregate: a gate that did not run has no
+		// verdict, and inventing one would be the lie this reports to
+		// avoid. It goes to stderr because it only ever accompanies a
+		// failure.
+		fmt.Fprintf(stderr, "gate: SKIP  %s  (not run: %s)\n", res.spec.short(), res.skipReason)
+	case outcomeNoRun:
+		// No command, so no verdict to pass through: gate's own failure,
+		// printed by the caller, is the whole report.
+		return Fatal
+	case outcomeInterrupted:
+		// Stopped, not judged -- the same distinction a timeout gets. The
+		// status reported is the signal that reached gate, never the
+		// signal gate sent the child, which would name gate's own
+		// mechanism as the cause.
+		fmt.Fprintf(stderr, "gate: INTERRUPTED  %s  (stopped, not failed)\n", res.spec.short())
+		quote(stderr, res.tracker)
+		fmt.Fprintf(stderr, "gate: partial log  %s\n", res.logPath)
+		return Interrupted
+	case outcomeTimedOut:
+		allowed := ""
+		if res.excused() {
+			allowed = "; allowed"
+		}
+		fmt.Fprintf(stderr, "gate: TIMEOUT after %s  %s  (killed, not failed%s)\n",
+			res.spec.timeout, res.spec.short(), allowed)
+		quote(stderr, res.tracker)
+		fmt.Fprintf(stderr, "gate: partial log  %s\n", res.logPath)
+		return TimedOut
+	case outcomeNotFound:
+		allowed := ""
+		if res.excused() {
+			allowed = " (allowed)"
+		}
+		fmt.Fprintf(stderr, "gate: cannot run %q%s\n", res.spec.short(), allowed)
+		return NotFound
+	case outcomeRan:
+		reportRan(res, opts, quote, stdout, stderr)
+		return res.code
+	}
+	return Success
+}
+
+func reportRan(res gateResult, opts options, quote func(io.Writer, *lineTracker), stdout, stderr io.Writer) {
+	if res.code == Success {
+		if !opts.quiet {
+			cached := ""
+			if label := res.cache.label(); label != "" {
+				cached = "  (" + label + ")"
+			}
+			fmt.Fprintf(stdout, "gate: ok  %s  %s  %s%s\n",
+				res.spec.short(), res.elapsed.Round(time.Millisecond), res.logPath, cached)
+		}
+		return
+	}
+	allowed := ""
+	if res.excused() {
+		allowed = " (allowed)"
+	}
+	fmt.Fprintf(stderr, "gate: FAIL%s exit %d  %s  %s\n",
+		allowed, int(res.code), res.spec.short(), res.elapsed.Round(time.Millisecond))
+	quote(stderr, res.tracker)
+	fmt.Fprintf(stderr, "gate: full log  %s\n", res.logPath)
 }
 
 // writeTimeoutRemedy names the fix for a gate the limit killed.
