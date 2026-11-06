@@ -5,21 +5,6 @@ exists; this file is the only place that describes what does not.
 
 Sections are unordered.
 
-## bun test and cargo test are invisible to the cache label
-
-measured-not-worth: `bun test` 1.4.3, cold then warm on a two-test file,
-prints `N pass` / `0 fail` / `Ran N tests across M file.` and a duration.
-No cached-versus-total. Warm vs cold differed only in elapsed time (2ms
-then 1ms).
-
-measured-not-worth: `cargo test` 1.99.0, cold then warm on a two-test lib,
-prints `test result: ok. N passed; 0 failed; ...` (already the
-unrecognised fixture at `internal/app/cache_test.go:77`). Warm vs cold
-differed by a `Compiling` line and `Finished ... in 0.07s` vs `0.00s`.
-
-No `cacheSource` added. A guessed regex and a timing heuristic stay
-refused.
-
 <!--
 ## A sentence naming the problem, not the solution
 
