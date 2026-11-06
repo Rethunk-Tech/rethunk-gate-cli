@@ -2,7 +2,6 @@ package app
 
 import (
 	"bytes"
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -58,7 +57,7 @@ func packageScratch(pattern string) (string, error) {
 func committedRepo(t *testing.T, root string) string {
 	t.Helper()
 	git := func(args ...string) string {
-		cmd := exec.CommandContext(context.Background(), "git", append([]string{"-c", "user.name=t", "-c", "user.email=t@t"}, args...)...) //nolint:gosec // test repository commands are fixed git operations
+		cmd := exec.CommandContext(t.Context(), "git", append([]string{"-c", "user.name=t", "-c", "user.email=t@t"}, args...)...) //nolint:gosec // test repository commands are fixed git operations
 		cmd.Dir = root
 		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
 		out, err := cmd.Output()
@@ -182,27 +181,27 @@ func TestTreeHashDistinguishesDirtyTrees(t *testing.T) {
 	testutil.Write(t, root, "README", "x\n")
 	committedRepo(t, root)
 
-	clean := stored.ReadTree(context.Background(), root)
+	clean := stored.ReadTree(t.Context(), root)
 	qt.Assert(t, qt.IsTrue(clean.OK))
 	qt.Check(t, qt.Equals(clean.Status, emptyTreeStatus))
 
 	testutil.Write(t, root, "note", "hello\n")
-	one := stored.ReadTree(context.Background(), root)
+	one := stored.ReadTree(t.Context(), root)
 	qt.Assert(t, qt.IsTrue(one.OK))
 	qt.Check(t, qt.IsTrue(one.Dirty))
 	qt.Check(t, qt.Equals(one.Head, clean.Head))
 	qt.Check(t, qt.Equals(one.Status, specStatus(t, root)))
 	qt.Check(t, qt.Not(qt.Equals(one.Status, emptyTreeStatus)))
-	idCmd := exec.CommandContext(context.Background(), "git", "-C", root, "-c", "core.fsmonitor=", "hash-object", "--", "note") //nolint:gosec // fixed git arguments against the temp repo
+	idCmd := exec.CommandContext(t.Context(), "git", "-C", root, "-c", "core.fsmonitor=", "hash-object", "--", "note") //nolint:gosec // fixed git arguments against the temp repo
 	idCmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
 	idOut, err := idCmd.Output()
 	qt.Assert(t, qt.IsNil(err))
-	absent := exec.CommandContext(context.Background(), "git", "-C", root, "cat-file", "-e", strings.TrimSpace(string(idOut))) //nolint:gosec // fixed git arguments against the temp repo
+	absent := exec.CommandContext(t.Context(), "git", "-C", root, "cat-file", "-e", strings.TrimSpace(string(idOut))) //nolint:gosec // fixed git arguments against the temp repo
 	absent.Env = idCmd.Env
 	qt.Check(t, qt.IsNotNil(absent.Run()), qt.Commentf("hash-object -w wrote the untracked blob"))
 
 	testutil.Write(t, root, "note", "other\n")
-	two := stored.ReadTree(context.Background(), root)
+	two := stored.ReadTree(t.Context(), root)
 	qt.Assert(t, qt.IsTrue(two.OK))
 	qt.Check(t, qt.Not(qt.Equals(two.Status, one.Status)))
 
@@ -210,10 +209,10 @@ func TestTreeHashDistinguishesDirtyTrees(t *testing.T) {
 		t.Fatal(err)
 	}
 	testutil.Write(t, root, "sub/a", "a\n")
-	dir := stored.ReadTree(context.Background(), root)
+	dir := stored.ReadTree(t.Context(), root)
 	qt.Assert(t, qt.IsTrue(dir.OK))
 	testutil.Write(t, root, "sub/a", "b\n")
-	changed := stored.ReadTree(context.Background(), root)
+	changed := stored.ReadTree(t.Context(), root)
 	qt.Assert(t, qt.IsTrue(changed.OK))
 	qt.Check(t, qt.Not(qt.Equals(changed.Status, dir.Status)))
 	qt.Check(t, qt.Equals(changed.Status, specStatus(t, root)))
@@ -225,7 +224,7 @@ func specStatus(t *testing.T, root string) string {
 	t.Helper()
 	git := func(args ...string) []byte {
 		t.Helper()
-		cmd := exec.CommandContext(context.Background(), "git", append([]string{"-C", root, "-c", "core.fsmonitor=", "-c", "color.ui=false"}, args...)...) //nolint:gosec // test repository commands are fixed git operations
+		cmd := exec.CommandContext(t.Context(), "git", append([]string{"-C", root, "-c", "core.fsmonitor=", "-c", "color.ui=false"}, args...)...) //nolint:gosec // test repository commands are fixed git operations
 		cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
 		out, err := cmd.Output()
 		qt.Assert(t, qt.IsNil(err))
@@ -305,7 +304,7 @@ func TestRecordReportsAFreshPass(t *testing.T) {
 	stdout, stderr, code := runGateTest(t, "-C", root, "record")
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
 	qt.Check(t, qt.Equals(stderr, ""))
-	state := stored.ReadTree(context.Background(), root)
+	state := stored.ReadTree(t.Context(), root)
 	qt.Assert(t, qt.IsTrue(state.OK))
 	qt.Check(t, qt.Equals(state.Head, head))
 	qt.Check(t, qt.StringContains(stdout, state.Head))
@@ -343,7 +342,7 @@ func TestRecordSaysPartialAfterANamedRun(t *testing.T) {
 	rec := readRecord(t, root)
 	qt.Assert(t, qt.IsTrue(rec.Partial))
 	qt.Assert(t, qt.Equals(rec.Exit, 0))
-	state := stored.ReadTree(context.Background(), root)
+	state := stored.ReadTree(t.Context(), root)
 	qt.Assert(t, qt.IsTrue(state.OK))
 	qt.Assert(t, qt.Equals(rec.Head, state.Head))
 	qt.Assert(t, qt.Equals(rec.Status, state.Status))
@@ -378,7 +377,7 @@ func TestRecordSaysFailedAfterAFailedRun(t *testing.T) {
 	qt.Check(t, qt.StringContains(stderr, "failed"))
 	qt.Check(t, qt.Not(qt.StringContains(stderr, "stale")))
 	qt.Check(t, qt.StringContains(stdout, "exit"))
-	state := stored.ReadTree(context.Background(), root)
+	state := stored.ReadTree(t.Context(), root)
 	qt.Assert(t, qt.IsTrue(state.OK))
 	qt.Check(t, qt.StringContains(stdout, state.Head))
 	qt.Check(t, qt.StringContains(stdout, state.Status))
@@ -410,7 +409,7 @@ func TestRecordSaysStaleWhenTheTreeChanges(t *testing.T) {
 	qt.Check(t, qt.StringContains(stderr, "stale"))
 	var rec record
 	qt.Assert(t, qt.IsNil(json.Unmarshal([]byte(js), &rec)), qt.Commentf("stdout = %q", js))
-	state := stored.ReadTree(context.Background(), root)
+	state := stored.ReadTree(t.Context(), root)
 	qt.Check(t, qt.Not(qt.Equals(rec.Status, state.Status)))
 	assertRecordView(t, js, false, "stale")
 }
@@ -447,7 +446,7 @@ func TestRecordStaleWhenHeadOrSchemaDiffer(t *testing.T) {
 	qt.Check(t, qt.StringContains(stderr, "stale"))
 	qt.Check(t, qt.Not(qt.StringContains(stdout, "current")))
 
-	state := stored.ReadTree(context.Background(), root)
+	state := stored.ReadTree(t.Context(), root)
 	qt.Assert(t, qt.IsTrue(state.OK))
 	js, stderr, code := runGateTest(t, "-C", root, "--json", "record")
 	qt.Check(t, qt.Equals(code, recordNotFresh))
@@ -673,7 +672,7 @@ func TestRecordTextWriteErrorIsFatal(t *testing.T) {
 	qt.Assert(t, qt.Equals(code, Success))
 
 	var stderr bytes.Buffer
-	code = runRecord(context.Background(), root, false, errWriter{}, &stderr)
+	code = runRecord(t.Context(), root, false, errWriter{}, &stderr)
 	qt.Assert(t, qt.Equals(code, Fatal), qt.Commentf("stderr = %q", stderr.String()))
 	qt.Check(t, qt.StringContains(stderr.String(), "cannot write the record"))
 }

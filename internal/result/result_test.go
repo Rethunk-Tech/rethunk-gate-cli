@@ -1,7 +1,6 @@
 package result
 
 import (
-	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -40,7 +39,7 @@ func TestReadTreeDoesNotRunGITExternalDiff(t *testing.T) {
 	}
 	t.Setenv("GIT_EXTERNAL_DIFF", diff)
 
-	state := ReadTree(context.Background(), root)
+	state := ReadTree(t.Context(), root)
 	qt.Assert(t, qt.IsTrue(state.OK))
 	qt.Check(t, qt.IsTrue(state.Dirty))
 	_, err := os.Stat(marker)

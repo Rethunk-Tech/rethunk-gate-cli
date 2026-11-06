@@ -82,7 +82,7 @@ func exists(path string) bool {
 func runGateTest(t *testing.T, args ...string) (stdout, stderr string, code Code) {
 	t.Helper()
 	var out, errBuf bytes.Buffer
-	code = Run(context.Background(), "v0.0.0-test", args, &out, &errBuf)
+	code = Run(t.Context(), "v0.0.0-test", args, &out, &errBuf)
 	return out.String(), errBuf.String(), code
 }
 
@@ -999,7 +999,7 @@ func TestAnInterruptedGateIsStoppedNotFailedAndKeepsItsLog(t *testing.T) {
 	orphan := filepath.Join(dir, "orphan-survived")
 	log := tempLog(t)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	script := "echo before-the-interrupt; (touch " + started +
 		"; sleep 0.4; touch " + orphan + "); sleep 10"
 
@@ -1042,7 +1042,7 @@ func TestGatesNotStartedWhenInterruptedSayTheRunWasInterrupted(t *testing.T) {
 	setLogDir(t)
 
 	root := gateProject(t, "sleep 10", "true")
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	var out, errBuf bytes.Buffer
 	done := make(chan Code, 1)
 	go func() {
@@ -1614,7 +1614,7 @@ func TestConcurrentGatesEachRunInTheirOwnDirectory(t *testing.T) {
 		},
 	}
 	var out, errBuf bytes.Buffer
-	if code := runGates(context.Background(), opts, &out, &errBuf); code != Success {
+	if code := runGates(t.Context(), opts, &out, &errBuf); code != Success {
 		t.Fatalf("runGates = %d, stderr = %q", code, errBuf.String())
 	}
 
@@ -1939,7 +1939,7 @@ func (failWriter) Write([]byte) (int, error) {
 func TestNDJSONReportsEncodeError(t *testing.T) {
 	t.Parallel()
 	var stderr bytes.Buffer
-	code := Run(context.Background(), "v0.0.0-test", []string{"--ndjson", "true"}, failWriter{}, &stderr)
+	code := Run(t.Context(), "v0.0.0-test", []string{"--ndjson", "true"}, failWriter{}, &stderr)
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr.String()))
 	qt.Check(t, qt.StringContains(stderr.String(), "writing --ndjson"),
 		qt.Commentf("stderr = %q", stderr.String()))
@@ -2147,7 +2147,7 @@ func TestDoctorJSONIncludesAStaleResult(t *testing.T) {
 	testutil.Write(t, root, "Makefile", "test:\n\ttrue\n")
 	testutil.Write(t, root, ".github/workflows/ci.yml", "name: CI\njobs:\n  a:\n    steps:\n      - run: true\n")
 	committedRepo(t, root)
-	state := stored.ReadTree(context.Background(), root)
+	state := stored.ReadTree(t.Context(), root)
 	qt.Assert(t, qt.IsTrue(state.OK))
 
 	qt.Assert(t, qt.IsNil(writeRecord(record{

@@ -1,7 +1,6 @@
 package detect
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -122,7 +121,7 @@ func TestDotnetConvention(t *testing.T) {
 			t.Setenv("PATH", bin)
 			t.Setenv("GIT_DIR", filepath.Join(root, ".not-a-git-dir"))
 
-			gates, skipped := conventionGates(context.Background(), root, &Project{Root: root})
+			gates, skipped := conventionGates(t.Context(), root, &Project{Root: root})
 			var got [][]string
 			for _, g := range gates {
 				if g.Source != "convention: dotnet" {
