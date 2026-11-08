@@ -6,6 +6,8 @@ Notable changes to `gate`. The format follows
 
 ## [Unreleased]
 
+## [0.6.10] - 2026-11-08
+
 ### Added
 
 - `dependabot-npm-in-bun`: doctor flags a Dependabot `npm` entry over a directory whose only lockfile is bun's (Dependabot fails every scheduled run there while CI stays green), and `gate fix` switches it to `bun`.
