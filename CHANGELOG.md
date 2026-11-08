@@ -6,6 +6,10 @@ Notable changes to `gate`. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `dependabot-npm-in-bun`: doctor flags a Dependabot `npm` entry over a directory whose only lockfile is bun's (Dependabot fails every scheduled run there while CI stays green), and `gate fix` switches it to `bun`.
+
 ### Changed
 
 - Gates run with `PWD` set to their own directory, so Go's test cache still hits when `gate` starts from another one.

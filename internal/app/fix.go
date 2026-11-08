@@ -19,8 +19,8 @@ const fixHelp = `usage: gate [-C <path>] [--json] fix [--dry-run]
 Applies doctor findings whose check names a closed mechanical remedy:
 next-build-typecheck-race, ci-govulncheck-off, ci-python-audit-off,
 ci-clippy-off, ci-bun-audit-off, corepack-with-setup-bun,
-npx-in-bun-workspace, actions-floating-ref, actions-stale-ref. The rest skip
-with a reason.
+npx-in-bun-workspace, dependabot-npm-in-bun, actions-floating-ref,
+actions-stale-ref. The rest skip with a reason.
 
 Doctor stays read-only: this is a different verb so advice cannot become a
 silent rewrite. Unappliable findings are skipped with a reason, never half-done.

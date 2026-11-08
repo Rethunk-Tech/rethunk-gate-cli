@@ -85,6 +85,8 @@ func Apply(f doctor.Finding, dryRun bool) (Result, error) {
 		return applyWorkflow(f, dryRun, enableWorkflowInput("gh-actions/setup-bun", "run-audit"))
 	case "corepack-with-setup-bun":
 		return applyWorkflow(f, dryRun, dropCorepack)
+	case "dependabot-npm-in-bun":
+		return applyWorkflow(f, dryRun, dependabotToBun(filepath.Dir(filepath.Dir(f.Path))))
 	case "npx-in-bun-workspace":
 		return applyWorkflow(f, dryRun, replaceNpx)
 	case "actions-floating-ref", "actions-stale-ref":
@@ -650,4 +652,16 @@ func rewriteRef(line, oldRef, tag string) (string, bool) {
 
 func refBoundary(c byte) bool {
 	return c == ' ' || c == '\t' || c == '#'
+}
+
+// dependabotToBun rewrites only the ecosystem lines doctor flagged, so an npm
+// entry over a real npm project in the same file is left alone.
+func dependabotToBun(root string) func(string) (string, string) {
+	return func(body string) (string, string) {
+		lines := strings.Split(body, "\n")
+		for _, i := range doctor.DependabotNpmInBun(root, body) {
+			lines[i] = strings.Replace(lines[i], "npm", "bun", 1)
+		}
+		return strings.Join(lines, "\n"), ""
+	}
 }

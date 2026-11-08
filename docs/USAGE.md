@@ -385,6 +385,7 @@ plus `warnings` (`[]` if none). Text omits `warnings`. `--ndjson` refused.
 | `ci-no-final-gate` | Matrix checks, no aggregating job |
 | `corepack-with-setup-bun` | `corepack enable` beside `setup-bun` |
 | `npx-in-bun-workspace` | `npx` with a `bun.lock` |
+| `dependabot-npm-in-bun` | Dependabot `npm` entry over a directory whose only lockfile is bun's |
 | `actions-floating-ref` | Shared action pinned to `main` |
 | `actions-stale-ref` | Shared action behind the known tag |
 | `superseded-tooling` | eslint, mypy or black |
@@ -412,6 +413,7 @@ finding was applied/skipped; a failed write is a failure.
 | `ci-bun-audit-off` | `run-audit: "true"` on the named setup-bun step |
 | `corepack-with-setup-bun` | drop the `corepack enable` step |
 | `npx-in-bun-workspace` | `npx` → `bunx` in the named workflow or `package.json` |
+| `dependabot-npm-in-bun` | `package-ecosystem: bun` on each flagged entry in `.github/dependabot.yml` |
 | `actions-floating-ref` / `actions-stale-ref` | pin named shared-action refs to doctor's tag |
 | `go-no-govulncheck` | skip — `go install` is machine-wide |
 | `python-no-audit` / `rust-no-clippy` / `bun-no-audit` | skip — the remedy is not a one-line repo edit |

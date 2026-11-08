@@ -462,3 +462,30 @@ func TestPackageScriptsNpxLeavesDescriptionProse(t *testing.T) {
 	qt.Check(t, qt.StringContains(got, "bunx tsc"))
 	qt.Check(t, qt.Not(qt.StringContains(got, `"typecheck":"npx `)))
 }
+
+// Only the bun-managed entry flips: an npm entry over a directory with its own
+// package-lock.json is a real npm project, and doctor goes quiet afterwards.
+func TestDependabotNpmInBunClearsThroughDoctor(t *testing.T) {
+	isolatePath(t)
+	dir := t.TempDir()
+	testutil.Write(t, dir, "bun.lock", "")
+	testutil.Write(t, dir, "legacy/package-lock.json", "{}")
+	testutil.Write(t, dir, ".github/dependabot.yml", "version: 2\nupdates:\n"+
+		"  - package-ecosystem: \"npm\"\n    directory: \"/\"\n    groups:\n      npm-dependencies:\n        patterns:\n          - \"*\"\n"+
+		"  - package-ecosystem: npm\n    directories:\n      - /legacy\n"+
+		"  - package-ecosystem: github-actions\n    directory: /\n")
+	path := filepath.Join(dir, ".github", "dependabot.yml")
+
+	applyNamed(t, dir, "dependabot-npm-in-bun", false)
+	body, err := os.ReadFile(filepath.Clean(path))
+	qt.Assert(t, qt.IsNil(err))
+	got := string(body)
+	qt.Check(t, qt.StringContains(got, "package-ecosystem: \"bun\"\n    directory: \"/\""))
+	qt.Check(t, qt.StringContains(got, "package-ecosystem: npm\n    directories:\n      - /legacy"))
+	qt.Check(t, qt.StringContains(got, "npm-dependencies:"))
+
+	findings, err := doctor.Run(t.Context(), dir)
+	qt.Assert(t, qt.IsNil(err))
+	_, still := findingNamed(findings, "dependabot-npm-in-bun")
+	qt.Check(t, qt.IsFalse(still), qt.Commentf("doctor still reports dependabot-npm-in-bun: %v", findings))
+}

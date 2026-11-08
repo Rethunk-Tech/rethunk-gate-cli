@@ -862,3 +862,18 @@ func TestCIInputGapsNeedAProjectToAct(t *testing.T) {
 		qt.Check(t, qt.IsTrue(reported(findings, c)), qt.Commentf("%s missing with a project: %v", c, checkNames(findings)))
 	}
 }
+
+// Two identical npm entry lines must each be judged by their own directory,
+// and a bun.lock beside an npm lockfile is not bun-only.
+func TestDependabotNpmInBun(t *testing.T) {
+	dir := t.TempDir()
+	testutil.Write(t, dir, "web/bun.lock", "")
+	testutil.Write(t, dir, "mixed/bun.lock", "")
+	testutil.Write(t, dir, "mixed/yarn.lock", "")
+	body := "version: 2\nupdates:\n" +
+		"  - package-ecosystem: npm\n    directory: /mixed\n" +
+		"  - package-ecosystem: npm\n    directory: /web # site\n" +
+		"  - package-ecosystem: bun\n    directory: /web\n"
+	qt.Check(t, qt.DeepEquals(DependabotNpmInBun(dir, body), []int{4}))
+	qt.Check(t, qt.HasLen(DependabotNpmInBun(dir, ""), 0))
+}

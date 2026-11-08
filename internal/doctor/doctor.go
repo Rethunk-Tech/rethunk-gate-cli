@@ -104,6 +104,7 @@ func Run(ctx context.Context, dir string) ([]Finding, error) {
 	checkGoRace(root, proj, add)
 	checkNoCI(proj, cfg, add)
 	checkWorkflows(proj, add)
+	checkDependabot(proj, add)
 	checkNpxInPackageScripts(root, proj, add)
 	checkDeclaredGates(root, proj, add)
 	checkNextBuildRace(root, proj, cfg, add)
@@ -1061,4 +1062,118 @@ func checkNextBuildRace(root string, proj detect.Project, cfg config.Config, add
 		Why:   "both write .next in this project root, so overlapping them races over one directory and surfaces as a build failure rather than a scheduling one",
 		Fix:   "set serial = true on gates.build and gates.typecheck in .gate.toml",
 	})
+}
+
+var npmLockNames = []string{"package-lock.json", "npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml"}
+
+// checkDependabot flags an npm Dependabot entry over a directory only a bun
+// lockfile manages. CI never runs Dependabot, so this surfaces nowhere else
+// until the scheduled job goes red.
+func checkDependabot(proj detect.Project, add func(Finding)) {
+	root, ok := repoRoot(proj.Root)
+	if !ok {
+		root = proj.Root
+	}
+	for _, name := range []string{"dependabot.yml", "dependabot.yaml"} {
+		path := filepath.Join(root, ".github", name)
+		if len(DependabotNpmInBun(root, readFile(path))) == 0 {
+			continue
+		}
+		add(Finding{
+			Warn:  true,
+			Check: "dependabot-npm-in-bun",
+			Where: path,
+			What:  "Dependabot updates a bun-managed directory as npm",
+			Why:   "Dependabot's npm_and_yarn job refuses a directory whose only lockfile is bun's, so every scheduled update run fails while CI stays green",
+			Fix:   "set package-ecosystem: bun on that entry",
+		})
+	}
+}
+
+// DependabotNpmInBun returns the indexes of the package-ecosystem lines in a
+// dependabot.yml body that name npm for a directory under root whose only
+// lockfile is bun's. Doctor and fix share it so the applier rewrites exactly
+// the lines the finding was about.
+func DependabotNpmInBun(root, body string) []int {
+	lines := strings.Split(body, "\n")
+	var out []int
+	for _, e := range dependabotEntries(lines) {
+		if e.ecosystem < 0 || yamlScalar(lines[e.ecosystem], "package-ecosystem:") != "npm" {
+			continue
+		}
+		if slices.ContainsFunc(e.dirs, func(d string) bool { return bunOnly(filepath.Join(root, strings.TrimPrefix(d, "/"))) }) {
+			out = append(out, e.ecosystem)
+		}
+	}
+	return out
+}
+
+func bunOnly(dir string) bool {
+	return detect.IsBunWorkspace(dir) && !slices.ContainsFunc(npmLockNames, func(name string) bool {
+		return exists(filepath.Join(dir, name))
+	})
+}
+
+type dependabotEntry struct {
+	ecosystem int
+	dirs      []string
+}
+
+// dependabotEntries splits the updates list by its item indentation. Glob
+// entries under directories are kept verbatim and simply match no directory.
+func dependabotEntries(lines []string) []dependabotEntry {
+	var entries []dependabotEntry
+	itemIndent, listIndent := -1, -1
+	inUpdates := false
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		indent := len(line) - len(strings.TrimLeft(line, " "))
+		if indent == 0 {
+			inUpdates = strings.HasPrefix(trimmed, "updates:")
+			itemIndent = -1
+			continue
+		}
+		if !inUpdates {
+			continue
+		}
+		if itemIndent < 0 && strings.HasPrefix(trimmed, "- ") {
+			itemIndent = indent
+		}
+		if indent == itemIndent && strings.HasPrefix(trimmed, "- ") {
+			entries = append(entries, dependabotEntry{ecosystem: -1})
+			listIndent = -1
+		}
+		if len(entries) == 0 {
+			continue
+		}
+		e := &entries[len(entries)-1]
+		key := strings.TrimPrefix(trimmed, "- ")
+		switch {
+		case listIndent >= 0 && indent > listIndent && strings.HasPrefix(trimmed, "- "):
+			e.dirs = append(e.dirs, yamlScalar(key, ""))
+			continue
+		case strings.HasPrefix(key, "package-ecosystem:"):
+			e.ecosystem = i
+		case strings.HasPrefix(key, "directory:"):
+			e.dirs = append(e.dirs, yamlScalar(key, "directory:"))
+		case strings.HasPrefix(key, "directories:"):
+			listIndent = indent
+			continue
+		}
+		listIndent = -1
+	}
+	return entries
+}
+
+// yamlScalar is the value after key on one line, unquoted, comment dropped.
+func yamlScalar(line, key string) string {
+	v := strings.TrimSpace(line)
+	v = strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(v, "- "), key))
+	if i := strings.Index(v, " #"); i >= 0 {
+		v = strings.TrimSpace(v[:i])
+	}
+	return strings.Trim(v, `"'`)
 }
