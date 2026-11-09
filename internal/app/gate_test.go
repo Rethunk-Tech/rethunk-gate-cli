@@ -866,7 +866,7 @@ func TestDoctorRendersFindingsAndNeverFailsTheBuild(t *testing.T) {
 	t.Parallel()
 
 	// A workflow with an aggregating gate but no govulncheck, pinned to a tag
-	// older than knownGoodActionsTag: the CI gap and the stale pin, which
+	// older than KnownGoodActionsTag: the CI gap and the stale pin, which
 	// between them exercise every field of the rendering. The assertions name
 	// the finding they want rather than counting them, so a new check does
 	// not fail a test about the renderer.

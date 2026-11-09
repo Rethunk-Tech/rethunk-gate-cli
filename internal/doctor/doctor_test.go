@@ -322,7 +322,7 @@ func TestStaleActionRefIsReportedButNewerIsNot(t *testing.T) {
 		"jobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-bun@v1.2\n")
 	findings, err := Run(t.Context(), older)
 	qt.Assert(t, qt.IsNil(err))
-	qt.Check(t, qt.IsTrue(reported(findings, "actions-stale-ref")), qt.Commentf("v1.2 not reported as behind %s: %v", knownGoodActionsTag, checkNames(findings)))
+	qt.Check(t, qt.IsTrue(reported(findings, "actions-stale-ref")), qt.Commentf("v1.2 not reported as behind %s: %v", KnownGoodActionsTag, checkNames(findings)))
 
 	// A pin newer than this build knows about must not be flagged -- the
 	// constant goes stale by design, and reporting the future as a problem
@@ -382,15 +382,15 @@ func TestShaPinnedRefIsJudgedByItsVersionComment(t *testing.T) {
 	behind := judge(sha + " # v1.2")
 	f, ok := findingNamed(behind, "actions-stale-ref")
 	qt.Assert(t, qt.IsTrue(ok),
-		qt.Commentf("a sha commented v1.2 not reported as behind %s: %v", knownGoodActionsTag, checkNames(behind)))
+		qt.Commentf("a sha commented v1.2 not reported as behind %s: %v", KnownGoodActionsTag, checkNames(behind)))
 	qt.Check(t, qt.IsTrue(strings.Contains(f.What, sha)),
 		qt.Commentf("finding does not name the pin: %q", f.What))
 	qt.Check(t, qt.IsFalse(strings.Contains(f.What, "#")),
 		qt.Commentf("finding quotes the comment back as the ref: %q", f.What))
 
-	current := judge(sha + " # " + knownGoodActionsTag)
+	current := judge(sha + " # " + KnownGoodActionsTag)
 	qt.Check(t, qt.IsFalse(reported(current, "actions-stale-ref")),
-		qt.Commentf("a sha commented %s wrongly reported as stale: %v", knownGoodActionsTag, checkNames(current)))
+		qt.Commentf("a sha commented %s wrongly reported as stale: %v", KnownGoodActionsTag, checkNames(current)))
 
 	uncommented := judge(sha)
 	qt.Check(t, qt.IsFalse(reported(uncommented, "actions-stale-ref")),
@@ -504,7 +504,7 @@ func TestAbbreviatedShaPinIsJudgedByItsVersionComment(t *testing.T) {
 	behind := judge("a1b2c3d # v1.7")
 	f, ok := findingNamed(behind, "actions-stale-ref")
 	qt.Assert(t, qt.IsTrue(ok),
-		qt.Commentf("an abbreviated sha commented v1.7 not reported as behind %s: %v", knownGoodActionsTag, checkNames(behind)))
+		qt.Commentf("an abbreviated sha commented v1.7 not reported as behind %s: %v", KnownGoodActionsTag, checkNames(behind)))
 	qt.Check(t, qt.IsTrue(strings.Contains(f.What, "a1b2c3d")), qt.Commentf("finding does not name the pin: %q", f.What))
 	qt.Check(t, qt.IsFalse(strings.Contains(f.What, "#")), qt.Commentf("finding quotes the comment back as the ref: %q", f.What))
 
@@ -545,7 +545,7 @@ func TestFindingsShareOneBase(t *testing.T) {
 	qt.Assert(t, qt.IsTrue(ok), qt.Commentf("findings = %v", checkNames(findings)))
 	qt.Check(t, qt.Equals(wf.Where, filepath.Join(".github", "workflows", "ci.yml")),
 		qt.Commentf("workflow finding is not repository-relative: %q", wf.Where))
-	qt.Check(t, qt.StringContains(wf.Fix, "commit SHA of tag "+knownGoodActionsTag),
+	qt.Check(t, qt.StringContains(wf.Fix, "commit SHA of tag "+KnownGoodActionsTag),
 		qt.Commentf("the remedy must name the fleet's SHA-pin shape: %q", wf.Fix))
 
 	for _, f := range findings {

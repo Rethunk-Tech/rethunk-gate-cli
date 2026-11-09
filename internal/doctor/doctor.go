@@ -49,13 +49,13 @@ type Finding struct {
 	Fix string
 }
 
-// knownGoodActionsTag is the newest shared-actions tag this build knows about.
+// KnownGoodActionsTag is the newest shared-actions tag this build knows about.
 //
 // Deliberately a constant rather than a network lookup: doctor must work
 // offline and must never make a project's health depend on a remote being
 // reachable. It goes stale by design -- bump it when gh-actions publishes a
 // tag, and until then a newer pin than this simply does not get flagged.
-const knownGoodActionsTag = "v1.22"
+const KnownGoodActionsTag = "v1.24"
 
 // Run inspects dir and returns findings, most costly first. It executes
 // nothing.
@@ -654,7 +654,7 @@ func checkWorkflowFile(body, path, root string, proj detect.Project, add func(Fi
 				Where: path,
 				What:  "shared action pinned to a moving ref (" + ref.ref + ")",
 				Why:   "a moving ref changes what CI runs without any commit here recording it",
-				Fix:   "pin to the commit SHA of tag " + knownGoodActionsTag + ", with the tag in a trailing comment",
+				Fix:   "pin to the commit SHA of tag " + KnownGoodActionsTag + ", with the tag in a trailing comment",
 			})
 			continue
 		}
@@ -663,8 +663,8 @@ func checkWorkflowFile(body, path, root string, proj detect.Project, add func(Fi
 				Check: "actions-stale-ref",
 				Where: path,
 				What:  "shared action pinned to " + ref.ref,
-				Why:   "that pin is " + ref.version() + " and this build knows of " + knownGoodActionsTag + "; newer tags are not flagged, so this really is behind",
-				Fix:   "bump to " + knownGoodActionsTag + " or newer",
+				Why:   "that pin is " + ref.version() + " and this build knows of " + KnownGoodActionsTag + "; newer tags are not flagged, so this really is behind",
+				Fix:   "bump to " + KnownGoodActionsTag + " or newer",
 			})
 		}
 	}
@@ -897,7 +897,7 @@ func olderThanKnownGood(ref string) bool {
 	if !ok {
 		return false
 	}
-	goodMajor, goodMinor, ok := ParseTag(knownGoodActionsTag)
+	goodMajor, goodMinor, ok := ParseTag(KnownGoodActionsTag)
 	if !ok {
 		return false
 	}

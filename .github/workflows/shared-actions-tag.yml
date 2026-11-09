@@ -1,6 +1,6 @@
 name: Shared actions tag
 
-# knownGoodActionsTag is a constant rather than a lookup, so doctor executes
+# KnownGoodActionsTag is a constant rather than a lookup, so doctor executes
 # nothing and its findings are reproducible offline. The cost of that decision
 # is that the constant goes stale silently whenever gh-actions is tagged. This
 # check pays that cost here, where a network call is free.
@@ -29,7 +29,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: knownGoodActionsTag names the newest shared-actions tag
+      - name: KnownGoodActionsTag names the newest shared-actions tag
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -37,9 +37,9 @@ jobs:
 
           # Anchored to the declaration: a bare version grep would match any
           # other v-string that drifts into this file.
-          pinned=$(sed -n 's/^const knownGoodActionsTag = "\(.*\)"$/\1/p' internal/doctor/doctor.go)
+          pinned=$(sed -n 's/^const KnownGoodActionsTag = "\(.*\)"$/\1/p' internal/doctor/doctor.go)
           if [ -z "$pinned" ]; then
-            echo "::error file=internal/doctor/doctor.go::could not read knownGoodActionsTag; the declaration moved or was renamed"
+            echo "::error file=internal/doctor/doctor.go::could not read KnownGoodActionsTag; the declaration moved or was renamed"
             exit 1
           fi
 
@@ -52,8 +52,8 @@ jobs:
           fi
 
           if [ "$pinned" != "$latest" ]; then
-            echo "::error file=internal/doctor/doctor.go::knownGoodActionsTag is $pinned but the newest shared-actions tag is $latest -- update the constant, then re-pin this repository's own workflows to $latest"
+            echo "::error file=internal/doctor/doctor.go::KnownGoodActionsTag is $pinned but the newest shared-actions tag is $latest -- update the constant, then re-pin this repository's own workflows to $latest"
             exit 1
           fi
 
-          echo "knownGoodActionsTag $pinned is the newest shared-actions tag."
+          echo "KnownGoodActionsTag $pinned is the newest shared-actions tag."

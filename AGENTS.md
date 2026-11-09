@@ -90,7 +90,7 @@ go-toml is the only binary dependency; `go-quicktest/qt` is test-only.
 ## Doctor
 
 Read-only; every finding has evidence. Shape and checks:
-[docs/USAGE.md](docs/USAGE.md#gate-doctor). `knownGoodActionsTag` is a
+[docs/USAGE.md](docs/USAGE.md#gate-doctor). `KnownGoodActionsTag` is a
 constant, not a network lookup. Judgements are repository-wide where that
 matters (govulncheck).
 

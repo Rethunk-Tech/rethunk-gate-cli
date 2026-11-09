@@ -6,6 +6,10 @@ Notable changes to `gate`. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- `doctor`'s `KnownGoodActionsTag` is `v1.24`, and `gate fix`'s tests read it rather than a literal tag.
+
 ## [0.6.10] - 2026-11-08
 
 ### Added
