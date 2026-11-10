@@ -681,7 +681,6 @@ func TestFailedRerunsOnlyLastFailures(t *testing.T) {
 // still reports the command's own verdict and says what it lost. Here the
 // state directory sits under a regular file, which no mkdir can fix.
 func TestUnwritableRecordDoesNotMoveTheVerdict(t *testing.T) {
-	setLogDir(t)
 	blocker := filepath.Join(t.TempDir(), "file")
 	qt.Assert(t, qt.IsNil(os.WriteFile(blocker, nil, 0o600)))
 	t.Setenv("XDG_STATE_HOME", filepath.Join(blocker, "state"))
