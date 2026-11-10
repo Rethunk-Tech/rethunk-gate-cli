@@ -64,6 +64,23 @@ func Run(ctx context.Context, dir string) ([]Finding, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Loaded once, here, rather than by each check that needs it: two checks
+	// read it, and a project's configuration cannot change between them. An
+	// unreadable file is refused -- the same as a run -- so findings are not
+	// computed as if no config existed, and --json doctor does not emit an
+	// empty warnings list for a listing that also failed to load it.
+	cfg, err := config.Load(proj.Root)
+	if err != nil {
+		return nil, err
+	}
+	return RunProject(ctx, proj, cfg), nil
+}
+
+// RunProject is Run over a project and configuration the caller already read.
+// A caller that has them -- gate's own listing, which needs the same project
+// for the warnings array beside these findings -- reads them once and passes
+// them here, rather than detecting and loading a second time.
+func RunProject(ctx context.Context, proj detect.Project, cfg config.Config) []Finding {
 	root := proj.Root
 
 	// Checks name an absolute path; this is the one place that turns it into
@@ -75,16 +92,6 @@ func Run(ctx context.Context, dir string) ([]Finding, error) {
 	base := root
 	if repo, ok := repoRoot(root); ok {
 		base = repo
-	}
-
-	// Loaded once, here, rather than by each check that needs it: two checks
-	// read it, and a project's configuration cannot change between them. An
-	// unreadable file is refused -- the same as a run -- so findings are not
-	// computed as if no config existed, and --json doctor does not emit an
-	// empty warnings list for a listing that also failed to load it.
-	cfg, err := config.Load(root)
-	if err != nil {
-		return nil, err
 	}
 
 	var findings []Finding
@@ -120,7 +127,7 @@ func Run(ctx context.Context, dir string) ([]Finding, error) {
 		}
 		return strings.Compare(a.Check, b.Check)
 	})
-	return findings, nil
+	return findings
 }
 
 // checkResultRecord flags a stored result that is not fresh for this tree:

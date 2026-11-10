@@ -1,12 +1,13 @@
 package app
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 
+	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/config"
+	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/detect"
 	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/doctor"
 )
 
@@ -60,25 +61,25 @@ func writeDoctorJSON(w io.Writer, findings []doctor.Finding, warnings []string) 
 	return enc.Encode(out)
 }
 
-// listingWarnings is the warnings array a no-run `gate --json` prints for dir.
-// Those strings are decided after config and dedupe, which is the listing, so
-// doctor reads that listing instead of assembling a second gate list.
-func listingWarnings(ctx context.Context, dir string, forceCache bool) ([]string, bool) {
-	args := []string{"-C", dir, "--json"}
-	if forceCache {
-		args = append(args, "--force-cache")
+// listingWarnings is the warnings array a no-run `gate --json` prints for a
+// project and configuration the caller has already read. Those strings are
+// decided after config and dedupe, which is the listing, so this builds the
+// same gate list a listing does -- from the project in hand, never by
+// re-entering Run, which would detect the project a second time and refuse
+// outright inside a project gate.
+func listingWarnings(ctx context.Context, proj detect.Project, cfg config.Config, forceCache bool) []string {
+	st := runState{opts: options{tail: defaultTail, forceCache: forceCache}}
+	if _, _, ok := st.buildGates(ctx, proj, cfg, nil, io.Discard); !ok {
+		return nil
 	}
-	var stdout, stderr bytes.Buffer
-	if Run(ctx, "", args, &stdout, &stderr) != Success {
-		return nil, false
+	if proj.Root == "" || len(st.opts.gates) == 0 {
+		return nil
 	}
-	var listed struct {
-		Warnings []string `json:"warnings"`
+	texts := make([]string, len(st.opts.gates))
+	for i, g := range st.opts.gates {
+		texts[i] = g.display + "\n" + detect.GateCommandText(proj.Root, g.dir, g.argv, g.source)
 	}
-	if err := json.Unmarshal(stdout.Bytes(), &listed); err != nil {
-		return nil, false
-	}
-	return listed.Warnings, true
+	return detect.CIGaps(proj.Root, texts)
 }
 
 // runDoctor prints what could be improved here and changes nothing.
@@ -87,18 +88,20 @@ func listingWarnings(ctx context.Context, dir string, forceCache bool) ([]string
 // advisory command that failed the build would turn every suggestion into a
 // blocker -- which is how advice stops being read.
 func runDoctor(ctx context.Context, dir string, asJSON, forceCache bool, stdout, stderr io.Writer) Code {
-	findings, err := doctor.Run(ctx, dir)
+	proj, err := detect.Detect(ctx, dir)
+	if err != nil {
+		fmt.Fprintf(stderr, "gate: cannot inspect this directory: %v\n", err)
+		return InvalidUsage
+	}
+	cfg, err := config.Load(proj.Root)
 	if err != nil {
 		fmt.Fprintf(stderr, "gate: %v\n", err)
 		return InvalidUsage
 	}
+	findings := doctor.RunProject(ctx, proj, cfg)
 
 	if asJSON {
-		warnings, ok := listingWarnings(ctx, dir, forceCache)
-		if !ok {
-			fmt.Fprintf(stderr, "gate: cannot list the project's gates\n")
-			return Fatal
-		}
+		warnings := listingWarnings(ctx, proj, cfg, forceCache)
 		if err := writeDoctorJSON(stdout, findings, warnings); err != nil {
 			fmt.Fprintf(stderr, "gate: cannot write the report: %v\n", err)
 			return Fatal
