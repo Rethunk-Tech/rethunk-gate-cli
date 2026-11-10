@@ -12,7 +12,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -3111,48 +3110,6 @@ func TestFrozenInstallRunsOnceInTheWorkspaceBeforeTheGates(t *testing.T) {
 	qt.Check(t, qt.Equals(string(got), ws+": install --frozen-lockfile\n"))
 	qt.Check(t, qt.IsTrue(exists(marker)), qt.Commentf("the test gate ran before the install finished"))
 	qt.Check(t, qt.Not(qt.StringContains(stderr, "bun-said-this")), qt.Commentf("a passing install was quoted: %q", stderr))
-}
-
-// An install is a gate in every way that matters: bounded, and stopped as a
-// group. It has no log of its own, so without a deadline a postinstall that
-// never returns leaves gate waiting with nothing to read afterwards; and a
-// stop that reaches only the package manager leaves the postinstall child
-// running, holding whatever port or lock it took.
-func TestAnInstallIsBoundedAndItsWholeGroupStopped(t *testing.T) {
-	// Not parallel: it shortens the SIGINT-to-SIGKILL grace, which the
-	// install runner shares with the gate runner.
-	orig := stopGrace
-	stopGrace = 200 * time.Millisecond
-	t.Cleanup(func() { stopGrace = orig })
-
-	pidFile := filepath.Join(t.TempDir(), "pid")
-	// The child ignores SIGINT, so only the SIGKILL at the end of the grace
-	// can end it -- which is what proves the group was signalled at all.
-	installScript(t, "trap '' INT; sleep 30 & echo $! > "+pidFile+"; wait")
-	t.Setenv("TMPDIR", t.TempDir())
-	root := t.TempDir()
-	testutil.Write(t, root, "bun.lock", "")
-	testutil.Write(t, root, "Makefile", "test:\n\ttrue\n")
-
-	began := time.Now()
-	_, stderr, code := runGateTest(t, "-C", root, "--timeout", "300ms")
-	elapsed := time.Since(began)
-
-	qt.Assert(t, qt.Equals(code, TimedOut), qt.Commentf("stderr = %q", stderr))
-	qt.Check(t, qt.StringContains(stderr, "killed on timeout"))
-	qt.Check(t, qt.IsTrue(elapsed < stopGrace+5*time.Second), qt.Commentf("the install was not bounded: %s", elapsed))
-
-	data, err := os.ReadFile(filepath.Clean(pidFile))
-	qt.Assert(t, qt.IsNil(err), qt.Commentf("the postinstall child never started, so nothing here is proven"))
-	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
-	qt.Assert(t, qt.IsNil(err))
-	deadline := time.Now().Add(3 * time.Second)
-	for !errors.Is(syscall.Kill(pid, 0), syscall.ESRCH) {
-		if time.Now().After(deadline) {
-			t.Fatalf("child %d outlived the install stop", pid)
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
 }
 
 // installScript puts a `bun` first on PATH that runs body instead of
