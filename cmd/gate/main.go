@@ -23,6 +23,10 @@ func run() app.Code {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// Before anything writes to stdout, so a reader that closes early is a
+	// dropped display line rather than a dead gate.
+	ignoreSIGPIPE()
+
 	// Without this, Ctrl-C ends gate and leaves the gate running. A terminal
 	// signals the foreground process group, which is gate's -- every child is
 	// deliberately in its own group so a timeout can kill the whole tree, and

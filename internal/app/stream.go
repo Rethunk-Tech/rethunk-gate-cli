@@ -32,15 +32,27 @@ func resolveStream(force, off, machine bool, getenv func(string) string) bool {
 
 // lockedWriter serialises writes to gate's stdout so two gates never
 // interleave within a line. Every Write is one whole line (or capped chunk).
+//
+// A write that fails is dropped from then on. gate's stdout is a display, not
+// the log: a reader that closed its end -- `| head -1` -- must not take the
+// run down with it, because the log is still being written and the command's
+// verdict is still the point. The first failure is remembered so later lines
+// cost nothing rather than one failed syscall each.
 type lockedWriter struct {
-	mu sync.Mutex
-	w  io.Writer
+	mu  sync.Mutex
+	w   io.Writer
+	err error
 }
 
 func (l *lockedWriter) writeLine(p []byte) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	_, _ = l.w.Write(p)
+	if l.err != nil {
+		return
+	}
+	if _, err := l.w.Write(p); err != nil {
+		l.err = err
+	}
 }
 
 // prefixWriter prints each line a gate writes, prefixed, as it arrives. It
