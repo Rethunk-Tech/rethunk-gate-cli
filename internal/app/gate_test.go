@@ -170,7 +170,10 @@ func TestRunFailPropagatesExactExitCode(t *testing.T) {
 // exec bounds the wait for the pipe with ErrWaitDelay, and reading that as a
 // status inverted exactly the one case that matters: success.
 func TestAPassingCommandThatLeavesAWriterBehindStillPasses(t *testing.T) {
-	t.Parallel()
+	// Not parallel: it shortens stopGrace, the pipe wait this case sits out.
+	orig := stopGrace
+	stopGrace = 500 * time.Millisecond
+	t.Cleanup(func() { stopGrace = orig })
 	log := tempLog(t)
 
 	_, stderr, code := runGateTest(t, "--log", log, "sh", "-c", "sleep 30 & exit 0")
