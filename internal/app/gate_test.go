@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -164,6 +165,66 @@ func TestRunFailPropagatesExactExitCode(t *testing.T) {
 		t.Errorf("log output = %q, want %q", output, want)
 	}
 	qt.Check(t, qt.StringContains(trailer, "exit 3"))
+}
+
+// A command that passed and left a background writer behind is still a pass.
+// exec bounds the wait for the pipe with ErrWaitDelay, and reading that as a
+// status inverted exactly the one case that matters: success.
+func TestAPassingCommandThatLeavesAWriterBehindStillPasses(t *testing.T) {
+	t.Parallel()
+	log := tempLog(t)
+
+	_, stderr, code := runGateTest(t, "--log", log, "sh", "-c", "sleep 30 & exit 0")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.StringContains(stderr, "ends early"))
+	qt.Check(t, qt.Not(qt.StringContains(stderr, "FAIL")))
+
+	_, trailer := splitLog(t, log)
+	qt.Check(t, qt.StringContains(trailer, "exit 0"))
+}
+
+// An empty argv is a gate whose display is the empty string. Reading an empty
+// display as "this gate never ran" replaced the verdict it produced with a
+// skip, turning `gate "$CMD"` with CMD unset into a green run.
+func TestAnEmptyCommandNameKeepsItsOwnVerdict(t *testing.T) {
+	t.Parallel()
+
+	stdout, stderr, code := runGateTest(t, "")
+	qt.Assert(t, qt.Not(qt.Equals(code, Success)), qt.Commentf("stdout = %q, stderr = %q", stdout, stderr))
+	qt.Check(t, qt.Not(qt.StringContains(stderr, "SKIP")), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.StringContains(stderr, "FAIL"))
+}
+
+// A config `run` is a shell string and may span lines. The trailer is the one
+// line gate writes into a log, and the verdict header is one line too, so a
+// multi-line command in either would read as several gates.
+// Not parallel: it reads its whole log directory to prove exactly one log was
+// written, so it needs a directory no concurrent test is logging into.
+func TestAMultiLineRunKeepsOneTrailerAndOneVerdict(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "help:\n\t@true\n")
+	testutil.Write(t, root, ".gate.toml", "[gates.test]\nrun = \"\"\"\necho one\necho two\nexit 3\n\"\"\"\n")
+
+	_, stderr, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Code(3)), qt.Commentf("stderr = %q", stderr))
+	lines := strings.Split(strings.TrimSuffix(stderr, "\n"), "\n")
+	fail := ""
+	for _, line := range lines {
+		if strings.HasPrefix(line, "gate: FAIL") {
+			fail = line
+			break
+		}
+	}
+	qt.Assert(t, qt.Not(qt.Equals(fail, "")))
+	qt.Check(t, qt.StringContains(fail, "echo one echo two exit 3"))
+
+	logs, err := filepath.Glob(filepath.Join(logDir(), "*.log"))
+	qt.Assert(t, qt.IsNil(err))
+	qt.Assert(t, qt.HasLen(logs, 1))
+	body := readLog(t, logs[0])
+	qt.Check(t, qt.Equals(strings.Count(body, trailerPrefix), 1), qt.Commentf("log = %q", body))
+	qt.Check(t, qt.IsTrue(strings.HasSuffix(strings.TrimSuffix(body, "\n"), "exit 3")), qt.Commentf("log = %q", body))
 }
 
 // The guarantee the whole tool rests on. The summary is deliberately bounded
@@ -889,6 +950,34 @@ func TestDoctorRendersFindingsAndNeverFailsTheBuild(t *testing.T) {
 	qt.Check(t, qt.StringContains(stdout, "nothing to suggest"), qt.Commentf("silence instead of an answer: %q", stdout))
 }
 
+// --json doctor answers the same question the text form does, so it must not
+// fail where the text form succeeds. It used to re-enter the run to collect
+// its warnings array, and inside a project gate that re-entry is refused as
+// recursion -- a refusal the warnings array has no business turning into a
+// fatal status.
+func TestDoctorJSONSucceedsInsideAProjectGate(t *testing.T) {
+	dir := t.TempDir()
+	testutil.Write(t, dir, "go.mod", "module demo\n\ngo 1.26\n")
+	testutil.Write(t, dir, ".github/workflows/ci.yml", "jobs:\n  scan:\n    steps:\n      - run: osv-scanner --lockfile=bun.lock\n")
+	resolved, err := filepath.EvalSymlinks(dir)
+	qt.Assert(t, qt.IsNil(err))
+	t.Setenv(activeRootsVar, resolved)
+
+	_, textErr, textCode := runGateTest(t, "-C", dir, "doctor")
+	qt.Assert(t, qt.Equals(textCode, Success), qt.Commentf("stderr = %q", textErr))
+
+	out, stderr, code := runGateTest(t, "-C", dir, "--json", "doctor")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("--json doctor failed where text doctor passed: %q", stderr))
+	var doc struct {
+		Findings []reportedFinding `json:"findings"`
+		Warnings []string          `json:"warnings"`
+	}
+	qt.Assert(t, qt.IsNil(json.Unmarshal([]byte(out), &doc)), qt.Commentf("stdout = %q", out))
+	qt.Check(t, qt.Not(qt.HasLen(doc.Findings, 0)))
+	qt.Assert(t, qt.HasLen(doc.Warnings, 1), qt.Commentf("warnings = %q", doc.Warnings))
+	qt.Check(t, qt.StringContains(doc.Warnings[0], "no gate runs osv-scanner"))
+}
+
 // Gate names are reached through `run` and nowhere else. A bare role word is
 // the caller's command like any other, which is what makes one rule cover
 // every gate name rather than six of them.
@@ -1361,6 +1450,38 @@ func TestALogFailureIsTheVerdictWhenTheCommandHasNone(t *testing.T) {
 	}
 }
 
+// lenientWriter is what the full-disk invariant rests on: a failing log write
+// must still report success to the copy, because io.MultiWriter stops at the
+// first writer that fails and the copy feeding the command's pipe would then
+// abort -- the command dying of SIGPIPE and changing the verdict. Nothing
+// else in the suite makes Write fail, so a regression to returning err here
+// would restore exactly the failure the type exists to prevent.
+type failingWriter struct{ calls int }
+
+func (f *failingWriter) Write([]byte) (int, error) {
+	f.calls++
+	return 0, errors.New("no space left on device")
+}
+
+func TestLenientWriterSwallowsAWriteError(t *testing.T) {
+	t.Parallel()
+	failing := &failingWriter{}
+	l := &lenientWriter{w: failing}
+
+	p := []byte("some output\n")
+	n, err := l.Write(p)
+	qt.Check(t, qt.Equals(n, len(p)))
+	qt.Check(t, qt.IsNil(err))
+	qt.Assert(t, qt.IsNotNil(l.err))
+	qt.Check(t, qt.StringContains(l.err.Error(), "no space left"))
+
+	// One failure is remembered, not repeated: a command that keeps writing
+	// must not keep hammering a disk that is already full.
+	_, err = l.Write(p)
+	qt.Check(t, qt.IsNil(err))
+	qt.Check(t, qt.Equals(failing.calls, 1))
+}
+
 func TestGateInsideItsTimeoutIsUnaffected(t *testing.T) {
 	t.Parallel()
 	_, stderr, code := runGateTest(t, "--timeout", "30s", "--log", tempLog(t), "true")
@@ -1496,7 +1617,7 @@ func TestChdirRunsTheCommandThere(t *testing.T) {
 // caller's directory would work only when you stood exactly at the root. A
 // detected gate must run where the project's commands actually work.
 func TestDetectedGatesRunAtTheProjectRootNotTheCallerDirectory(t *testing.T) {
-	// t.Setenv below rules out t.Parallel.
+	t.Parallel()
 	root := t.TempDir()
 	testutil.Write(t, root, "Makefile", "test:\n\ttouch ran-at-root\n")
 	sub := filepath.Join(root, "deep", "inside")
@@ -1589,9 +1710,7 @@ func TestRelativeLogResolvesAgainstChdir(t *testing.T) {
 // process having one. This fails the moment anyone "simplifies" cmd.Dir into
 // an os.Chdir, because a single chdir cannot satisfy two gates at once.
 func TestConcurrentGatesEachRunInTheirOwnDirectory(t *testing.T) {
-	// t.Setenv below rules out t.Parallel. TMPDIR is redirected so the two
-	// gates' default log paths land in a temp directory rather than
-	// littering /var/tmp -- they cannot share one --log between them.
+	t.Parallel()
 	first, second := t.TempDir(), t.TempDir()
 
 	opts := options{
@@ -2992,6 +3111,60 @@ func TestFrozenInstallRunsOnceInTheWorkspaceBeforeTheGates(t *testing.T) {
 	qt.Check(t, qt.Equals(string(got), ws+": install --frozen-lockfile\n"))
 	qt.Check(t, qt.IsTrue(exists(marker)), qt.Commentf("the test gate ran before the install finished"))
 	qt.Check(t, qt.Not(qt.StringContains(stderr, "bun-said-this")), qt.Commentf("a passing install was quoted: %q", stderr))
+}
+
+// An install is a gate in every way that matters: bounded, and stopped as a
+// group. It has no log of its own, so without a deadline a postinstall that
+// never returns leaves gate waiting with nothing to read afterwards; and a
+// stop that reaches only the package manager leaves the postinstall child
+// running, holding whatever port or lock it took.
+func TestAnInstallIsBoundedAndItsWholeGroupStopped(t *testing.T) {
+	// Not parallel: it shortens the SIGINT-to-SIGKILL grace, which the
+	// install runner shares with the gate runner.
+	orig := stopGrace
+	stopGrace = 200 * time.Millisecond
+	t.Cleanup(func() { stopGrace = orig })
+
+	pidFile := filepath.Join(t.TempDir(), "pid")
+	// The child ignores SIGINT, so only the SIGKILL at the end of the grace
+	// can end it -- which is what proves the group was signalled at all.
+	installScript(t, "trap '' INT; sleep 30 & echo $! > "+pidFile+"; wait")
+	t.Setenv("TMPDIR", t.TempDir())
+	root := t.TempDir()
+	testutil.Write(t, root, "bun.lock", "")
+	testutil.Write(t, root, "Makefile", "test:\n\ttrue\n")
+
+	began := time.Now()
+	_, stderr, code := runGateTest(t, "-C", root, "--timeout", "300ms")
+	elapsed := time.Since(began)
+
+	qt.Assert(t, qt.Equals(code, TimedOut), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.StringContains(stderr, "killed on timeout"))
+	qt.Check(t, qt.IsTrue(elapsed < stopGrace+5*time.Second), qt.Commentf("the install was not bounded: %s", elapsed))
+
+	data, err := os.ReadFile(filepath.Clean(pidFile))
+	qt.Assert(t, qt.IsNil(err), qt.Commentf("the postinstall child never started, so nothing here is proven"))
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	qt.Assert(t, qt.IsNil(err))
+	deadline := time.Now().Add(3 * time.Second)
+	for !errors.Is(syscall.Kill(pid, 0), syscall.ESRCH) {
+		if time.Now().After(deadline) {
+			t.Fatalf("child %d outlived the install stop", pid)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// installScript puts a `bun` first on PATH that runs body instead of
+// installing, so a test can drive the install path without a package manager.
+func installScript(t *testing.T, body string) {
+	t.Helper()
+	bin := t.TempDir()
+	script := "#!/bin/sh\n" + body + "\n"
+	if err := os.WriteFile(filepath.Join(bin, "bun"), []byte(script), 0o755); err != nil { //nolint:gosec // fake executable fixture must be runnable
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
 // A failed frozen install is the run's verdict: its exit status passes

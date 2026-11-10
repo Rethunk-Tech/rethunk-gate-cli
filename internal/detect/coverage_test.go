@@ -34,6 +34,18 @@ func TestCIGapsIgnoresWhatAGateRuns(t *testing.T) {
 	qt.Check(t, qt.HasLen(gaps(t, "      - run: uv run pytest\n", "sh -c uv run ruff check . && uv run pytest"), 0))
 }
 
+// A generated or minified workflow can carry one line past any fixed read
+// buffer. The scan must not stop there: what follows is the evidence doctor
+// reports, and losing it silently is a clean bill of health nobody checked.
+func TestCIGapsReadsPastAVeryLongWorkflowLine(t *testing.T) {
+	t.Parallel()
+	long := strings.Repeat("x", 2<<20)
+	workflow := "jobs:\n  scan:\n    steps:\n      - run: echo " + long + "\n      - run: osv-scanner --lockfile=bun.lock\n"
+	got := gaps(t, workflow)
+	qt.Assert(t, qt.HasLen(got, 1), qt.Commentf("the scan stopped at the long line: %q", got))
+	qt.Check(t, qt.StringContains(got[0], "no gate runs osv-scanner"))
+}
+
 // The gravewell shape: CI vets and race-tests Go, the gates run neither.
 func TestCIGapsNamesGoVetAndRaceTests(t *testing.T) {
 	t.Parallel()

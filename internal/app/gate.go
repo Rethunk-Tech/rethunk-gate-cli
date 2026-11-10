@@ -225,9 +225,17 @@ func (s gateSpec) short() string {
 	// not its argv at all: the shell gate shows a summary, and trimming a
 	// path that is not there would print the binary's name twice.
 	if len(s.argv) == 0 || !filepath.IsAbs(s.argv[0]) || !strings.HasPrefix(s.display, s.argv[0]) {
-		return s.display
+		return oneLine(s.display)
 	}
-	return filepath.Base(s.argv[0]) + strings.TrimPrefix(s.display, s.argv[0])
+	return oneLine(filepath.Base(s.argv[0]) + strings.TrimPrefix(s.display, s.argv[0]))
+}
+
+// oneLine collapses every run of whitespace to one space. A config `run` is a
+// shell string and may span lines; it reaches one-line places -- a verdict
+// header, a stream prefix -- so a multi-line command there would turn one
+// reported gate into several unreadable ones.
+func oneLine(s string) string {
+	return strings.Join(strings.Fields(s), " ")
 }
 
 // gateResult is everything one gate produced. Running fills these in; nothing
@@ -261,6 +269,19 @@ type gateResult struct {
 	// verdict of its own -- including "could not run" -- is told apart from
 	// one whose log could not even be created and never had a command.
 	started bool
+
+	// ran records that this gate reached runOne at all, which is what tells
+	// a gate the scheduler never reached from one that produced a result. A
+	// gate's display is not that marker: an empty argv has an empty display
+	// and is still a gate that ran.
+	ran bool
+
+	// logCut records that the command exited but something it started still
+	// held the log pipe, so the copy was stopped before end of file. The
+	// verdict is the command's own and stays untouched; note says the log
+	// ends at the last byte that arrived.
+	logCut bool
+	note   string
 }
 
 // gateOutcome is what happened to one gate.
@@ -376,7 +397,12 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 		reason = "the run was interrupted"
 	}
 	for i := range results {
-		if results[i].spec.display == "" {
+		// ran, not a non-empty display: an empty argv is a legitimate gate
+		// whose display is the empty string, and reading that as "never
+		// reached" turned its verdict into a skip of a gate that never
+		// existed. Silence about a gate is indistinguishable from a pass;
+		// inventing a skip for one that ran is worse.
+		if !results[i].ran {
 			results[i] = gateResult{spec: opts.gates[i], skipped: true, skipReason: reason}
 			stream.emit(results[i])
 		}
@@ -615,6 +641,12 @@ func report(results []gateResult, opts options, stdout, stderr io.Writer) Code {
 				code = Fatal
 			}
 		}
+		if res.note != "" {
+			// Neither the gate's verdict nor the run's: the command passed
+			// and its log simply ends early, which a reader of the log would
+			// otherwise have no way to tell from a command that printed less.
+			fmt.Fprintf(stderr, "gate: %s\n", res.note)
+		}
 		// An allowed gate never moves the aggregate: the project said this
 		// failure is not a verdict on the run. Everything else about it is
 		// still reported above, so allowing is never hiding.
@@ -727,7 +759,7 @@ var stopGrace = 5 * time.Second
 // runOne runs a single gate, sending every byte it writes to a log file and
 // keeping only a bounded summary in memory.
 func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
-	res := gateResult{spec: spec, logPath: opts.logPath}
+	res := gateResult{spec: spec, logPath: opts.logPath, ran: true}
 
 	logFile, err := openLog(&res, spec)
 	if err != nil {
@@ -755,7 +787,15 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 		return interruptProcessGroup(cmd)
 	}
 	// A child that ignores SIGINT still gets reaped rather than hanging the
-	// run it was supposed to bound.
+	// run it was supposed to bound. It also bounds the wait for a command
+	// that exited and left a background writer holding the log pipe, which
+	// would otherwise stall the run until that writer ends.
+	//
+	// Expiring reports ErrWaitDelay and says nothing about the command: the
+	// command is gone and its status was its own. The switch below reads it
+	// as "the log stopped early", never as a verdict, so a passing command
+	// that left something behind is still a pass. See AGENTS.md, The one
+	// invariant.
 	cmd.WaitDelay = stopGrace
 	cmd.Dir = spec.dir
 	cmd.Env = childPWD(quickRaceExit(pinTempDir(markRoot(spec.dir))), spec.dir)
@@ -826,6 +866,14 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 	case runErr != nil && isNotFound(runErr):
 		res.notFound = true
 		res.code = NotFound
+	case errors.Is(runErr, exec.ErrWaitDelay):
+		// The command exited and something it started still held the log
+		// pipe, so the copy was stopped. exec reports this only where the
+		// command's own wait was a success, and a wait is not a verdict: the
+		// command passed, and the log simply ends at the last byte it wrote.
+		// A stop gate sent reaches the two cases above, never this one.
+		res.code = Success
+		res.logCut = true
 	default:
 		res.code = resolveCode(runErr)
 	}
@@ -837,6 +885,12 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 	// what the command produced.
 	if logSink.err != nil {
 		res.fatalErr = fmt.Errorf("log %s may be incomplete: %w", res.logPath, logSink.err)
+	}
+	if res.logCut {
+		// Reported, never a verdict and never a code: the command's own
+		// status passed through above, and this only says why the log is
+		// shorter than the command that wrote it.
+		res.note = fmt.Sprintf("log %s ends early: a process the command started still held its output", res.logPath)
 	}
 	if err := writeTrailer(logFile, res, danglingLine); err != nil && res.fatalErr == nil {
 		res.fatalErr = fmt.Errorf("log %s may be incomplete: %w", res.logPath, err)
@@ -1023,7 +1077,7 @@ func writeTrailer(w io.Writer, res gateResult, danglingLine bool) error {
 	case outcomeRan, outcomeNoRun, outcomeSkipped:
 	}
 	_, err := fmt.Fprintf(w, "%s%s %s in %s -- %s\n",
-		lead, trailerPrefix, word, res.elapsed.Round(time.Millisecond), res.spec.display)
+		lead, trailerPrefix, word, res.elapsed.Round(time.Millisecond), oneLine(res.spec.display))
 	return err
 }
 

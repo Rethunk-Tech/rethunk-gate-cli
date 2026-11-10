@@ -45,45 +45,85 @@ type Loaded struct {
 // ReadTree asks git for HEAD and the working tree. Optional locks are off so
 // this never contends with a gate that is itself running git, and fsmonitor
 // is emptied for the same reason detection empties it: a repository must not
-// get to name a program for this read to run. color is off so a color.ui
-// setting cannot change the diff bytes the hash covers.
+// get to name a program for this read to run.
+//
+// The attributes source is the empty tree, which is the other half of that
+// rule: .gitattributes is the repository's own declaration, and a
+// filter.<driver>.clean or diff.<driver>.textconv bound there names a program
+// git would run while converting a file. With no attributes there is no
+// driver to run, so every read below sees raw bytes. What the hash covers is
+// then the file on disk and nothing the repository configured.
+//
+// Paths git prints are relative to the repository top whatever directory the
+// read ran in, so the prefix a subdirectory adds is stripped before a path is
+// hashed. Without that, a project root below the top named files that do not
+// exist from there and every read failed.
 func ReadTree(ctx context.Context, root string) State {
-	git := func(args ...string) ([]byte, bool) {
+	// The empty tree in this repository's own object format: sha1 repos and
+	// sha256 repos name it differently, and only git can say which this is.
+	emptyTree, ok := gitTree(ctx, root)
+	if !ok {
+		return State{}
+	}
+	git := func(stdin []byte, args ...string) ([]byte, bool) {
 		cmd := exec.CommandContext(ctx, "git", append([]string{ //nolint:gosec // repository inspection uses fixed git arguments
 			"-C", root,
 			"-c", "core.fsmonitor=",
-			"-c", "color.ui=false",
 		}, args...)...)
-		cmd.Env = gitEnv()
+		cmd.Env = gitEnv(emptyTree)
+		if len(stdin) > 0 {
+			cmd.Stdin = bytes.NewReader(stdin)
+		}
 		out, err := cmd.Output()
 		return out, err == nil
 	}
-	head, ok := git("rev-parse", "--verify", "--quiet", "HEAD")
+	head, ok := git(nil, "rev-parse", "--verify", "--quiet", "HEAD")
 	if !ok {
 		return State{}
 	}
-	status, ok := git("status", "--porcelain=v1", "-z")
+	prefix, ok := git(nil, "rev-parse", "--show-prefix")
 	if !ok {
 		return State{}
 	}
-	diff, ok := git("diff", "--no-ext-diff", "HEAD")
+	// Index against HEAD, then the worktree against the index: both raw, so a
+	// changed file is named by ids rather than by diffed content.
+	staged, ok := git(nil, "diff-index", "--cached", "--raw", "-z", "HEAD", "--", ".")
 	if !ok {
 		return State{}
 	}
-	files, ok := untrackedFiles(status, git)
+	worktree, ok := git(nil, "diff-files", "--raw", "-z", "--", ".")
 	if !ok {
 		return State{}
 	}
-	blobs, ok := hashObjects(git, files)
+	// --full-name, because ls-files alone answers relative to the directory
+	// it ran in while the two diffs answer relative to the top.
+	untracked, ok := git(nil, "ls-files", "--full-name", "-z", "--others", "--exclude-standard", "--", ".")
+	if !ok {
+		return State{}
+	}
+	blobs, ok := hashChanged(string(prefix), readPaths(worktree, untracked), git)
 	if !ok {
 		return State{}
 	}
 	return State{
 		Head:   strings.TrimSpace(string(head)),
-		Dirty:  len(status) > 0,
-		Status: statusHash(status, diff, blobs),
+		Dirty:  len(staged)+len(worktree)+len(untracked) > 0,
+		Status: statusHash(staged, worktree, untracked, blobs),
 		OK:     true,
 	}
+}
+
+// gitTree is the object id of the empty tree in root's object format, which
+// is what an attributes source with nothing bound to anything resolves to.
+func gitTree(ctx context.Context, root string) (string, bool) {
+	cmd := exec.CommandContext(ctx, "git", "-C", root, "hash-object", "-t", "tree", "--stdin") //nolint:gosec // fixed git arguments
+	cmd.Env = gitEnv("")
+	cmd.Stdin = strings.NewReader("")
+	out, err := cmd.Output()
+	if err != nil {
+		return "", false
+	}
+	return strings.TrimSpace(string(out)), true
 }
 
 // gitEnv is the environment git runs with for a tree hash. Optional locks
@@ -91,125 +131,137 @@ func ReadTree(ctx context.Context, root string) State {
 // GIT_EXTERNAL_DIFF, GIT_PAGER, GIT_ASKPASS and GIT_DIFF_OPTS are dropped:
 // the first three name programs, and GIT_DIFF_OPTS can turn --ext-diff back
 // on. GIT_PAGER=cat is set after the drop so a pager cannot run even if
-// stdout is a tty.
-func gitEnv() []string {
+// stdout is a tty. An inherited GIT_ATTR_SOURCE is dropped too: the caller
+// passing attrSource decides which attributes apply, and inheriting one would
+// silently read a tree other than the one this read names.
+func gitEnv(attrSource string) []string {
 	env := os.Environ()
-	out := make([]string, 0, len(env)+2)
+	out := make([]string, 0, len(env)+3)
 	for _, e := range env {
 		k, _, _ := strings.Cut(e, "=")
 		switch k {
-		case "GIT_EXTERNAL_DIFF", "GIT_PAGER", "GIT_ASKPASS", "GIT_DIFF_OPTS":
+		case "GIT_EXTERNAL_DIFF", "GIT_PAGER", "GIT_ASKPASS", "GIT_DIFF_OPTS", "GIT_ATTR_SOURCE":
 			continue
 		}
 		out = append(out, e)
 	}
-	return append(out, "GIT_OPTIONAL_LOCKS=0", "GIT_PAGER=cat")
+	out = append(out, "GIT_OPTIONAL_LOCKS=0", "GIT_PAGER=cat")
+	if attrSource != "" {
+		out = append(out, "GIT_ATTR_SOURCE="+attrSource)
+	}
+	return out
 }
 
-// statusHash is the hex SHA-256 of three outputs concatenated, in order: raw
-// `git status --porcelain=v1 -z`, raw `git diff HEAD`, and `git hash-object`
-// (never -w) for each untracked file. A clean tree is empty status plus an
-// empty diff, which is the SHA-256 of no bytes.
-func statusHash(status, diff, blobs []byte) string {
+// statusHash is the hex SHA-256 of four outputs concatenated, in order: raw
+// index-against-HEAD `git diff-index`, raw worktree-against-index
+// `git diff-files`, raw `git ls-files --others`, and `git hash-object`
+// (never -w) for the content of every changed and untracked file. A clean
+// tree is four empty outputs, which is the SHA-256 of no bytes.
+func statusHash(staged, worktree, untracked, blobs []byte) string {
 	sum := sha256.New()
-	_, _ = sum.Write(status)
-	_, _ = sum.Write(diff)
+	_, _ = sum.Write(staged)
+	_, _ = sum.Write(worktree)
+	_, _ = sum.Write(untracked)
 	_, _ = sum.Write(blobs)
 	return hex.EncodeToString(sum.Sum(nil))
 }
 
-// UntrackedPaths reads porcelain v1 -z records. A rename or copy occupies two
-// NUL-terminated paths; neither is untracked.
-func UntrackedPaths(status []byte) []string {
+// gitRead runs one git query, feeding stdin when it is non-empty. ok is false
+// on any error, which is what makes the caller's record "unreadable" rather
+// than silently about a different tree.
+type gitRead func(stdin []byte, args ...string) ([]byte, bool)
+
+// readPaths is every path whose content the hash covers: each path a raw
+// `git diff-files` record names, and each path `git ls-files --others`
+// listed. A raw record is one `:<modes> <ids> <status>` header followed by its
+// NUL-terminated path, and plumbing's diff-files detects no renames, so there
+// is never a second path. A deleted path is skipped: there is no file left to
+// hash, and the header's status already says it went. Its new blob id, where
+// there is one, is in the header the hash already covers.
+func readPaths(worktree, untracked []byte) []string {
 	var paths []string
-	for len(status) > 0 {
-		i := bytes.IndexByte(status, 0)
+	for len(worktree) > 0 {
+		i := bytes.IndexByte(worktree, 0)
 		if i < 0 {
 			break
 		}
-		rec := status[:i]
-		status = status[i+1:]
-		if len(rec) < 4 || rec[2] != ' ' {
+		header := worktree[:i]
+		worktree = worktree[i+1:]
+		if len(header) == 0 || header[0] != ':' {
 			continue
 		}
-		xy, path := rec[:2], rec[3:]
-		if xy[0] == 'R' || xy[0] == 'C' || xy[1] == 'R' || xy[1] == 'C' {
-			j := bytes.IndexByte(status, 0)
-			if j < 0 {
-				break
-			}
-			status = status[j+1:]
+		j := bytes.IndexByte(worktree, 0)
+		if j < 0 {
+			break
 		}
-		if bytes.Equal(xy, []byte("??")) {
-			paths = append(paths, string(path))
+		p := string(worktree[:j])
+		worktree = worktree[j+1:]
+		if !strings.HasPrefix(string(header[bytes.LastIndexByte(header, ' ')+1:]), "D") {
+			paths = append(paths, p)
+		}
+	}
+	for p := range bytes.SplitSeq(untracked, []byte{0}) {
+		if len(p) > 0 {
+			paths = append(paths, string(p))
 		}
 	}
 	return paths
 }
 
-// untrackedFiles is every untracked file status named, with an untracked
-// directory replaced by the files git lists inside it, in the order status
-// printed the paths. hash-object refuses a directory. Ignored files stay out.
-func untrackedFiles(status []byte, git func(...string) ([]byte, bool)) ([]string, bool) {
-	var files []string
-	for _, p := range UntrackedPaths(status) {
-		if !worktreePath(p) {
+// hashChanged is the concatenated stdout of `git hash-object --no-filters`
+// over paths, which git prints relative to the repository top while they were
+// read from root. prefix is what root adds to that, and is what makes a
+// monorepo root below the top name a file that exists from there. No -w: the
+// object database is not modified.
+//
+// The whole list goes in one `--stdin-paths` call, which is the difference
+// between one git spawn and one per fifty files on a tree with a large
+// unignored build directory. A path carrying a newline cannot be one line of
+// that list and is hashed from argv instead.
+func hashChanged(prefix string, paths []string, git gitRead) ([]byte, bool) {
+	if len(paths) == 0 {
+		return nil, true
+	}
+	var stdin []byte
+	var argv []string
+	for _, p := range paths {
+		rel := strings.TrimPrefix(p, prefix)
+		if !worktreePath(rel) {
 			return nil, false
 		}
-		if !strings.HasSuffix(p, "/") {
-			files = append(files, p)
+		if strings.ContainsRune(rel, '\n') {
+			argv = append(argv, rel)
 			continue
 		}
-		out, ok := git("ls-files", "-z", "--others", "--exclude-standard", "--", strings.TrimSuffix(p, "/"))
+		stdin = append(append(stdin, rel...), '\n')
+	}
+	var buf bytes.Buffer
+	if len(stdin) > 0 {
+		out, ok := git(stdin, "hash-object", "--no-filters", "--stdin-paths")
 		if !ok {
 			return nil, false
 		}
-		for f := range bytes.SplitSeq(out, []byte{0}) {
-			if len(f) == 0 {
-				continue
-			}
-			inner := string(f)
-			if !worktreePath(inner) {
-				return nil, false
-			}
-			files = append(files, inner)
-		}
+		buf.Write(out)
 	}
-	return files, true
-}
-
-// worktreePath is a porcelain path that stays inside the repository. hash-object
-// reads the named file, so an absolute path or a `..` component would hash
-// something git was not asked to track.
-func worktreePath(p string) bool {
-	if p == "" || strings.ContainsRune(p, 0) || filepath.IsAbs(p) {
-		return false
-	}
-	clean := path.Clean(filepath.ToSlash(strings.TrimSuffix(p, "/")))
-	return clean != ".." && !strings.HasPrefix(clean, "../")
-}
-
-// hashObjects is the concatenated stdout of `git hash-object --` over files,
-// in batches. No -w: the object database is not modified. An empty list is
-// an empty chunk.
-func hashObjects(git func(...string) ([]byte, bool), files []string) ([]byte, bool) {
-	if len(files) == 0 {
-		return nil, true
-	}
-	var buf bytes.Buffer
-	const batch = 50
-	for i := 0; i < len(files); i += batch {
-		j := min(i+batch, len(files))
-		args := make([]string, 0, 2+j-i)
-		args = append(args, "hash-object", "--")
-		args = append(args, files[i:j]...)
-		out, ok := git(args...)
+	if len(argv) > 0 {
+		out, ok := git(nil, append([]string{"hash-object", "--no-filters", "--"}, argv...)...)
 		if !ok {
 			return nil, false
 		}
 		buf.Write(out)
 	}
 	return buf.Bytes(), true
+}
+
+// worktreePath is a path that stays inside the repository. hash-object reads
+// the named file, so an absolute path or a `..` component would hash
+// something git was not asked to track.
+func worktreePath(p string) bool {
+	if p == "" || strings.ContainsRune(p, 0) || filepath.IsAbs(p) {
+		return false
+	}
+	clean := path.Clean(filepath.ToSlash(p))
+	return clean != ".." && !strings.HasPrefix(clean, "../") && clean != "."
 }
 
 // stateDir is $XDG_STATE_HOME, or ~/.local/state where it is unset or not

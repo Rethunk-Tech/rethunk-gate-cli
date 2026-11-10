@@ -1,7 +1,6 @@
 package detect
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -91,19 +90,17 @@ func ciInvocations(root string) []ciInvocation {
 	slices.Sort(files)
 	var steps []ciInvocation
 	for _, file := range files {
-		f, err := os.Open(filepath.Clean(file))
+		rel, _ := filepath.Rel(root, file)
+		rel = filepath.ToSlash(rel)
+		// Read and split rather than scan: a generated or minified workflow
+		// can carry one line past bufio.Scanner's cap, and a truncated scan
+		// loses every `run:` after it without saying so -- exactly where
+		// doctor's authority rests on having read the file.
+		data, err := os.ReadFile(filepath.Clean(file))
 		if err != nil {
 			continue
 		}
-		rel, _ := filepath.Rel(root, file)
-		rel = filepath.ToSlash(rel)
-		scanner := bufio.NewScanner(f)
-		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-		var lines []string
-		for scanner.Scan() {
-			lines = append(lines, scanner.Text())
-		}
-		_ = f.Close()
+		lines := strings.Split(string(data), "\n")
 		for i := 0; i < len(lines); i++ {
 			m := runKey.FindStringSubmatch(lines[i])
 			if m == nil {

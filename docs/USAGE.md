@@ -66,6 +66,10 @@ both exist. Prints `gate: install: <command> (in <workspace>)` on stderr. A
 failed install is the run's verdict; no gate runs. A wrapped command, `--list`
 and `--json` never install.
 
+An install is bounded like a gate: it runs under `--timeout` in its own
+process group, so a stop reaches the postinstall scripts it started, and a
+stalled install is killed at the limit and reports 124 rather than hanging.
+
 ### `--ndjson`
 
 `--json` is what *would* run. `--ndjson` writes one JSON line per gate as it
@@ -494,14 +498,15 @@ No record for a named command, a non-git tree, or a repo with no commit.
 | --- | --- |
 | `schema` | Bumped on any change a reader has to know about |
 | `head` | `git rev-parse HEAD` at the start of the run |
-| `dirty` | porcelain status was non-empty (untracked counts) |
-| `status` | SHA-256 of porcelain `-z`, then `git diff HEAD`, then `git hash-object --` (never `-w`) of each untracked path in status order |
+| `dirty` | a raw `git diff-index --cached HEAD`, `git diff-files`, or `git ls-files --others` was non-empty (untracked counts) |
+| `status` | SHA-256 of raw `diff-index --cached HEAD`, raw `diff-files`, raw `ls-files --others`, then `git hash-object --no-filters` (never `-w`) of every changed and untracked path, scoped to the project root |
 | `partial` | `gate run <names>` — not the whole project |
 | `exit` | gate's exit for the run |
 | `gates` | Declaration order; each object is an `--ndjson` line |
 
-An untracked directory is the files `git ls-files -z --others --exclude-standard`
-lists inside it. Clean tree: SHA-256 of no bytes. Color forced off.
+Every read is plumbing, and the attributes source is the empty tree, so no
+`filter.<driver>.clean` or `diff.<driver>.textconv` a repository names can run.
+Clean tree: SHA-256 of no bytes.
 
 Trust only when current HEAD equals `head` and a fresh hash equals `status`.
 Two dirty trees at one HEAD do not share a pass.

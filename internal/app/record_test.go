@@ -230,47 +230,56 @@ func TestTreeHashDistinguishesDirtyTrees(t *testing.T) {
 	qt.Check(t, qt.Equals(changed.Status, specStatus(t, root)))
 }
 
-// specStatus is the hash a reader recomputes: status, then diff, then
-// hash-object stdout, concatenated. It does not call statusHash.
+// specStatus is the hash a reader recomputes independently: the raw staged
+// diff, the raw worktree diff, the untracked list, then hash-object output for
+// every file those name. It does not call statusHash or readPaths.
 func specStatus(t *testing.T, root string) string {
 	t.Helper()
 	git := func(args ...string) []byte {
 		t.Helper()
-		cmd := exec.CommandContext(t.Context(), "git", append([]string{"-C", root, "-c", "core.fsmonitor=", "-c", "color.ui=false"}, args...)...) //nolint:gosec // test repository commands are fixed git operations
+		cmd := exec.CommandContext(t.Context(), "git", append([]string{"-C", root, "-c", "core.fsmonitor="}, args...)...) //nolint:gosec // test repository commands are fixed git operations
 		cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
 		out, err := cmd.Output()
 		qt.Assert(t, qt.IsNil(err))
 		return out
 	}
-	status := git("status", "--porcelain=v1", "-z")
-	diff := git("diff", "HEAD")
-	var files []string
-	for _, p := range stored.UntrackedPaths(status) {
-		if !strings.HasSuffix(p, "/") {
-			files = append(files, p)
-			continue
-		}
-		for f := range bytes.SplitSeq(git("ls-files", "-z", "--others", "--exclude-standard", "--", strings.TrimSuffix(p, "/")), []byte{0}) {
-			if len(f) > 0 {
-				files = append(files, string(f))
-			}
+	staged := git("diff-index", "--cached", "--raw", "-z", "HEAD", "--", ".")
+	worktree := git("diff-files", "--raw", "-z", "--", ".")
+	untracked := git("ls-files", "-z", "--others", "--exclude-standard", "--", ".")
+	files := rawPaths(worktree)
+	for f := range bytes.SplitSeq(untracked, []byte{0}) {
+		if len(f) > 0 {
+			files = append(files, string(f))
 		}
 	}
 	var blobs []byte
 	if len(files) > 0 {
-		blobs = git(append([]string{"hash-object", "--"}, files...)...)
+		blobs = git(append([]string{"hash-object", "--no-filters", "--"}, files...)...)
 	}
 	sum := sha256.New()
-	_, _ = sum.Write(status)
-	_, _ = sum.Write(diff)
+	_, _ = sum.Write(staged)
+	_, _ = sum.Write(worktree)
+	_, _ = sum.Write(untracked)
 	_, _ = sum.Write(blobs)
 	return hex.EncodeToString(sum.Sum(nil))
 }
 
-func TestUntrackedPathsSkipsRenameTargets(t *testing.T) {
-	t.Parallel()
-	status := []byte("R  old\x00new\x00?? note\x00 M tracked\x00?? sub/\x00")
-	qt.Check(t, qt.DeepEquals(stored.UntrackedPaths(status), []string{"note", "sub/"}))
+// rawPaths is the path at the end of every raw-diff record, and the second
+// path too where the record describes a rename or copy.
+func rawPaths(raw []byte) []string {
+	fields := bytes.Split(raw, []byte{0})
+	var paths []string
+	for i := 0; i < len(fields); i++ {
+		header := fields[i]
+		if !bytes.HasPrefix(header, []byte(":")) || i+1 >= len(fields) {
+			continue
+		}
+		i++
+		if !bytes.HasSuffix(header, []byte("D")) {
+			paths = append(paths, string(fields[i]))
+		}
+	}
+	return paths
 }
 
 func assertCurrentTree(t *testing.T, js, head, status string, dirty bool) {
