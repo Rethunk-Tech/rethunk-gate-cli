@@ -672,6 +672,25 @@ func TestFailedRerunsOnlyLastFailures(t *testing.T) {
 	}
 }
 
+// The record is a convenience for other tools, so a run that cannot write one
+// still reports the command's own verdict and says what it lost. Here the
+// state directory sits under a regular file, which no mkdir can fix.
+func TestUnwritableRecordDoesNotMoveTheVerdict(t *testing.T) {
+	setLogDir(t)
+	blocker := filepath.Join(t.TempDir(), "file")
+	qt.Assert(t, qt.IsNil(os.WriteFile(blocker, nil, 0o600)))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(blocker, "state"))
+
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
+	testutil.Write(t, root, ".gate.toml", "[gates.x]\nrun = \"exit 3\"\n")
+	committedRepo(t, root)
+
+	_, stderr, code := runGateTest(t, "-C", root)
+	qt.Check(t, qt.Equals(code, Code(3)), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.StringContains(stderr, "cannot write the result record"))
+}
+
 func TestRecordTextWriteErrorIsFatal(t *testing.T) {
 	setLogDir(t)
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
