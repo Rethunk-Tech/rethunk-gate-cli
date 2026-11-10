@@ -1,14 +1,96 @@
 package result
 
 import (
+	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/go-quicktest/qt"
 )
+
+// A project root below the git top names paths git prints from the top. Each
+// read must stay scoped to root, and the prefix it adds must come off again,
+// or the record is never written at all.
+func TestReadTreeHashesAProjectBelowTheGitTop(t *testing.T) {
+	repo := t.TempDir()
+	git := gitFixture(t, repo)
+	testutilWrite(t, repo, "svc/keep", "a\n")
+	git("add", ".")
+	git("commit", "--quiet", "-m", "first")
+	root := filepath.Join(repo, "svc")
+	// One dirty file inside the project and one outside it: the read must
+	// stay readable and must still see the one inside.
+	testutilWrite(t, repo, "outside", "x\n")
+	testutilWrite(t, repo, "svc/inside", "x\n")
+
+	state := ReadTree(t.Context(), root)
+	qt.Assert(t, qt.IsTrue(state.OK), qt.Commentf("a root below the top left the tree unreadable"))
+	qt.Check(t, qt.IsTrue(state.Dirty))
+	qt.Check(t, qt.Not(qt.Equals(state.Status, ReadTree(t.Context(), repo).Status)), qt.Commentf("a project below the top hashes its own tree, not the repository's"))
+
+	clean := state
+	testutilWrite(t, repo, "svc/inside", "y\n")
+	qt.Check(t, qt.Not(qt.Equals(ReadTree(t.Context(), root).Status, clean.Status)), qt.Commentf("content inside the project did not move the hash"))
+}
+
+// A repository must not get to name a program this read runs. .gitattributes
+// binds a filter and a textconv driver to a path, and git config names what
+// each one executes.
+func TestReadTreeRunsNothingTheRepositoryConfigured(t *testing.T) {
+	root := t.TempDir()
+	git := gitFixture(t, root)
+	testutilWrite(t, root, ".gitattributes", "*.dat filter=evil diff=evil\n")
+	testutilWrite(t, root, "a.dat", "a\n")
+	git("add", ".")
+	git("commit", "--quiet", "-m", "first")
+	marker := filepath.Join(t.TempDir(), "ran")
+	git("config", "filter.evil.clean", "touch -- "+marker+"; cat")
+	git("config", "filter.evil.smudge", "cat")
+	git("config", "diff.evil.textconv", "touch -- "+marker+"; cat")
+	testutilWrite(t, root, "a.dat", "b\n")
+
+	state := ReadTree(t.Context(), root)
+	qt.Assert(t, qt.IsTrue(state.OK))
+	qt.Check(t, qt.IsTrue(state.Dirty))
+	_, err := os.Stat(marker)
+	qt.Assert(t, qt.IsTrue(os.IsNotExist(err)), qt.Commentf("a filter or textconv named by the repository ran"))
+}
+
+// gitFixture returns a runner for fixed git commands in dir, with the
+// repository created there and skipping a machine with no usable git rather
+// than failing on it.
+func gitFixture(t *testing.T, dir string) func(args ...string) string {
+	t.Helper()
+	run := func(args ...string) string {
+		t.Helper()
+		cmd := exec.CommandContext(t.Context(), "git", append([]string{"-c", "user.name=t", "-c", "user.email=t@t"}, args...)...) //nolint:gosec // test repository commands are fixed git operations
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Skipf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	run("init", "--quiet")
+	return run
+}
+
+func testutilWrite(t *testing.T, dir, name, body string) {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestReadTreeDoesNotRunGITExternalDiff(t *testing.T) {
 	root := t.TempDir()
@@ -46,23 +128,117 @@ func TestReadTreeDoesNotRunGITExternalDiff(t *testing.T) {
 	qt.Assert(t, qt.IsTrue(os.IsNotExist(err)), qt.Commentf("GIT_EXTERNAL_DIFF ran"))
 }
 
-func TestUntrackedFilesRejectsEscapingInnerPaths(t *testing.T) {
-	status := []byte("?? dir/\x00")
+func TestHashChangedRejectsEscapingPaths(t *testing.T) {
 	for _, c := range []struct {
-		inner string
-		ok    bool
-		files []string
+		path string
+		ok   bool
 	}{
-		{inner: "dir/a\x00", ok: true, files: []string{"dir/a"}},
-		{inner: "../secret\x00", ok: false},
-		{inner: "/etc/passwd\x00", ok: false},
+		{path: "dir/a", ok: true},
+		{path: "../secret", ok: false},
+		{path: "/etc/passwd", ok: false},
+		{path: ".", ok: false},
 	} {
-		files, ok := untrackedFiles(status, func(...string) ([]byte, bool) {
-			return []byte(c.inner), true
+		_, ok := hashChanged("", []string{c.path}, func([]byte, ...string) ([]byte, bool) {
+			return nil, true
 		})
-		qt.Check(t, qt.Equals(ok, c.ok), qt.Commentf("inner %q", c.inner))
-		qt.Check(t, qt.DeepEquals(files, c.files), qt.Commentf("inner %q", c.inner))
+		qt.Check(t, qt.Equals(ok, c.ok), qt.Commentf("path %q", c.path))
 	}
+}
+
+// The hash covers the file on disk, so what git is asked to hash is the path
+// from the repository top with the prefix this root adds stripped off.
+func TestHashChangedStripsTheRootPrefix(t *testing.T) {
+	var got []string
+	out, ok := hashChanged("svc/", []string{"svc/a", "svc/b"}, func(stdin []byte, args ...string) ([]byte, bool) {
+		got = append(got, args...)
+		return stdin, true
+	})
+	qt.Assert(t, qt.IsTrue(ok))
+	qt.Check(t, qt.DeepEquals(got, []string{"hash-object", "--no-filters", "--stdin-paths"}))
+	qt.Check(t, qt.Equals(string(out), "a\nb\n"))
+}
+
+// One hash-object call for the whole list: a build directory that is not
+// gitignored must not cost a git spawn per fifty files.
+func TestReadTreeHashesEveryUntrackedFileInOneCall(t *testing.T) {
+	repo := t.TempDir()
+	git := gitFixture(t, repo)
+	testutilWrite(t, repo, "keep", "a\n")
+	git("add", ".")
+	git("commit", "--quiet", "-m", "first")
+	for i := range 200 {
+		testutilWrite(t, repo, filepath.Join("build", strconv.Itoa(i)), "x\n")
+	}
+	counts := gitShim(t, "--stdin-paths")
+
+	state := ReadTree(t.Context(), repo)
+	qt.Assert(t, qt.IsTrue(state.OK))
+	qt.Check(t, qt.IsTrue(state.Dirty))
+	qt.Check(t, qt.Equals(counts(), 1), qt.Commentf("one git process for the whole untracked list"))
+}
+
+// The bytes of a dirty tree are only needed for a hash, so they must never be
+// buffered: one large tracked artifact, modified and unignored, would otherwise
+// set the run's memory to the size of its diff.
+func TestReadTreeDoesNotBufferFileContent(t *testing.T) {
+	repo := t.TempDir()
+	git := gitFixture(t, repo)
+	big := bytes.Repeat([]byte("x"), 16<<20)
+	testutilWrite(t, repo, "artifact", string(big))
+	git("add", ".")
+	git("commit", "--quiet", "-m", "first")
+	testutilWrite(t, repo, "artifact", string(big)+"y")
+
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	state := ReadTree(t.Context(), repo)
+	runtime.ReadMemStats(&after)
+	qt.Assert(t, qt.IsTrue(state.OK))
+	qt.Check(t, qt.IsTrue(state.Dirty))
+	grew := after.TotalAlloc - before.TotalAlloc
+	qt.Check(t, qt.IsTrue(grew < uint64(len(big))/2), qt.Commentf("read allocated %d bytes for a %d-byte file", grew, len(big)))
+}
+
+// gitShim puts a git first on PATH that records its argv and runs the real
+// one, and returns how many calls named the given subcommand.
+func gitShim(t *testing.T, subcommand string) func() int {
+	t.Helper()
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		t.Skipf("no git to shim: %v", err)
+	}
+	dir := t.TempDir()
+	calls := filepath.Join(dir, "calls")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + calls + "\nexec " + gitPath + " \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "git"), []byte(script), 0o755); err != nil { //nolint:gosec // fixture must be executable
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return func() int {
+		data, _ := os.ReadFile(filepath.Clean(calls))
+		n := 0
+		for line := range strings.SplitSeq(string(data), "\n") {
+			if strings.Contains(line, subcommand) {
+				n++
+			}
+		}
+		return n
+	}
+}
+
+// A path with a newline cannot be a line of a --stdin-paths list, so it goes
+// through argv; the exit status still decides, and neither call is skipped.
+func TestHashChangedSendsNewlinePathsThroughArgv(t *testing.T) {
+	var calls [][]string
+	_, ok := hashChanged("", []string{"new\nline", "plain"}, func(_ []byte, args ...string) ([]byte, bool) {
+		calls = append(calls, args)
+		return []byte("x"), true
+	})
+	qt.Assert(t, qt.IsTrue(ok))
+	qt.Assert(t, qt.HasLen(calls, 2))
+	qt.Check(t, qt.DeepEquals(calls[0], []string{"hash-object", "--no-filters", "--stdin-paths"}))
+	qt.Check(t, qt.DeepEquals(calls[1], []string{"hash-object", "--no-filters", "--", "new\nline"}))
 }
 
 func TestWorktreePathRejectsEscape(t *testing.T) {
@@ -72,6 +248,7 @@ func TestWorktreePathRejectsEscape(t *testing.T) {
 	qt.Check(t, qt.IsFalse(worktreePath("../outside")))
 	qt.Check(t, qt.IsFalse(worktreePath("foo/../../etc/passwd")))
 	qt.Check(t, qt.IsFalse(worktreePath("")))
+	qt.Check(t, qt.IsFalse(worktreePath(".")))
 }
 
 func TestStateDir(t *testing.T) {
@@ -164,27 +341,9 @@ func TestVerdict(t *testing.T) {
 	}
 }
 
-func TestUntrackedPaths(t *testing.T) {
-	// A rename's second path and a too-short record are skipped, never read as untracked.
-	status := "?? a\x00 M b\x00R  new\x00?? old-looking\x00??\x00C  copy\x00src\x00?? c\x00"
-	qt.Assert(t, qt.DeepEquals(UntrackedPaths([]byte(status)), []string{"a", "c"}))
-}
-
-func TestHashObjectsBatchesFifty(t *testing.T) {
-	files := make([]string, 51)
-	for i := range files {
-		files[i] = filepath.Join("d", string(rune('a'+i%26)))
-	}
-	var calls [][]string
-	out, ok := hashObjects(func(args ...string) ([]byte, bool) {
-		calls = append(calls, args)
-		return []byte(strconv.Itoa(len(calls))), true
-	}, files)
-	qt.Assert(t, qt.IsTrue(ok))
-	qt.Check(t, qt.Equals(string(out), "12"))
-	qt.Assert(t, qt.HasLen(calls, 2))
-	qt.Check(t, qt.HasLen(calls[0], 2+50))
-	qt.Check(t, qt.HasLen(calls[1], 2+1))
-	_, ok = hashObjects(func(...string) ([]byte, bool) { return nil, false }, files)
-	qt.Check(t, qt.IsFalse(ok))
+func TestReadPathsCoversRawRecords(t *testing.T) {
+	// A raw record's path follows its header, a deletion has nothing left to
+	// hash, and every untracked path is hashed.
+	worktree := ":100644 100644 aaa bbb M\x00edit\x00:100644 100644 aaa 000 D\x00gone\x00:000000 100644 000 aaa A\x00added\x00"
+	qt.Assert(t, qt.DeepEquals(readPaths([]byte(worktree), []byte("c\x00")), []string{"edit", "added", "c"}))
 }

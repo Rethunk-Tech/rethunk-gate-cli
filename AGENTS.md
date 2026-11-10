@@ -124,8 +124,9 @@ first failure in declaration order, or first non-allowed one.
 One result record per root (`record.go`;
 [docs/USAGE.md](docs/USAGE.md#result-record)). `gate record` exits 0 only while
 schema, head, and status still match and the run exited 0. `status` hashes
-porcelain, `git diff HEAD`, and each untracked file. Git read runs beside the
-gates; a write failure is stderr only.
+raw `diff-index`, `diff-files`, `ls-files`, and each changed file's bytes,
+with the empty tree as the attributes source so no configured driver runs.
+Git read runs beside the gates; a write failure is stderr only.
 
 Logs: `$TMPDIR` or `/var/tmp` — never `/tmp` on unix (`logDir` is
 build-tagged). `run` strings: `sh -c` vs `cmd /c`. 0600 in 0700. Sweep own
