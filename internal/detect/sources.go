@@ -328,16 +328,26 @@ func dotnetConventionGates(root string, proj *Project) (gates []Gate, skipped []
 	if target, ok := dotnetTarget(root); ok {
 		if resolve(root, proj, "dotnet") == "" {
 			skipped = append(skipped, Skip{"build", "dotnet not installed; skipping the build gate (install the .NET SDK)"})
+			skipped = append(skipped, Skip{"format", "dotnet not installed; skipping the format gate (install the .NET SDK)"})
 			if hasDotnetTest(root) {
 				skipped = append(skipped, Skip{"test", "dotnet not installed; skipping the test gate (install the .NET SDK)"})
 			}
 		} else {
-			serial := hasDotnetTest(root)
-			gates = append(gates, Gate{
-				Name: "build", Argv: []string{"dotnet", "build", target, "-c", "Release"},
-				Source: "convention: dotnet", Serial: serial,
-			})
-			if serial {
+			// One serial group, build first: test needs the build's artifact,
+			// and format loads and writes obj/ for every project, so running
+			// it beside the build would race that. No --no-restore: `gate run
+			// format` alone has no build to have restored first.
+			gates = append(gates,
+				Gate{
+					Name: "build", Argv: []string{"dotnet", "build", target, "-c", "Release"},
+					Source: "convention: dotnet", Serial: true,
+				},
+				Gate{
+					Name: "format", Argv: []string{"dotnet", "format", target, "--verify-no-changes"},
+					Source: "convention: dotnet", Serial: true,
+				},
+			)
+			if hasDotnetTest(root) {
 				gates = append(gates, Gate{
 					Name: "test", Argv: dotnetTestArgv(root, target),
 					Source: "convention: dotnet", Serial: true,

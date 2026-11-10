@@ -152,8 +152,9 @@ not parsed; the env vars reach a nested tool.
 3. **package.json** scripts
 4. **Conventions** for remaining roles: `go build` / `go test` /
    `golangci-lint run --allow-parallel-runners` / `govulncheck`; `cargo build`
-   / `test` / `clippy` / `audit`; `dotnet build <sln-or-proj> -c Release` and,
-   with a test project, `dotnet test … -c Release --no-build` (`--solution` or
+   / `test` / `clippy` / `audit`; `dotnet build <sln-or-proj> -c Release`,
+   `dotnet format <sln-or-proj> --verify-no-changes`, and, with a test
+   project, `dotnet test … -c Release --no-build` (`--solution` or
    `--project` when `global.json` selects Microsoft.Testing.Platform) where a
    `*.sln`/`*.slnx` is at the root or exactly one `*.csproj`/`*.fsproj` is at
    the root or one directory down (absent `dotnet` is a note); `uv run pytest`
@@ -167,9 +168,9 @@ not parsed; the env vars reach a nested tool.
 
 No Rust typecheck gate: `cargo build` already type-checks.
 
-Roles: `build`, `typecheck`, `lint`, `knip`, `workflows`, `shell`, `test`,
-`vuln`. Aggregates `ci`, `check`, `verify`, `validate` (that precedence) are
-not roles. `all` is a build target, never an aggregate.
+Roles: `build`, `format`, `typecheck`, `lint`, `knip`, `workflows`, `shell`,
+`test`, `vuln`. Aggregates `ci`, `check`, `verify`, `validate` (that
+precedence) are not roles. `all` is a build target, never an aggregate.
 
 - **Declined** if any aggregated role was claimed (`build`, `typecheck`,
   `lint`, `test`, `vuln`).

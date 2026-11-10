@@ -19,7 +19,7 @@ import (
 
 // Gate is one runnable check.
 type Gate struct {
-	// Name is the role: build, typecheck, lint, knip, workflows, shell, test, vuln.
+	// Name is the role: build, format, typecheck, lint, knip, workflows, shell, test, vuln.
 	Name string
 
 	// Argv is the command, executed directly rather than through a shell.
@@ -121,7 +121,7 @@ type Install struct {
 //
 // A role missing from this list never reaches Project.Gates, silently. Adding
 // or renaming one means editing here in the same change.
-var gateOrder = []string{"build", "typecheck", "lint", "knip", "workflows", "shell", "test", "vuln"}
+var gateOrder = []string{"build", "format", "typecheck", "lint", "knip", "workflows", "shell", "test", "vuln"}
 
 // IsRole reports whether name is one of the gate roles. Role names carry no
 // path separator and no leading dash, so an exact match is enough to tell one

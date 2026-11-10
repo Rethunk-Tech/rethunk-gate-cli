@@ -4,9 +4,11 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"testing"
 
 	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/testutil"
+	"github.com/go-quicktest/qt"
 )
 
 func TestDotnetConvention(t *testing.T) {
@@ -30,6 +32,7 @@ func TestDotnetConvention(t *testing.T) {
 			},
 			wantArgv: [][]string{
 				{"dotnet", "build", "App.slnx", "-c", "Release"},
+				{"dotnet", "format", "App.slnx", "--verify-no-changes"},
 				{"dotnet", "test", "App.slnx", "-c", "Release", "--no-build"},
 			},
 		},
@@ -43,6 +46,7 @@ func TestDotnetConvention(t *testing.T) {
 			},
 			wantArgv: [][]string{
 				{"dotnet", "build", "App.sln", "-c", "Release"},
+				{"dotnet", "format", "App.sln", "--verify-no-changes"},
 				{"dotnet", "test", "App.sln", "-c", "Release", "--no-build"},
 			},
 		},
@@ -56,6 +60,7 @@ func TestDotnetConvention(t *testing.T) {
 			},
 			wantArgv: [][]string{
 				{"dotnet", "build", "App.slnx", "-c", "Release"},
+				{"dotnet", "format", "App.slnx", "--verify-no-changes"},
 				{"dotnet", "test", "--solution", "App.slnx", "-c", "Release", "--no-build"},
 			},
 		},
@@ -68,6 +73,7 @@ func TestDotnetConvention(t *testing.T) {
 			},
 			wantArgv: [][]string{
 				{"dotnet", "build", filepath.Join("src", "App.Tests.csproj"), "-c", "Release"},
+				{"dotnet", "format", filepath.Join("src", "App.Tests.csproj"), "--verify-no-changes"},
 				{"dotnet", "test", "--project", filepath.Join("src", "App.Tests.csproj"), "-c", "Release", "--no-build"},
 			},
 		},
@@ -79,6 +85,7 @@ func TestDotnetConvention(t *testing.T) {
 			},
 			wantArgv: [][]string{
 				{"dotnet", "build", filepath.Join("src", "App.csproj"), "-c", "Release"},
+				{"dotnet", "format", filepath.Join("src", "App.csproj"), "--verify-no-changes"},
 			},
 		},
 		{
@@ -90,6 +97,7 @@ func TestDotnetConvention(t *testing.T) {
 			},
 			wantArgv: [][]string{
 				{"dotnet", "build", "App.sln", "-c", "Release"},
+				{"dotnet", "format", "App.sln", "--verify-no-changes"},
 			},
 		},
 		{
@@ -99,7 +107,7 @@ func TestDotnetConvention(t *testing.T) {
 				"App.slnx":                         "",
 				"tests/App.Tests/App.Tests.csproj": testSdk,
 			},
-			wantSkip: 2,
+			wantSkip: 3,
 		},
 	}
 
@@ -146,10 +154,61 @@ func TestDotnetConvention(t *testing.T) {
 				t.Fatalf("skipped = %#v, want %d notes", skipped, tt.wantSkip)
 			}
 			for _, g := range gates {
-				if g.Source == "convention: dotnet" && g.Name != "build" && g.Name != "test" {
+				if g.Source != "convention: dotnet" {
+					continue
+				}
+				if g.Name != "build" && g.Name != "format" && g.Name != "test" {
 					t.Fatalf("unexpected gate %q", g.Name)
 				}
+				// format --no-restore reads the restore and obj/ the build
+				// writes, so it runs in build's group, never beside it.
+				if !g.Serial {
+					t.Fatalf("gate %q runs beside the build's restore and obj/ writes", g.Name)
+				}
 			}
+		})
+	}
+}
+
+// dotnet format needs the restore and obj/ files the build gate writes, so the
+// two exist or are missing together. A format gate whose toolchain probe
+// disagreed with the build's would run in exactly the case nothing restored.
+func TestDotnetFormatIsSkippedExactlyWhenBuildIs(t *testing.T) {
+	// Not parallel: PATH is set rather than trusted, so the machine's own SDK
+	// cannot decide whether the gates exist.
+	for _, tc := range []struct {
+		name   string
+		dotnet bool
+	}{
+		{"installed", true},
+		{"missing", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			testutil.Write(t, root, "App.slnx", "")
+			testutil.Write(t, root, "src/App/App.csproj", `<Project Sdk="Microsoft.NET.Sdk"></Project>`)
+			bin := t.TempDir()
+			if tc.dotnet {
+				if runtime.GOOS == "windows" {
+					testutil.Write(t, bin, "dotnet.exe", "")
+				} else if err := os.Symlink("/bin/true", filepath.Join(bin, "dotnet")); err != nil {
+					t.Fatal(err)
+				}
+			}
+			t.Setenv("PATH", bin)
+			t.Setenv("GIT_DIR", filepath.Join(root, ".not-a-git-dir"))
+
+			gates, skipped := conventionGates(t.Context(), root, &Project{Root: root})
+			ran := func(role string) bool {
+				return slices.ContainsFunc(gates, func(g Gate) bool { return g.Name == role })
+			}
+			skippedRole := func(role string) bool {
+				return slices.ContainsFunc(skipped, func(s Skip) bool { return s.Role == role })
+			}
+
+			qt.Assert(t, qt.Equals(ran("build"), tc.dotnet), qt.Commentf("build gate present = %v", ran("build")))
+			qt.Assert(t, qt.Equals(ran("format"), tc.dotnet), qt.Commentf("format gate present = %v", ran("format")))
+			qt.Assert(t, qt.Equals(skippedRole("format"), !tc.dotnet), qt.Commentf("skipped = %v", skipped))
 		})
 	}
 }
