@@ -15,21 +15,13 @@ reports the verdict. The wrapped command's exit status passes through unchanged.
 A pipe through `tail` can invert a gate's verdict. `gate` keeps the status
 authoritative and the log complete.
 
-## Installation
-
-```bash
-brew install rethunk-tech/tap/gate
-```
-
-Scoop, `go install`, release binaries and shell completions: [HUMANS.md](HUMANS.md#install).
-Flags: `gate --help`. Detection, `.gate.toml`, cache awareness and exit codes:
-[docs/USAGE.md](docs/USAGE.md).
-
 ## Quick start
 
 ```bash
 make install && gate go test ./...
 ```
+
+Install options and first run: [HUMANS.md](HUMANS.md#quick-start).
 
 ## Documentation
 

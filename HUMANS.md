@@ -3,7 +3,7 @@
 Running and using `gate`. Internals: [AGENTS.md](AGENTS.md). Reference:
 [docs/USAGE.md](docs/USAGE.md). Flags: `gate --help`.
 
-## Install
+## Quick start
 
 ```bash
 brew install rethunk-tech/tap/gate
@@ -26,10 +26,10 @@ go install github.com/Rethunk-Tech/rethunk-gate-cli/cmd/gate@latest
 ship attested binaries for linux, darwin, and windows. Binaries do not need a
 local Go toolchain.
 
-From a clone:
+From a clone (`make install` is `go install ./cmd/gate` into your GOBIN):
 
 ```bash
-make install     # go install ./cmd/gate into your GOBIN
+make install && gate go test ./...
 ```
 
 Source and `go install` require Go 1.27 or newer.
