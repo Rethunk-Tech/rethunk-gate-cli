@@ -66,6 +66,10 @@ both exist. Prints `gate: install: <command> (in <workspace>)` on stderr. A
 failed install is the run's verdict; no gate runs. A wrapped command, `--list`
 and `--json` never install.
 
+An install is bounded like a gate: it runs under `--timeout` in its own
+process group, so a stop reaches the postinstall scripts it started, and a
+stalled install is killed at the limit and reports 124 rather than hanging.
+
 ### `--ndjson`
 
 `--json` is what *would* run. `--ndjson` writes one JSON line per gate as it
