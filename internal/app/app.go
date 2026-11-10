@@ -486,7 +486,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		return code
 	}
 
-	if code := frozenInstall(ctx, project, stderr); code != Success {
+	if code := frozenInstall(ctx, project, st.timeout, stderr); code != Success {
 		return code
 	}
 	st.setBudget(project, configured, len(roles) > 0)
@@ -614,7 +614,6 @@ func (st *runState) dropE2E(project detect.Project, stderr io.Writer) (code Code
 // detectGates reads the project and the configuration found from its root
 // into st.opts.gates. ok is false when the run is over, with code as its status.
 func (st *runState) detectGates(ctx context.Context, dir string, roles []string, stderr io.Writer) (project detect.Project, cfg config.Config, code Code, ok bool) {
-	opts := &st.opts
 	proj, err := detect.Detect(ctx, dir)
 	if err != nil {
 		fmt.Fprintf(stderr, "gate: cannot inspect this directory: %v\n", err)
@@ -639,7 +638,16 @@ func (st *runState) detectGates(ctx context.Context, dir string, roles []string,
 		fmt.Fprintf(stderr, "gate: %v\n", err)
 		return project, cfg, InvalidUsage, false
 	}
+	project, code, ok = st.buildGates(ctx, proj, cfg, roles, stderr)
+	return project, cfg, code, ok
+}
 
+// buildGates turns a detected project and its configuration into the gate
+// list, with every note, override and merge applied. It is what a run and
+// doctor's warnings array share, so both answer "which gates does this
+// project have" from one place.
+func (st *runState) buildGates(ctx context.Context, proj detect.Project, cfg config.Config, roles []string, stderr io.Writer) (project detect.Project, code Code, ok bool) {
+	opts := &st.opts
 	project = proj
 	// A config `run` fills a role detection left empty for want of a
 	// tool, so the note saying that role is skipped would contradict the
@@ -661,7 +669,7 @@ func (st *runState) detectGates(ctx context.Context, dir string, roles []string,
 		spec, err := detectedSpec(g, cfg, proj.Root)
 		if err != nil {
 			fmt.Fprintf(stderr, "gate: %v\n", err)
-			return project, cfg, InvalidUsage, false
+			return project, InvalidUsage, false
 		}
 		opts.gates = append(opts.gates, spec)
 	}
@@ -669,7 +677,7 @@ func (st *runState) detectGates(ctx context.Context, dir string, roles []string,
 	extra, err := configOnlyGates(cfg, opts.gates, roles, proj.Root)
 	if err != nil {
 		fmt.Fprintf(stderr, "gate: %v\n", err)
-		return project, cfg, InvalidUsage, false
+		return project, InvalidUsage, false
 	}
 	opts.gates = append(opts.gates, extra...)
 
@@ -699,7 +707,7 @@ func (st *runState) detectGates(ctx context.Context, dir string, roles []string,
 		fmt.Fprintf(stderr, "gate: no %s gate detected in %s\n", strings.Join(missing, ", "), proj.Root)
 		writeNotes(stderr, project)
 		fmt.Fprintf(stderr, "gate: run `gate --list` for what is here, or `gate -- %s` for a program by that name\n", missing[0])
-		return project, cfg, InvalidUsage, false
+		return project, InvalidUsage, false
 	}
 
 	// After the names asked for are checked, so `gate run test test:unit`
@@ -710,10 +718,10 @@ func (st *runState) detectGates(ctx context.Context, dir string, roles []string,
 
 	if opts.failed {
 		if code := selectFailed(ctx, proj.Root, opts, stderr); code != Success {
-			return project, cfg, code, false
+			return project, code, false
 		}
 	}
-	return project, cfg, Success, true
+	return project, Success, true
 }
 
 // applyConfig classifies the gates as e2e and takes the run-wide settings the
@@ -889,23 +897,61 @@ func configOnlyGates(cfg config.Config, detected []gateSpec, roles []string, roo
 // manifest is a failure CI reports too, and gates run over a stale
 // node_modules or .venv pass code CI rejects. Output is quoted only on
 // failure, on stderr, so stdout stays the gates' own (NDJSON included).
-func frozenInstall(ctx context.Context, project detect.Project, stderr io.Writer) Code {
+//
+// An install is a gate in every way that matters here: it gets its own
+// process group so a stop reaches the postinstall scripts the package manager
+// started, and it is bounded by the run's timeout, because a stalled
+// `bun install` otherwise hangs gate with no log and no limit.
+func frozenInstall(ctx context.Context, project detect.Project, timeout time.Duration, stderr io.Writer) Code {
 	for _, install := range project.Installs {
 		display := strings.Join(install.Argv, " ")
 		fmt.Fprintf(stderr, "gate: install: %s (in %s)\n", display, install.Dir)
-		cmd := exec.CommandContext(ctx, install.Argv[0], install.Argv[1:]...) //nolint:gosec // package manager argv comes from recognized lockfiles
-		cmd.Dir = install.Dir
-		cmd.Env = markRoot(project.Root)
-		out, err := cmd.CombinedOutput()
-		if err == nil {
-			continue
+		runCtx := ctx
+		if timeout > 0 {
+			var cancel context.CancelFunc
+			runCtx, cancel = context.WithTimeout(ctx, timeout)
+			defer cancel()
 		}
-		_, _ = stderr.Write(out)
-		code := resolveCode(err)
+		code := runInstall(runCtx, install, project.Root, stderr)
+		switch {
+		case code == Success:
+			continue
+		case errors.Is(runCtx.Err(), context.DeadlineExceeded):
+			fmt.Fprintf(stderr, "gate: FAIL install: %s (killed on timeout after %s); no gate was run\n", display, timeout)
+			fmt.Fprintln(stderr, "gate: raise it with --timeout 5m, or --timeout 0 to run with no limit")
+			return TimedOut
+		}
 		fmt.Fprintf(stderr, "gate: FAIL install: %s (exit %d); no gate was run\n", display, code)
 		return code
 	}
 	return Success
+}
+
+// runInstall runs one install, quoting its output on stderr only where it
+// failed, and returns its status.
+func runInstall(ctx context.Context, install detect.Install, root string, stderr io.Writer) Code {
+	cmd := exec.CommandContext(ctx, install.Argv[0], install.Argv[1:]...) //nolint:gosec // package manager argv comes from recognized lockfiles
+	setProcessGroup(cmd)
+	var killBy time.Time
+	cmd.Cancel = func() error {
+		killBy = time.Now().Add(stopGrace)
+		return interruptProcessGroup(cmd)
+	}
+	cmd.WaitDelay = stopGrace
+	cmd.Dir = install.Dir
+	cmd.Env = markRoot(root)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	err := cmd.Run()
+	if !killBy.IsZero() {
+		killProcessGroupBy(cmd, killBy)
+	}
+	if err == nil {
+		return Success
+	}
+	_, _ = stderr.Write(out.Bytes())
+	return resolveCode(err)
 }
 
 // resolveGateDir turns a gate's configured directory into the absolute path
