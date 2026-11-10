@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"os/exec"
@@ -12,11 +13,46 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/app"
 	"github.com/go-quicktest/qt"
 )
 
-// The signal that reached gate is what gate exits with, and the interrupted
-// command's log still gets its trailer. That logic lives only in main.
+// run is main without the exit, so the status it returns is observable in
+// process. A closed channel is a gate nobody signalled: the wrapped command's
+// status is the verdict, unchanged.
+//
+// The signal channel is the caller's here so a test can deliver one at the
+// moment it chooses. The cost is that ignoreSIGPIPE acts on the test binary,
+// which only matters to a test that writes to fd 1 from a closed pipe.
+func TestRunReturnsTheWrappedCommandsStatus(t *testing.T) {
+	t.Parallel()
+	signals := make(chan os.Signal)
+	close(signals)
+
+	var out, errBuf bytes.Buffer
+	code := run([]string{"--log", filepath.Join(t.TempDir(), "gate.log"), "sh", "-c", "exit 3"},
+		&out, &errBuf, signals)
+
+	qt.Check(t, qt.Equals(code, app.Code(3)), qt.Commentf("stderr = %q", errBuf.String()))
+}
+
+// The signal that reached gate is what gate exits with, whatever the child
+// reported -- 143 for SIGTERM, never the SIGKILL gate sends the child.
+func TestRunReportsTheSignalThatReachedGate(t *testing.T) {
+	t.Parallel()
+	signals := make(chan os.Signal, 1)
+	signals <- syscall.SIGTERM
+
+	var out, errBuf bytes.Buffer
+	code := run([]string{"--timeout", "0", "--log", filepath.Join(t.TempDir(), "gate.log"), "sh", "-c", "sleep 5"},
+		&out, &errBuf, signals)
+
+	qt.Check(t, qt.Equals(code, app.Code(128+int(syscall.SIGTERM))), qt.Commentf("stderr = %q", errBuf.String()))
+}
+
+// The one smoke test: the real binary, because exit status is the whole
+// contract and only a process has one. A signalled gate still finishes its
+// log with a trailer.
 func TestSIGTERMEndsGateWith143AndALogTrailer(t *testing.T) {
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "gate")

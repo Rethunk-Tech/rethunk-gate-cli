@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"io"
 	"os"
 	"os/signal"
 	"sync/atomic"
@@ -16,10 +17,19 @@ import (
 var version = "dev"
 
 func main() {
-	os.Exit(int(run()))
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	os.Exit(int(run(os.Args[1:], os.Stdout, os.Stderr, signals)))
 }
 
-func run() app.Code {
+// run is gate without the exit: arguments, streams and the signal channel come
+// from the caller, so a test drives the whole CLI in-process and reads the
+// status it returns; only main's os.Exit is unreachable.
+//
+// signals carries what the terminal sent gate. Cancelling here reaches the
+// child through the machinery the timeout already uses, so the child dies and
+// its log gets its trailer.
+func run(args []string, stdout, stderr io.Writer, signals chan os.Signal) app.Code {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -31,10 +41,6 @@ func run() app.Code {
 	// signals the foreground process group, which is gate's -- every child is
 	// deliberately in its own group so a timeout can kill the whole tree, and
 	// that is exactly what puts the child out of the terminal's reach.
-	// Cancelling here reaches it through the machinery the timeout already
-	// uses, so the child dies and its log gets its trailer.
-	signals := make(chan os.Signal, 1)
-	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
 	var received atomic.Int32
 	go func() {
 		s, ok := <-signals
@@ -52,7 +58,7 @@ func run() app.Code {
 		signal.Stop(signals)
 	}()
 
-	code := app.Run(ctx, version, os.Args[1:], os.Stdout, os.Stderr)
+	code := app.Run(ctx, version, args, stdout, stderr)
 	// The signal that reached gate, not the one gate sent the child --
 	// reporting the latter would name gate's own mechanism as the cause.
 	if num := received.Load(); num != 0 {
