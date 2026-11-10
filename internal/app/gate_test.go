@@ -335,14 +335,6 @@ func TestRunQuietSuppressesOnlyThePassLine(t *testing.T) {
 	qt.Check(t, qt.StringContains(stderr, "bad"), qt.Commentf("quiet failure stayed silent: %q", stderr))
 }
 
-// setLogDir points the default log location at a temp directory. Multi-gate
-// runs cannot use --log, since one path cannot hold several logs, so TMPDIR
-// is how a test keeps its logs out of /var/tmp. t.Setenv forbids t.Parallel.
-func setLogDir(t *testing.T) {
-	t.Helper()
-	t.Setenv("TMPDIR", t.TempDir())
-}
-
 // gateProject writes a fixture whose .gate.toml declares the given commands as
 // gates, in declaration order, and returns its root. The manifest is a Makefile
 // with no recognised target, so detection finds the root and contributes
@@ -363,7 +355,7 @@ func gateProject(t *testing.T, commands ...string) string {
 // days, back-to-back gate chains cost 7.93h sequentially against 5.57h if
 // overlapped, so this is the single largest saving the tool offers.
 func TestIndependentGatesOverlap(t *testing.T) {
-	setLogDir(t)
+	t.Parallel()
 
 	root := gateProject(t, "sleep 0.4", "sleep 0.40")
 	started := time.Now()
@@ -382,7 +374,7 @@ func TestIndependentGatesOverlap(t *testing.T) {
 // --jobs N (and top-level jobs = N) bound overlap: three independent gates
 // with N=2 must never have three pid files in the active dir at once.
 func TestJobsCapsConcurrency(t *testing.T) {
-	setLogDir(t)
+	t.Parallel()
 
 	for _, value := range []string{"0", "-1", "many"} {
 		_, stderr, code := runGateTest(t, "--jobs", value, "--log", tempLog(t), "true")
@@ -447,7 +439,7 @@ func peakSeen(t *testing.T, dir string) int {
 // A failing gate must not hide another gate's outcome: the whole reason to
 // run them together is to learn everything wrong in one pass.
 func TestEveryGateIsReportedAndTheFirstFailureWins(t *testing.T) {
-	setLogDir(t)
+	t.Parallel()
 
 	root := gateProject(t,
 		"echo first-problem >&2; exit 3",
@@ -464,7 +456,7 @@ func TestEveryGateIsReportedAndTheFirstFailureWins(t *testing.T) {
 // ordered by declaration instead -- otherwise the same run would print
 // differently each time.
 func TestReportFollowsDeclarationOrderNotFinishOrder(t *testing.T) {
-	setLogDir(t)
+	t.Parallel()
 
 	root := gateProject(t, "sleep 0.3", "true")
 	stdout, stderr, code := runGateTest(t, "-C", root)
@@ -520,7 +512,7 @@ func TestSlug(t *testing.T) {
 // the same slug -- so without a disambiguator they would overwrite each
 // other's logs, losing exactly what this tool exists to keep.
 func TestEachGateGetsItsOwnLog(t *testing.T) {
-	setLogDir(t)
+	t.Parallel()
 
 	root := gateProject(t, "echo aaa", "echo bbb")
 	stdout, stderr, code := runGateTest(t, "-C", root)
@@ -550,7 +542,7 @@ func TestEachGateGetsItsOwnLog(t *testing.T) {
 // build must stop the run rather than let the tests fail for a reason nobody
 // needs to read.
 func TestRunSerialStopsAtFirstFailure(t *testing.T) {
-	setLogDir(t)
+	t.Parallel()
 
 	marker := filepath.Join(t.TempDir(), "second-ran")
 	root := gateProject(t, "exit 5", "touch "+marker)
@@ -573,9 +565,9 @@ func TestRunSerialStopsAtFirstFailure(t *testing.T) {
 // Sharing a toolchain is not such a statement: measured, sequencing on that
 // basis cost 24-42% of the wall clock and bought nothing.
 func TestGatesRunConcurrentlyUnlessMarkedSerial(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	testutil.Write(t, root, "Makefile", "build:\n\texit 5\n\ntest:\n\ttouch "+filepath.Join(root, "test-ran")+"\n")
-	t.Setenv("TMPDIR", t.TempDir())
 
 	_, stderr, code := runGateTest(t, "-C", root)
 
@@ -592,7 +584,7 @@ func TestGatesRunConcurrentlyUnlessMarkedSerial(t *testing.T) {
 // in one group interrupts every other group. The sleeper is declared first
 // so a broken aggregate would report Interrupted instead of the exit 7.
 func TestFailFastInterruptsOtherGroups(t *testing.T) {
-	setLogDir(t)
+	t.Parallel()
 
 	for _, tc := range []struct {
 		name string
@@ -603,6 +595,7 @@ func TestFailFastInterruptsOtherGroups(t *testing.T) {
 		{name: "toml", toml: "fail-fast = true\n\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			root := t.TempDir()
 			testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
 			// fast fails only once slow is running, so slow is interrupted rather than never started.
@@ -633,12 +626,12 @@ func TestFailFastInterruptsOtherGroups(t *testing.T) {
 // detected, listed, and then never ran -- reporting nothing about them is the
 // gap this covers.
 func TestGatesStoppedByAFailingGroupAreReportedAsSkipped(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	// build first, per gateOrder, and the config is what puts them in one
 	// group -- without it these two would run concurrently.
 	testutil.Write(t, root, "Makefile", "build:\n\texit 5\n\ntest:\n\ttouch "+filepath.Join(root, "test-ran")+"\n")
 	testutil.Write(t, root, ".gate.toml", "[gates.build]\nserial = true\n\n[gates.test]\nserial = true\n")
-	t.Setenv("TMPDIR", t.TempDir())
 
 	_, stderr, code := runGateTest(t, "-C", root)
 
@@ -650,7 +643,7 @@ func TestGatesStoppedByAFailingGroupAreReportedAsSkipped(t *testing.T) {
 }
 
 func TestRunSerialRunsEveryGateWhenAllPass(t *testing.T) {
-	setLogDir(t)
+	t.Parallel()
 
 	marker := filepath.Join(t.TempDir(), "second-ran")
 	root := gateProject(t, "true", "touch "+marker)
@@ -794,7 +787,6 @@ func TestJSONListingCarriesWhatListDoes(t *testing.T) {
 func TestGateRefusesToDetectAProjectItIsAlreadyRunning(t *testing.T) {
 	root := t.TempDir()
 	testutil.Write(t, root, "Makefile", "test:\n\ttouch ran\n")
-	t.Setenv("TMPDIR", t.TempDir())
 	t.Setenv(activeRootsVar, root)
 
 	_, stderr, code := runGateTest(t, "-C", root)
@@ -820,6 +812,7 @@ func TestAnExplicitCommandStillRunsInsideAnActiveProject(t *testing.T) {
 
 // The mark has to reach the child, or nothing downstream can detect the loop.
 func TestTheActiveProjectReachesTheChildEnvironment(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	log := tempLog(t)
 
@@ -833,6 +826,7 @@ func TestTheActiveProjectReachesTheChildEnvironment(t *testing.T) {
 // Go's test cache keys on the PWD a test reads through os.Getwd, so a child that
 // inherited gate's would miss the cache whenever gate started somewhere else.
 func TestTheChildPWDIsItsOwnDirectory(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	log := tempLog(t)
 
@@ -846,6 +840,7 @@ func TestTheChildPWDIsItsOwnDirectory(t *testing.T) {
 // has to win, or a workflow env on a bun run step that itself runs gate
 // re-enters detection.
 func TestGateEnvCannotOverrideActiveRoots(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	log := tempLog(t)
 	res := runOne(t.Context(), gateSpec{
@@ -898,10 +893,10 @@ func TestDoctorRendersFindingsAndNeverFailsTheBuild(t *testing.T) {
 // the caller's command like any other, which is what makes one rule cover
 // every gate name rather than six of them.
 func TestOnlyRunSelectsGatesAndABareRoleIsTheProgram(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	testutil.Write(t, root, "Makefile", "test:\n\ttouch "+filepath.Join(root, "test-ran")+"\n"+
 		"lint:\n\ttouch "+filepath.Join(root, "lint-ran")+"\n")
-	t.Setenv("TMPDIR", t.TempDir())
 
 	stdout, stderr, code := runGateTest(t, "-C", root, "run", "test")
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("gate run test = %d, stderr = %q", code, stderr))
@@ -927,9 +922,8 @@ func TestOnlyRunSelectsGatesAndABareRoleIsTheProgram(t *testing.T) {
 // whole project. `run` names gates explicitly, which is also why it can take
 // names that would be ambiguous bare.
 func TestRunNamesGatesIncludingTheOnesOnlyConfigKnows(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("TMPDIR", t.TempDir())
 	ran := func(name string) string { return filepath.Join(root, name+"-ran") }
 	testutil.Write(t, root, "Makefile", "test:\n\ttouch "+ran("test")+"\n")
 	testutil.Write(t, root, ".gate.toml", "[gates.e2e]\nrun = \"touch "+ran("e2e")+"\"\n")
@@ -975,9 +969,9 @@ func TestRunNamesGatesIncludingTheOnesOnlyConfigKnows(t *testing.T) {
 // is least sure what the project has, which is where silently running
 // /usr/bin/test would be worst.
 func TestANamedGateThatDoesNotExistRefusesRatherThanRunningAProgram(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	testutil.Write(t, root, "Makefile", "lint:\n\ttrue\n")
-	t.Setenv("TMPDIR", t.TempDir())
 
 	_, stderr, code := runGateTest(t, "-C", root, "run", "test")
 	qt.Assert(t, qt.Equals(code, InvalidUsage), qt.Commentf("gate run test = %d, want InvalidUsage -- stderr = %q", code, stderr))
@@ -1038,8 +1032,7 @@ func TestAnInterruptedGateIsStoppedNotFailedAndKeepsItsLog(t *testing.T) {
 // Gates the interrupt stopped from starting are reported as not run, and say
 // why -- "an earlier gate failed" would be false.
 func TestGatesNotStartedWhenInterruptedSayTheRunWasInterrupted(t *testing.T) {
-	// setLogDir uses t.Setenv, which rules out t.Parallel.
-	setLogDir(t)
+	t.Parallel()
 
 	root := gateProject(t, "sleep 10", "true")
 	ctx, cancel := context.WithCancel(t.Context())
@@ -1074,7 +1067,6 @@ func TestAShadowWarningNamesItsFixOnceAndCannotBeSilenced(t *testing.T) {
 	testutil.Write(t, root, "bun.lock", "")
 	fakeBun(t, 0)
 	plantBin(t, root, "tsc")
-	t.Setenv("TMPDIR", t.TempDir())
 
 	// --quiet governs the pass line, not a disagreement about what to run.
 	_, stderr, code := runGateTest(t, "-C", root, "--quiet")
@@ -1092,6 +1084,7 @@ func TestAShadowWarningNamesItsFixOnceAndCannotBeSilenced(t *testing.T) {
 // must leave the rest of detection intact, or a single override would quietly
 // become the whole gate list.
 func TestConfigCannotRemoveADetectedGate(t *testing.T) {
+	t.Parallel()
 	root := timeoutProject(t, "[gates.test]\nserial = true\n")
 	testutil.Write(t, root, "Makefile", "test:\n\ttouch "+filepath.Join(root, "test-ran")+"\n"+
 		"lint:\n\ttouch "+filepath.Join(root, "lint-ran")+"\n")
@@ -1106,6 +1099,7 @@ func TestConfigCannotRemoveADetectedGate(t *testing.T) {
 // Config is found from the DETECTED project root, which is what makes -C pick
 // up the other project's settings rather than the caller's.
 func TestConfigComesFromTheProjectNotTheCaller(t *testing.T) {
+	t.Parallel()
 	other := timeoutProject(t, "[gates.e2e]\nrun = \"true\"\n")
 	testutil.Write(t, other, "Makefile", "test:\n\ttrue\n")
 
@@ -1121,6 +1115,7 @@ func TestConfigComesFromTheProjectNotTheCaller(t *testing.T) {
 // An unparseable file refuses rather than falling back to defaults, and the
 // refusal is a usage error rather than a failing gate.
 func TestABrokenConfigRefusesInsteadOfIgnoringItself(t *testing.T) {
+	t.Parallel()
 	root := timeoutProject(t, "[gates.test]\ntimout = \"10m\"\n")
 	testutil.Write(t, root, "Makefile", "test:\n\ttrue\n")
 
@@ -1135,8 +1130,6 @@ func TestABrokenConfigRefusesInsteadOfIgnoringItself(t *testing.T) {
 // settles the disagreement -- and the settlement is visible, not a mute.
 func TestAConfigRunSettlesAShadowConflict(t *testing.T) {
 	root := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("TMPDIR", t.TempDir())
 	testutil.Write(t, root, "Makefile", "test:\n\ttrue\n")
 	testutil.Write(t, root, "package.json", "{\n\t\"scripts\": {\n\t\t\"test\": \"vitest run\"\n\t}\n}\n")
 	testutil.Write(t, root, "bun.lock", "")
@@ -1168,7 +1161,6 @@ func TestAConfiguredGateWithdrawsTheSkipNoteForItsRole(t *testing.T) {
 	// Not parallel: PATH is emptied so the machine's own cargo-audit and
 	// shellcheck cannot decide whether the notes exist.
 	t.Setenv("PATH", filepath.Join(t.TempDir(), "no-such-bin"))
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 
 	for _, tc := range []struct{ role, note string }{
 		{"vuln", "cargo-audit not installed"},
@@ -1195,6 +1187,7 @@ func TestAConfiguredGateWithdrawsTheSkipNoteForItsRole(t *testing.T) {
 // One path cannot hold several gates' logs, and silently sharing it would
 // destroy every gate's output but the last.
 func TestRunLogWithSeveralGatesIsRefused(t *testing.T) {
+	t.Parallel()
 	root := gateProject(t, "true", ":")
 	_, stderr, code := runGateTest(t, "-C", root, "--log", tempLog(t))
 	qt.Assert(t, qt.Equals(code, InvalidUsage))
@@ -1413,15 +1406,12 @@ func TestTimeoutWantsADuration(t *testing.T) {
 	qt.Check(t, qt.StringContains(stderr, "duration"))
 }
 
-// timeoutProject writes a fixture whose .gate.toml is the given body, in an
-// environment isolated from the caller's own config and log directory. The
+// timeoutProject writes a fixture whose .gate.toml is the given body. The
 // Makefile declares no recognised target, so the gates are exactly the ones
 // the body names until a caller writes a Makefile of its own over it.
 func timeoutProject(t *testing.T, body string) string {
 	t.Helper()
 	root := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	setLogDir(t)
 	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
 	testutil.Write(t, root, ".gate.toml", body)
 	return root
@@ -1430,6 +1420,7 @@ func timeoutProject(t *testing.T, body string) string {
 // One slow gate in a project of fast ones is the case --timeout is the wrong
 // shape for: raising it for the run raises it for everything.
 func TestAGatesOwnTimeoutBoundsIt(t *testing.T) {
+	t.Parallel()
 	root := timeoutProject(t, "[gates.slow]\nrun = \"sleep 10\"\ntimeout = \"200ms\"\n")
 
 	_, stderr, code := runGateTest(t, "-C", root)
@@ -1442,10 +1433,9 @@ func TestAGatesOwnTimeoutBoundsIt(t *testing.T) {
 // has to survive all the way to the runner: inherit the limit, versus run with
 // none. It is per gate, so the sibling keeps its own.
 func TestAGateTimeoutOfZeroDisablesTheLimitForThatGateAlone(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	finished := filepath.Join(root, "unbounded-finished")
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	setLogDir(t)
 	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
 	testutil.Write(t, root, ".gate.toml", "[gates.bounded]\nrun = \"sleep 10\"\ntimeout = \"150ms\"\n\n"+
 		"[gates.unbounded]\nrun = \"sleep 0.4; touch "+finished+"\"\ntimeout = \"0\"\n")
@@ -1462,6 +1452,7 @@ func TestAGateTimeoutOfZeroDisablesTheLimitForThatGateAlone(t *testing.T) {
 // Flags are the most local statement of intent, so --timeout beats a gate's
 // own key -- in both directions, which is why the file is proven to bite first.
 func TestTheTimeoutFlagBeatsAGatesOwnTimeout(t *testing.T) {
+	t.Parallel()
 	root := timeoutProject(t, "[gates.slow]\nrun = \"sleep 0.4\"\ntimeout = \"100ms\"\n")
 
 	_, stderr, code := runGateTest(t, "-C", root)
@@ -1475,10 +1466,9 @@ func TestTheTimeoutFlagBeatsAGatesOwnTimeout(t *testing.T) {
 // key: falling back to the default would run the gate under a limit its author
 // deliberately changed, and say nothing.
 func TestAMalformedGateTimeoutRefusesTheFile(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	ran := filepath.Join(root, "test-ran")
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	setLogDir(t)
 	testutil.Write(t, root, "Makefile", "test:\n\ttouch "+ran+"\n")
 	testutil.Write(t, root, ".gate.toml", "[gates.test]\ntimeout = \"soon\"\n")
 
@@ -1511,7 +1501,6 @@ func TestDetectedGatesRunAtTheProjectRootNotTheCallerDirectory(t *testing.T) {
 	testutil.Write(t, root, "Makefile", "test:\n\ttouch ran-at-root\n")
 	sub := filepath.Join(root, "deep", "inside")
 	qt.Assert(t, qt.IsNil(os.MkdirAll(sub, 0o750)))
-	t.Setenv("TMPDIR", t.TempDir())
 
 	// -C points inside the project; detection walks up to the root.
 	_, stderr, code := runGateTest(t, "-C", sub)
@@ -1604,7 +1593,6 @@ func TestConcurrentGatesEachRunInTheirOwnDirectory(t *testing.T) {
 	// gates' default log paths land in a temp directory rather than
 	// littering /var/tmp -- they cannot share one --log between them.
 	first, second := t.TempDir(), t.TempDir()
-	t.Setenv("TMPDIR", t.TempDir())
 
 	opts := options{
 		tail: defaultTail,
@@ -2084,8 +2072,7 @@ func TestTimeoutRemedyIsPrintedOncePerRun(t *testing.T) {
 // but the TIMEOUT line and its remedy are still printed: allowing is never
 // hiding, and the default kills roughly one working gate in ninety.
 func TestAllowedTimeoutStillPrintsRemedyAndStaysGreen(t *testing.T) {
-	setLogDir(t)
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Parallel()
 
 	root := t.TempDir()
 	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
@@ -2143,6 +2130,7 @@ func TestDoctorJSONCarriesWhatTheReportDoes(t *testing.T) {
 }
 
 func TestDoctorJSONIncludesAStaleResult(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	testutil.Write(t, root, "Makefile", "test:\n\ttrue\n")
 	testutil.Write(t, root, ".github/workflows/ci.yml", "name: CI\njobs:\n  a:\n    steps:\n      - run: true\n")
@@ -2200,7 +2188,7 @@ func TestDoctorJSONReportsNoFindingsAsAnEmptyList(t *testing.T) {
 // A config typo is refused the same way a run is: stderr names the file, and
 // --json doctor does not emit an empty warnings array as if the listing worked.
 func TestJSONDoctorRefusesAMalformedConfig(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Parallel()
 	root := t.TempDir()
 	testutil.Write(t, root, "Makefile", "test:\n\ttrue\n")
 	testutil.Write(t, root, ".gate.toml", "nope = true\n")
@@ -2476,7 +2464,6 @@ func TestFixUnknownArgIsUsage(t *testing.T) {
 // key is: the project file names FOO, the user file names BAZ, and the gate
 // sees both. Values are literal -- what the file says is what runs.
 func TestConfigEnvReachesTheGate(t *testing.T) {
-	setLogDir(t)
 	home := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", home)
 	testutil.Write(t, home, "gate/config.toml", "[gates.docs.env]\nBAZ = \"qux\"\n")
@@ -2493,8 +2480,7 @@ func TestConfigEnvReachesTheGate(t *testing.T) {
 // dir moves one gate off the project root: the marker lands in sub/, not in
 // root/, and --list names the resolved directory so the move is inspectable.
 func TestConfigDirRunsTheGateThere(t *testing.T) {
-	setLogDir(t)
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Parallel()
 
 	root := t.TempDir()
 	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
@@ -2517,8 +2503,7 @@ func TestConfigDirRunsTheGateThere(t *testing.T) {
 // starts: falling back to the project root would run the gate somewhere its
 // author did not choose, and say nothing about it.
 func TestConfigDirMissingRefusesBeforeAnythingRuns(t *testing.T) {
-	setLogDir(t)
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Parallel()
 
 	root := t.TempDir()
 	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
@@ -2537,8 +2522,7 @@ func TestConfigDirMissingRefusesBeforeAnythingRuns(t *testing.T) {
 // reporting it skipped. Without the flag the same failure stops the group,
 // which the control case below proves.
 func TestAllowFailureKeepsTheAggregateGreenAndTheGroupRunning(t *testing.T) {
-	setLogDir(t)
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Parallel()
 
 	marker := filepath.Join(t.TempDir(), "second-ran")
 	root := t.TempDir()
@@ -2555,8 +2539,7 @@ func TestAllowFailureKeepsTheAggregateGreenAndTheGroupRunning(t *testing.T) {
 }
 
 func TestAllowFailureFalseStillFailsAndStopsTheGroup(t *testing.T) {
-	setLogDir(t)
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Parallel()
 
 	marker := filepath.Join(t.TempDir(), "second-ran")
 	root := t.TempDir()
@@ -2720,7 +2703,7 @@ func TestListingShowsConfiguredSerial(t *testing.T) {
 // --profile names what the run cost without touching what it reports: the
 // slowest gates first on stderr, wall against summed gate time beside them.
 func TestProfileNamesSlowestFirst(t *testing.T) {
-	setLogDir(t)
+	t.Parallel()
 
 	root := gateProject(t, "sleep 0.3", "true")
 	stdout, stderr, code := runGateTest(t, "-C", root, "--profile")
@@ -2745,7 +2728,7 @@ func TestProfileNamesSlowestFirst(t *testing.T) {
 // Off by default: a line nobody asked for on every run is how output starts
 // being skipped.
 func TestProfileIsSilentUnlessAsked(t *testing.T) {
-	setLogDir(t)
+	t.Parallel()
 
 	root := gateProject(t, "true")
 	stdout, stderr, code := runGateTest(t, "-C", root)
@@ -2886,6 +2869,7 @@ func TestNDJSONCarriesConfiguredDirAndTimeout(t *testing.T) {
 }
 
 func TestNDJSONTimeoutKillKeepsCode124(t *testing.T) {
+	t.Parallel()
 	root := timeoutProject(t, "[gates.slow]\nrun = \"sleep 10\"\ntimeout = \"200ms\"\n")
 
 	stdout, stderr, code := runGateTest(t, "-C", root, "--ndjson")
@@ -2928,7 +2912,6 @@ func TestForceCacheRewritesAGoTestGateAndSetsTurboForce(t *testing.T) {
 // never sees make. MAKEFLAGS=-B is what makes an up-to-date target rebuild,
 // and GOFLAGS=-count=1 is what a nested go test inherits through the same shell.
 func TestForceCacheBustsMakeAndGoTestInsideARunString(t *testing.T) {
-	setLogDir(t)
 	t.Setenv("MAKEFLAGS", "")
 	t.Setenv("GOFLAGS", "")
 
@@ -2993,7 +2976,6 @@ func TestWithoutForceCacheAGoTestGateIsUnchanged(t *testing.T) {
 // directory installs the workspace, not the member.
 func TestFrozenInstallRunsOnceInTheWorkspaceBeforeTheGates(t *testing.T) {
 	calls := fakeBun(t, 0)
-	t.Setenv("TMPDIR", t.TempDir())
 	ws := t.TempDir()
 	testutil.Write(t, ws, "bun.lock", "")
 	member := filepath.Join(ws, "packages", "a")
@@ -3017,7 +2999,6 @@ func TestFrozenInstallRunsOnceInTheWorkspaceBeforeTheGates(t *testing.T) {
 // just failed to bring up to date.
 func TestAFailedFrozenInstallFailsTheRunBeforeAnyGate(t *testing.T) {
 	fakeBun(t, 7)
-	t.Setenv("TMPDIR", t.TempDir())
 	root := t.TempDir()
 	marker := filepath.Join(root, "test-ran")
 	testutil.Write(t, root, "bun.lock", "")
@@ -3034,7 +3015,6 @@ func TestAFailedFrozenInstallFailsTheRunBeforeAnyGate(t *testing.T) {
 // --list, --json, and a command named on the argv install nothing.
 func TestUvSyncLockedRunsInTheWorkspaceBeforeTheGates(t *testing.T) {
 	calls := fakeUv(t, 0)
-	t.Setenv("TMPDIR", t.TempDir())
 	ws := t.TempDir()
 	testutil.Write(t, ws, "uv.lock", "version = 1\n")
 	member := filepath.Join(ws, "packages", "a")
@@ -3072,7 +3052,6 @@ func TestUvSyncLockedRunsInTheWorkspaceBeforeTheGates(t *testing.T) {
 // to bring in line with uv.lock.
 func TestAFailedUvSyncFailsTheRunBeforeAnyGate(t *testing.T) {
 	fakeUv(t, 7)
-	t.Setenv("TMPDIR", t.TempDir())
 	root := t.TempDir()
 	marker := filepath.Join(root, "test-ran")
 	testutil.Write(t, root, "uv.lock", "version = 1\n")
@@ -3092,7 +3071,6 @@ func TestAFailedUvSyncFailsTheRunBeforeAnyGate(t *testing.T) {
 func TestNodeAndUvInstallsBothRun(t *testing.T) {
 	bunCalls := fakeBun(t, 0)
 	uvCalls := fakeUv(t, 0)
-	t.Setenv("TMPDIR", t.TempDir())
 	root := t.TempDir()
 	testutil.Write(t, root, "bun.lock", "")
 	testutil.Write(t, root, "uv.lock", "version = 1\n")
@@ -3125,7 +3103,6 @@ func TestCIRunPackageGateRunsInItsDirectoryUnlessConfigured(t *testing.T) {
 	// would add a convention gate to the package.
 	fake, _, _ := strings.Cut(os.Getenv("PATH"), string(os.PathListSeparator))
 	t.Setenv("PATH", fake+string(os.PathListSeparator)+"/usr/bin:/bin")
-	t.Setenv("TMPDIR", t.TempDir())
 	root := t.TempDir()
 	testutil.Write(t, root, "pyproject.toml", "[project]\nname = \"demo\"\n")
 	testutil.Write(t, root, ".github/workflows/ci.yml", "      - working-directory: frontend\n")
@@ -3155,7 +3132,6 @@ func TestCIRunPackageCoveredByAConfiguredGateIsNotGated(t *testing.T) {
 	calls := fakeBun(t, 0)
 	fake, _, _ := strings.Cut(os.Getenv("PATH"), string(os.PathListSeparator))
 	t.Setenv("PATH", fake+string(os.PathListSeparator)+"/usr/bin:/bin")
-	t.Setenv("TMPDIR", t.TempDir())
 	root := t.TempDir()
 	testutil.Write(t, root, "pyproject.toml", "[project]\nname = \"demo\"\n")
 	testutil.Write(t, root, ".github/workflows/ci.yml", "      - working-directory: frontend\n")
@@ -3181,7 +3157,7 @@ func TestCIRunPackageCoveredByAConfiguredGateIsNotGated(t *testing.T) {
 // A CI step's env reaches its gate, and configuration layers over it per
 // variable rather than replacing it.
 func TestCIStepEnvLayersUnderConfiguredEnv(t *testing.T) {
-	t.Setenv("TMPDIR", t.TempDir())
+	t.Parallel()
 	root := t.TempDir()
 	testutil.Write(t, root, "package.json", `{"scripts":{"e2e":"playwright test"}}`)
 	testutil.Write(t, root, ".github/workflows/ci.yml", "on: push\njobs:\n  a:\n    steps:\n      - run: bun run e2e\n        env:\n          CONFIG: min.yaml\n          PORT: \"1\"\n")
@@ -3197,8 +3173,7 @@ func TestCIStepEnvLayersUnderConfiguredEnv(t *testing.T) {
 // name asked for outright run it, and .gate.toml settles detection's reading
 // either way.
 func TestE2EGatesAreOptIn(t *testing.T) {
-	setLogDir(t)
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Parallel()
 	root := t.TempDir()
 	marker := func(name string) string { return filepath.Join(root, name+"-ran") }
 	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
@@ -3270,8 +3245,7 @@ func TestListingsMarkE2EGatesSkippedByDefault(t *testing.T) {
 // A passing run over budget says so in one line naming the slowest gates, and
 // still passes. A failing run, a disabled budget, or a run within it is silent.
 func TestBudgetWarnsOnASlowPassOnly(t *testing.T) {
-	setLogDir(t)
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Parallel()
 	root := gateProject(t, "sleep 0.05", "true")
 
 	stdout, stderr, code := runGateTest(t, "-C", root, "--budget", "1ms")

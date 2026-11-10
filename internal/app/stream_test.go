@@ -11,6 +11,7 @@ import (
 )
 
 func TestPrefixWriterInterleavedGates(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		chunks [][]string
@@ -20,6 +21,7 @@ func TestPrefixWriterInterleavedGates(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			var out bytes.Buffer
 			locked := &lockedWriter{w: &out}
 			logs := []*bytes.Buffer{{}, {}}
@@ -55,6 +57,7 @@ func TestPrefixWriterInterleavedGates(t *testing.T) {
 }
 
 func TestResolveStream(t *testing.T) {
+	t.Parallel()
 	env := func(m map[string]string) func(string) string {
 		return func(k string) string { return m[k] }
 	}
@@ -75,6 +78,7 @@ func TestResolveStream(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			qt.Check(t, qt.Equals(resolveStream(tt.force, tt.off, tt.mac, env(tt.env)), tt.want))
 		})
 	}

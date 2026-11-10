@@ -19,6 +19,7 @@ func ciCoverageProject(t *testing.T) string {
 }
 
 func TestListingWarnsOfAToolCIRunsAndNoGateDoes(t *testing.T) {
+	t.Parallel()
 	root := ciCoverageProject(t)
 
 	stdout, stderr, code := runGateTest(t, "-C", root, "--list")
@@ -34,6 +35,7 @@ func TestListingWarnsOfAToolCIRunsAndNoGateDoes(t *testing.T) {
 }
 
 func TestDoctorJSONIncludesCIToolWarnings(t *testing.T) {
+	t.Parallel()
 	root := ciCoverageProject(t)
 
 	listedOut, _, listedCode := runGateTest(t, "-C", root, "--json")
@@ -59,8 +61,8 @@ func TestDoctorJSONIncludesCIToolWarnings(t *testing.T) {
 }
 
 func TestRunStartWarnsButDoesNotFail(t *testing.T) {
+	t.Parallel()
 	root := ciCoverageProject(t)
-	t.Setenv("TMPDIR", t.TempDir())
 
 	_, stderr, code := runGateTest(t, "-C", root)
 	qt.Check(t, qt.Equals(code, Success), qt.Commentf("a warning must not fail the run: %q", stderr))
@@ -70,8 +72,8 @@ func TestRunStartWarnsButDoesNotFail(t *testing.T) {
 // Naming one gate runs that gate alone, so the project-wide warning is not
 // repeated on a run that never looked at the project.
 func TestNamedRoleRunDoesNotWarn(t *testing.T) {
+	t.Parallel()
 	root := ciCoverageProject(t)
-	t.Setenv("TMPDIR", t.TempDir())
 
 	_, stderr, code := runGateTest(t, "-C", root, "run", "check")
 	qt.Check(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
@@ -81,6 +83,7 @@ func TestNamedRoleRunDoesNotWarn(t *testing.T) {
 // A directory CI names is gated unless the project excludes it, and an
 // excluded one leaves a note saying so.
 func TestDetectExcludeLeavesACINamedDirectoryOut(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	testutil.Write(t, root, "Makefile", "")
 	testutil.Write(t, root, ".github/workflows/ci.yml", "      - working-directory: fixtures/broken\n      - working-directory: fixtures/good\n")

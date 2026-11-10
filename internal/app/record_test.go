@@ -20,17 +20,28 @@ import (
 // emptyTreeStatus is SHA-256 of no bytes: empty porcelain status plus an empty diff.
 const emptyTreeStatus = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 
-// TestMain points the record at a scratch state directory for the whole
-// package: every detected run writes one, and a suite must never write into
-// the operator's own. It also clears the CI markers, so a suite run in CI
-// does not turn on stream mode for tests that assert the default output.
+// TestMain points the three directories a run writes to at scratch copies for
+// the whole package: a suite must never write into the operator's own, and
+// pinning them here is what lets a test run in parallel -- t.Setenv would
+// otherwise be the only way to isolate one, and that forbids t.Parallel.
+// CI markers are cleared for the same reason: a suite run in CI must not turn
+// on stream mode for tests that assert the default output.
 func TestMain(m *testing.M) {
-	dir, err := packageScratch("gate-state-")
+	dir, err := packageScratch("gate-suite-")
 	if err != nil {
 		panic(err)
 	}
-	if err := os.Setenv("XDG_STATE_HOME", dir); err != nil {
-		panic(err)
+	for k, v := range map[string]string{
+		"XDG_STATE_HOME":  filepath.Join(dir, "state"),
+		"XDG_CONFIG_HOME": filepath.Join(dir, "config"),
+		"TMPDIR":          filepath.Join(dir, "tmp"),
+	} {
+		if err := os.MkdirAll(v, 0o700); err != nil {
+			panic(err)
+		}
+		if err := os.Setenv(k, v); err != nil {
+			panic(err)
+		}
 	}
 	for _, k := range []string{"CI", "GITHUB_ACTIONS"} {
 		if err := os.Unsetenv(k); err != nil {
@@ -100,8 +111,10 @@ func TestPackageScratchAvoidsTmpWhenTMPDIRUnset(t *testing.T) {
 	qt.Assert(t, qt.Equals(filepath.Dir(dir), "/var/tmp"))
 }
 
+// Not parallel: it is the one test that reads its whole results directory for
+// temp files that should have been renamed away, so it needs a directory no
+// concurrent test is writing into.
 func TestRunWritesARecordForTheHeadItTested(t *testing.T) {
-	setLogDir(t)
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	root := t.TempDir()
 	testutil.Write(t, root, "Makefile", "build:\n\ttrue\n\ntest:\n\texit 3\n")
@@ -145,7 +158,6 @@ func TestRunWritesARecordForTheHeadItTested(t *testing.T) {
 // A command the caller named has no project, and outside a repository there is
 // no HEAD for a record to be true of.
 func TestNoRecordWithoutAProjectHead(t *testing.T) {
-	setLogDir(t)
 	state := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", state)
 	root := t.TempDir()
@@ -160,7 +172,6 @@ func TestNoRecordWithoutAProjectHead(t *testing.T) {
 // A command the caller named is not a project run, even inside a repository
 // that has a HEAD. The record would otherwise claim that command was the gate.
 func TestDirectCommandWritesNoRecord(t *testing.T) {
-	setLogDir(t)
 	state := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", state)
 	root := t.TempDir()
@@ -177,6 +188,7 @@ func TestDirectCommandWritesNoRecord(t *testing.T) {
 // of empty status and an empty diff; an untracked file, and a second content
 // for that file, each move it.
 func TestTreeHashDistinguishesDirtyTrees(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	testutil.Write(t, root, "README", "x\n")
 	committedRepo(t, root)
@@ -256,6 +268,7 @@ func specStatus(t *testing.T, root string) string {
 }
 
 func TestUntrackedPathsSkipsRenameTargets(t *testing.T) {
+	t.Parallel()
 	status := []byte("R  old\x00new\x00?? note\x00 M tracked\x00?? sub/\x00")
 	qt.Check(t, qt.DeepEquals(stored.UntrackedPaths(status), []string{"note", "sub/"}))
 }
@@ -292,8 +305,7 @@ func assertRecordView(t *testing.T, js string, fresh bool, reason string) {
 }
 
 func TestRecordReportsAFreshPass(t *testing.T) {
-	setLogDir(t)
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Parallel()
 	root := t.TempDir()
 	testutil.Write(t, root, "Makefile", "test:\n\ttrue\n")
 	head := committedRepo(t, root)
@@ -331,8 +343,7 @@ func TestRecordReportsAFreshPass(t *testing.T) {
 }
 
 func TestRecordSaysPartialAfterANamedRun(t *testing.T) {
-	setLogDir(t)
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Parallel()
 	root := t.TempDir()
 	testutil.Write(t, root, "Makefile", "build:\n\ttrue\n\ntest:\n\ttrue\n")
 	committedRepo(t, root)
@@ -363,8 +374,7 @@ func TestRecordSaysPartialAfterANamedRun(t *testing.T) {
 }
 
 func TestRecordSaysFailedAfterAFailedRun(t *testing.T) {
-	setLogDir(t)
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Parallel()
 	root := t.TempDir()
 	testutil.Write(t, root, "Makefile", "test:\n\texit 3\n")
 	committedRepo(t, root)
@@ -389,8 +399,7 @@ func TestRecordSaysFailedAfterAFailedRun(t *testing.T) {
 }
 
 func TestRecordSaysStaleWhenTheTreeChanges(t *testing.T) {
-	setLogDir(t)
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Parallel()
 	root := t.TempDir()
 	testutil.Write(t, root, "Makefile", "test:\n\ttrue\n")
 	committedRepo(t, root)
@@ -416,8 +425,7 @@ func TestRecordSaysStaleWhenTheTreeChanges(t *testing.T) {
 
 // A pass recorded for a dirty tree stays fresh until the tree changes again.
 func TestRecordTrustsTheDirtyTreeItRecorded(t *testing.T) {
-	setLogDir(t)
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Parallel()
 	root := t.TempDir()
 	testutil.Write(t, root, "Makefile", "test:\n\ttrue\n")
 	committedRepo(t, root)
@@ -430,8 +438,7 @@ func TestRecordTrustsTheDirtyTreeItRecorded(t *testing.T) {
 }
 
 func TestRecordStaleWhenHeadOrSchemaDiffer(t *testing.T) {
-	setLogDir(t)
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Parallel()
 	root := t.TempDir()
 	testutil.Write(t, root, "Makefile", "test:\n\ttrue\n")
 	committedRepo(t, root)
@@ -476,8 +483,7 @@ func TestRecordStaleWhenHeadOrSchemaDiffer(t *testing.T) {
 }
 
 func TestRecordMissing(t *testing.T) {
-	setLogDir(t)
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Parallel()
 	root := t.TempDir()
 	testutil.Write(t, root, "Makefile", "test:\n\ttrue\n")
 	committedRepo(t, root)
@@ -506,8 +512,7 @@ func TestRecordMissing(t *testing.T) {
 
 // A command named directly writes no record, so the reader has nothing to trust.
 func TestRecordAfterADirectCommandIsMissing(t *testing.T) {
-	setLogDir(t)
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Parallel()
 	root := t.TempDir()
 	testutil.Write(t, root, "Makefile", "test:\n\ttrue\n")
 	committedRepo(t, root)
@@ -520,6 +525,7 @@ func TestRecordAfterADirectCommandIsMissing(t *testing.T) {
 }
 
 func TestRecordHelp(t *testing.T) {
+	t.Parallel()
 	stdout, _, code := runGateTest(t, "record", "--help")
 	qt.Assert(t, qt.Equals(code, Success))
 	qt.Check(t, qt.Equals(stdout, recordHelp))
@@ -533,6 +539,7 @@ func TestRecordHelp(t *testing.T) {
 }
 
 func TestRecordRefusesAStream(t *testing.T) {
+	t.Parallel()
 	_, stderr, code := runGateTest(t, "--ndjson", "record")
 	qt.Check(t, qt.Equals(code, InvalidUsage))
 	qt.Check(t, qt.StringContains(stderr, "--json record"))
@@ -544,6 +551,7 @@ func TestRecordRefusesAStream(t *testing.T) {
 
 // Only the bare word is gate's. A program named record stays reachable.
 func TestOnlyBareRecordIsClaimed(t *testing.T) {
+	t.Parallel()
 	_, stderr, code := runGateTest(t, "--log", tempLog(t), "record", "--dry-run")
 	qt.Check(t, qt.Not(qt.Equals(code, Success)))
 	qt.Check(t, qt.Not(qt.StringContains(stderr, "result record")))
@@ -558,8 +566,6 @@ type errWriter struct{}
 func (errWriter) Write([]byte) (int, error) { return 0, io.ErrClosedPipe }
 
 func TestFailedRerunsOnlyLastFailures(t *testing.T) {
-	setLogDir(t)
-
 	for _, tc := range []struct {
 		name     string
 		makefile string
@@ -663,8 +669,7 @@ func TestFailedRerunsOnlyLastFailures(t *testing.T) {
 }
 
 func TestRecordTextWriteErrorIsFatal(t *testing.T) {
-	setLogDir(t)
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Parallel()
 	root := t.TempDir()
 	testutil.Write(t, root, "Makefile", "test:\n\ttrue\n")
 	committedRepo(t, root)

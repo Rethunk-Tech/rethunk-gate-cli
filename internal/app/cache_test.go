@@ -22,6 +22,7 @@ func feed(s *cacheScanner, lines ...string) {
 }
 
 func TestATurboSummaryLineIsAuthoritativeWhateverElseTheTaskGraphPrinted(t *testing.T) {
+	t.Parallel()
 	s := &cacheScanner{}
 	feed(s,
 		"lint: cache miss, executing 1a2b3c4d",
@@ -34,6 +35,7 @@ func TestATurboSummaryLineIsAuthoritativeWhateverElseTheTaskGraphPrinted(t *test
 }
 
 func TestAFullyCachedTurboRunReportsCachedNotAFraction(t *testing.T) {
+	t.Parallel()
 	s := &cacheScanner{}
 	feed(s, "Cached:    4 cached, 4 total", "  Time:    10ms >>> FULL TURBO")
 	v := s.verdict()
@@ -42,6 +44,7 @@ func TestAFullyCachedTurboRunReportsCachedNotAFraction(t *testing.T) {
 }
 
 func TestGoTestCountsCachedPackagesAgainstTheWholeSet(t *testing.T) {
+	t.Parallel()
 	s := &cacheScanner{}
 	feed(s,
 		"?   \tgithub.com/example/cmd\t[no test files]",
@@ -54,18 +57,21 @@ func TestGoTestCountsCachedPackagesAgainstTheWholeSet(t *testing.T) {
 }
 
 func TestGoTestAllCachedReportsFull(t *testing.T) {
+	t.Parallel()
 	s := &cacheScanner{}
 	feed(s, "ok  \tgithub.com/example/a\t(cached)", "ok  \tgithub.com/example/b\t(cached)")
 	qt.Assert(t, qt.Equals(s.verdict().label(), "cached"))
 }
 
 func TestMakeReportsCachedOnlyWhenEveryLineWasItsOwnUpToDateMarker(t *testing.T) {
+	t.Parallel()
 	s := &cacheScanner{}
 	feed(s, "make: 'test' is up to date.")
 	qt.Assert(t, qt.Equals(s.verdict().label(), "cached"))
 }
 
 func TestMakeStaysSilentWhenARecipeActuallyRanBesideAnUpToDateTarget(t *testing.T) {
+	t.Parallel()
 	s := &cacheScanner{}
 	feed(s, "cc -o build build.c", "make: 'test' is up to date.")
 	// No count of how many targets make considered exists to weigh against
@@ -75,6 +81,7 @@ func TestMakeStaysSilentWhenARecipeActuallyRanBesideAnUpToDateTarget(t *testing.
 }
 
 func TestAnUnrecognisedOutputShapeReportsNothing(t *testing.T) {
+	t.Parallel()
 	s := &cacheScanner{}
 	feed(s, "running 4 tests", "test result: ok. 4 passed; 0 failed")
 	qt.Assert(t, qt.Equals(s.verdict().label(), ""))
@@ -83,6 +90,7 @@ func TestAnUnrecognisedOutputShapeReportsNothing(t *testing.T) {
 }
 
 func TestCacheScannerCapsAnOversizedLineLikeLineTrackerDoes(t *testing.T) {
+	t.Parallel()
 	s := &cacheScanner{}
 	huge := make([]byte, maxTrackedLine*2)
 	for i := range huge {
@@ -109,6 +117,7 @@ func TestApplyForceCacheSetsTurboForceUnconditionally(t *testing.T) {
 }
 
 func TestApplyForceCacheInsertsGoTestCountOne(t *testing.T) {
+	t.Parallel()
 	spec := gateSpec{argv: []string{"go", "test", "./..."}, display: "go test ./..."}
 	applyForceCache(&spec)
 	qt.Assert(t, qt.DeepEquals(spec.argv, []string{"go", "test", "-count=1", "./..."}))
@@ -116,18 +125,21 @@ func TestApplyForceCacheInsertsGoTestCountOne(t *testing.T) {
 }
 
 func TestApplyForceCacheDoesNotDuplicateCountOne(t *testing.T) {
+	t.Parallel()
 	spec := gateSpec{argv: []string{"go", "test", "-count=1", "./..."}, display: "go test -count=1 ./..."}
 	applyForceCache(&spec)
 	qt.Assert(t, qt.DeepEquals(spec.argv, []string{"go", "test", "-count=1", "./..."}))
 }
 
 func TestApplyForceCacheLeavesNonTestGoCommandsAlone(t *testing.T) {
+	t.Parallel()
 	spec := gateSpec{argv: []string{"go", "vet", "./..."}, display: "go vet ./..."}
 	applyForceCache(&spec)
 	qt.Assert(t, qt.DeepEquals(spec.argv, []string{"go", "vet", "./..."}))
 }
 
 func TestApplyForceCacheInsertsMakeAlwaysMake(t *testing.T) {
+	t.Parallel()
 	spec := gateSpec{argv: []string{"make", "test"}, display: "make test"}
 	applyForceCache(&spec)
 	qt.Assert(t, qt.DeepEquals(spec.argv, []string{"make", "-B", "test"}))
@@ -149,6 +161,7 @@ func TestApplyForceCacheOnAShellStringLeavesArgvAlone(t *testing.T) {
 }
 
 func TestApplyForceCacheKeepsExistingMakeFlagsAndAddsAlwaysMake(t *testing.T) {
+	t.Parallel()
 	spec := gateSpec{
 		env:  map[string]string{"MAKEFLAGS": "-j4 --jobserver-auth=fifo:/tmp/js"},
 		argv: []string{"sh", "-c", "make test"},
@@ -158,6 +171,7 @@ func TestApplyForceCacheKeepsExistingMakeFlagsAndAddsAlwaysMake(t *testing.T) {
 }
 
 func TestApplyForceCacheDoesNotDuplicateAlwaysMake(t *testing.T) {
+	t.Parallel()
 	for _, flags := range []string{"-B", "-j4 -B", "--always-make", "-sB"} {
 		spec := gateSpec{env: map[string]string{"MAKEFLAGS": flags}, argv: []string{"make", "test"}}
 		applyForceCache(&spec)

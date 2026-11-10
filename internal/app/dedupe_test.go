@@ -33,6 +33,7 @@ func listDedupe(t *testing.T, root string) string {
 // Two declarations of one command are one gate, under the name that says
 // more, with both origins on its line and a note saying so.
 func TestDedupeMergesTheSameCommandUnderTheMoreSpecificName(t *testing.T) {
+	t.Parallel()
 	root := dedupeProject(t, `"unit":"vitest run"`, `
 [gates.check]
 run = "bun run unit"
@@ -50,6 +51,7 @@ run = "npm run unit"
 // A coverage or -race run is the plain run measured or race-checked, so the
 // plain one is dropped, for a package script and for go test alike.
 func TestDedupeCoverageSupersedesThePlainRun(t *testing.T) {
+	t.Parallel()
 	root := dedupeProject(t, `"unit":"vitest run","unit:coverage":"vitest run --coverage"`, `
 [gates.unit]
 run = "bun run unit"
@@ -80,6 +82,7 @@ run = "go test -race ./internal/..."
 // An aggregate whose steps are all other gates is dropped; one that also runs
 // something nothing else covers keeps only that.
 func TestDedupeSplitsOrDropsAnAggregate(t *testing.T) {
+	t.Parallel()
 	root := dedupeProject(t,
 		`"a":"tool-a","b":"tool-b","both":"bun run a && bun run b","more":"bun run both && tool-c --strict"`, `
 [gates.one]
@@ -103,7 +106,7 @@ run = "bun run more"
 
 // The split is what runs, not only what is listed: each step once.
 func TestDedupeRunsASharedStepOnce(t *testing.T) {
-	setLogDir(t)
+	t.Parallel()
 	root := gateProject(t)
 	testutil.Write(t, root, ".gate.toml", `
 [gates.one]
@@ -128,6 +131,7 @@ run = "./count.sh a && ./count.sh b"
 // A gate named alone is not compared with gates that are not running: the
 // coverage run it defers to in a full run is not there to defer to.
 func TestDedupeLeavesASingleNamedGateAlone(t *testing.T) {
+	t.Parallel()
 	root := dedupeProject(t, `"unit":"vitest run","unit:coverage":"vitest run --coverage"`, `
 [gates.unit]
 run = "bun run unit"
@@ -147,6 +151,7 @@ run = "bun run unit:coverage"
 // are not claimed. A step it only names in a comment, or never names, still
 // runs.
 func TestDedupeScriptFileClaimsTheStepsItRuns(t *testing.T) {
+	t.Parallel()
 	root := dedupeProject(t,
 		`"gate":"scripts/gate.sh","bindings":"gen bindings","typecheck":"bun run bindings && tsc --noEmit",`+
 			`"lint":"biome check . && tool-x --a | tee out","test":"go test -race ./... && bun test && tool-y"`, `
@@ -185,6 +190,7 @@ step lint bash -c "biome check . && tool-x --a | tee out"
 
 // A script that runs none of the other gates' steps changes nothing.
 func TestDedupeScriptFileRunningNothingElseLeavesTheRoles(t *testing.T) {
+	t.Parallel()
 	root := dedupeProject(t, `"gate":"scripts/gate.sh","test":"go test ./..."`, `
 [gates.gate]
 run = "bun run gate"
