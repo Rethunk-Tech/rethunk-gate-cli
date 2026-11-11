@@ -100,6 +100,9 @@ type listedGate struct {
 	// ones. Absent where the gate never set the key, including a run
 	// under --serial: that flag is not spec.serial.
 	Serial bool `json:"serial,omitempty"`
+
+	// Needs lists the gates this one waits on, as configured.
+	Needs []string `json:"needs,omitempty"`
 }
 
 // writeListingJSON prints the same facts writeListing does, in a shape a
@@ -137,6 +140,7 @@ func writeListingJSON(w io.Writer, project detect.Project, files []string, opts 
 				Skipped:      spec.e2e && opts.skipE2E,
 				Group:        group,
 				Serial:       spec.serial,
+				Needs:        spec.needs,
 			})
 		}
 	}
@@ -246,6 +250,9 @@ func writeListedGate(w io.Writer, lead string, spec gateSpec, skipE2E bool) {
 	}
 	if spec.serial {
 		fmt.Fprintf(w, "        serial\n")
+	}
+	if len(spec.needs) > 0 {
+		fmt.Fprintf(w, "        needs %s\n", strings.Join(spec.needs, ", "))
 	}
 	if timeout := spec.listTimeout(); timeout != "" {
 		fmt.Fprintf(w, "        timeout %s\n", timeout)

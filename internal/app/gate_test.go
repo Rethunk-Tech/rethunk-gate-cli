@@ -3440,3 +3440,90 @@ func TestQuickRaceExitKeepsACallersGORACE(t *testing.T) {
 		t.Fatalf("without GORACE: %q", got)
 	}
 }
+
+func needsProject(t *testing.T, toml string) string {
+	t.Helper()
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
+	testutil.Write(t, root, ".gate.toml", toml)
+	return root
+}
+
+// A gate with needs starts only after the gate it names has finished, even
+// though nothing else sequences them.
+func TestNeedsOrdersAGateAfterItsNeed(t *testing.T) {
+	t.Parallel()
+
+	order := filepath.Join(t.TempDir(), "order")
+	root := needsProject(t, fmt.Sprintf(`[gates.a]
+run = "sleep 0.3; echo tools >> %[1]s"
+
+[gates.b]
+run = "echo b >> %[1]s"
+needs = ["a"]
+
+[gates.c]
+run = "echo c >> %[1]s"
+`, order))
+	_, stderr, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	got := strings.Fields(readLog(t, order))
+	qt.Check(t, qt.IsTrue(slices.Index(got, "tools") < slices.Index(got, "b")), qt.Commentf("order = %v", got))
+	qt.Check(t, qt.IsTrue(slices.Index(got, "c") < slices.Index(got, "tools")), qt.Commentf("c waited though it needs nothing: %v", got))
+}
+
+// A gate whose need failed does not run, is named as skipped, and leaves the
+// failing gate's own status as the verdict.
+func TestNeedsSkipsAGateWhoseNeedFailed(t *testing.T) {
+	t.Parallel()
+
+	marker := filepath.Join(t.TempDir(), "b-ran")
+	root := needsProject(t, fmt.Sprintf(`[gates.a]
+run = "exit 7"
+
+[gates.b]
+run = "touch %s"
+needs = ["a"]
+`, marker))
+	_, stderr, code := runGateTest(t, "-C", root)
+	qt.Check(t, qt.Equals(code, Code(7)))
+	qt.Check(t, qt.IsFalse(exists(marker)), qt.Commentf("b ran though its need failed"))
+	qt.Check(t, qt.StringContains(stderr, "SKIP"))
+	qt.Check(t, qt.StringContains(stderr, "needs a"), qt.Commentf("stderr = %q", stderr))
+}
+
+// A misspelt need would let the gate run unordered, so it refuses the file.
+func TestNeedsRefusesAnUnknownName(t *testing.T) {
+	t.Parallel()
+
+	root := needsProject(t, "[gates.a]\nrun = \"true\"\nneeds = [\"tolls\"]\n")
+	_, stderr, code := runGateTest(t, "-C", root)
+	qt.Check(t, qt.Equals(code, InvalidUsage))
+	qt.Check(t, qt.StringContains(stderr, `"tolls"`), qt.Commentf("stderr = %q", stderr))
+}
+
+// Gates that wait on each other, directly or through a serial chain, could
+// never start.
+func TestNeedsRefusesACycle(t *testing.T) {
+	t.Parallel()
+
+	direct := needsProject(t, "[gates.a]\nrun = \"true\"\nneeds = [\"b\"]\n\n[gates.b]\nrun = \"echo b\"\nneeds = [\"a\"]\n")
+	_, stderr, code := runGateTest(t, "-C", direct)
+	qt.Check(t, qt.Equals(code, InvalidUsage))
+	qt.Check(t, qt.StringContains(stderr, "cycle"), qt.Commentf("stderr = %q", stderr))
+
+	// a runs first in the serial chain but needs b, which sits behind it.
+	chain := needsProject(t, "[gates.a]\nrun = \"true\"\nserial = true\nneeds = [\"b\"]\n\n[gates.b]\nrun = \"echo b\"\nserial = true\n")
+	_, stderr, code = runGateTest(t, "-C", chain)
+	qt.Check(t, qt.Equals(code, InvalidUsage))
+	qt.Check(t, qt.StringContains(stderr, "wait on each other"), qt.Commentf("stderr = %q", stderr))
+}
+
+// `gate run a` carries no b, so a need on b is ignored rather than an error.
+func TestNeedsOnAGateOutsideTheRunIsIgnored(t *testing.T) {
+	t.Parallel()
+
+	root := needsProject(t, "[gates.a]\nrun = \"true\"\nneeds = [\"b\"]\n\n[gates.b]\nrun = \"exit 3\"\n")
+	_, stderr, code := runGateTest(t, "-C", root, "run", "a")
+	qt.Check(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+}

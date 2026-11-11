@@ -160,6 +160,11 @@ type gateSpec struct {
 	// gate's own config entry asks for order.
 	serial bool
 
+	// needs names the gates (by role) that must pass before this one
+	// starts. A name no gate in this run carries is ignored, so
+	// `gate run lint` still runs lint alone.
+	needs []string
+
 	// dir is where this gate runs. Set per gate rather than by chdir: gates
 	// run concurrently, and the working directory is process-global, so one
 	// chdir would apply to every gate in flight.
@@ -371,7 +376,10 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 	if opts.root != "" {
 		go func() { tree <- stored.ReadTree(ctx, opts.root) }()
 	}
-	sc := groupRun{opts: opts, results: results, stream: stream}
+	sc := groupRun{opts: opts, results: results, stream: stream, needed: resolveNeeds(opts.gates), done: make([]chan struct{}, len(opts.gates))}
+	for i := range sc.done {
+		sc.done[i] = make(chan struct{})
+	}
 	if opts.jobs > 0 {
 		sc.slots = make(chan struct{}, opts.jobs)
 	}
@@ -402,7 +410,7 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 		// reached" turned its verdict into a skip of a gate that never
 		// existed. Silence about a gate is indistinguishable from a pass;
 		// inventing a skip for one that ran is worse.
-		if !results[i].ran {
+		if !results[i].ran && !results[i].skipped {
 			results[i] = gateResult{spec: opts.gates[i], skipped: true, skipReason: reason}
 			stream.emit(results[i])
 		}
@@ -452,8 +460,12 @@ func saveRecord(stderr io.Writer, opts options, results []gateResult, state stor
 
 // groupRun is what running one schedule group needs from the run around it.
 type groupRun struct {
-	opts     options
-	results  []gateResult
+	opts    options
+	results []gateResult
+	// done[i] closes when gate i has a final result or will never get one;
+	// needed[i] lists the gates i waits on.
+	done     []chan struct{}
+	needed   [][]int
 	slots    chan struct{}
 	stream   *resultStream
 	stopFast context.CancelFunc
@@ -465,7 +477,25 @@ type groupRun struct {
 // groups, which asked for no such order -- unless fail-fast cancelled ctx,
 // which is the existing interrupt path applied to every group.
 func (g *groupRun) run(ctx context.Context, group []int) {
+	closed := map[int]bool{}
+	defer func() {
+		for _, i := range group {
+			if !closed[i] {
+				close(g.done[i])
+			}
+		}
+	}()
 	for _, i := range group {
+		if reason := g.awaitNeeds(ctx, i); reason != "" {
+			if ctx.Err() != nil {
+				return
+			}
+			g.results[i] = gateResult{spec: g.opts.gates[i], skipped: true, skipReason: reason}
+			g.stream.emit(g.results[i])
+			close(g.done[i])
+			closed[i] = true
+			continue
+		}
 		// A cancelled run starts nothing further. Leaving these
 		// zero-valued reports them as skipped, rather than
 		// as failures from an exec that was never going to happen.
@@ -477,6 +507,8 @@ func (g *groupRun) run(ctx context.Context, group []int) {
 		}
 		g.results[i] = runOne(ctx, g.opts.gates[i], g.opts)
 		releaseJob(g.slots)
+		close(g.done[i])
+		closed[i] = true
 		// Emitted here rather than after the wait: the stream's
 		// value is that a gate's outcome is readable while the slow
 		// one beside it is still running.
@@ -494,6 +526,90 @@ func (g *groupRun) run(ctx context.Context, group []int) {
 			return
 		}
 	}
+}
+
+// awaitNeeds blocks until every gate i needs has finished. It returns why i
+// must not run, or "" when every need passed (or the run was cancelled, which
+// the caller sees on ctx).
+func (g *groupRun) awaitNeeds(ctx context.Context, i int) string {
+	for _, j := range g.needed[i] {
+		select {
+		case <-g.done[j]:
+		case <-ctx.Done():
+			return ""
+		}
+		res := g.results[j]
+		if !res.started || (res.code != Success && !res.excused()) {
+			return "needs " + g.opts.gates[j].role + ", which did not pass"
+		}
+	}
+	return ""
+}
+
+// resolveNeeds maps each gate's needs to indexes. A name that no gate in this
+// run carries is dropped, as is a gate naming itself.
+func resolveNeeds(gates []gateSpec) [][]int {
+	out := make([][]int, len(gates))
+	for i, g := range gates {
+		for _, name := range g.needs {
+			for j, other := range gates {
+				if j != i && other.role == name {
+					out[i] = append(out[i], j)
+				}
+			}
+		}
+	}
+	return out
+}
+
+// checkNeedsOrder refuses a run in which waiting could never end: a gate
+// waits on one that sits behind it in a serial chain, directly or through
+// other gates. Names the cycle's gates.
+func checkNeedsOrder(gates []gateSpec, serial bool) error {
+	needed := resolveNeeds(gates)
+	after := make([][]int, len(gates)) // after[j]: gates that cannot start before j ends
+	indegree := make([]int, len(gates))
+	edge := func(from, to int) {
+		after[from] = append(after[from], to)
+		indegree[to]++
+	}
+	for i, ns := range needed {
+		for _, j := range ns {
+			edge(j, i)
+		}
+	}
+	for _, group := range schedule(gates, serial) {
+		for k := 1; k < len(group); k++ {
+			edge(group[k-1], group[k])
+		}
+	}
+	var queue []int
+	for i, d := range indegree {
+		if d == 0 {
+			queue = append(queue, i)
+		}
+	}
+	seen := 0
+	for len(queue) > 0 {
+		i := queue[0]
+		queue = queue[1:]
+		seen++
+		for _, k := range after[i] {
+			if indegree[k]--; indegree[k] == 0 {
+				queue = append(queue, k)
+			}
+		}
+	}
+	if seen == len(gates) {
+		return nil
+	}
+	var stuck []string
+	for i, d := range indegree {
+		if d > 0 {
+			stuck = append(stuck, gates[i].role)
+		}
+	}
+	return fmt.Errorf("needs cannot be satisfied: %s wait on each other, counting serial order", strings.Join(stuck, ", "))
 }
 
 // schedule returns index groups: gates within a group run in sequence, and
