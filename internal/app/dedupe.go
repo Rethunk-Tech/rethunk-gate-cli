@@ -267,6 +267,7 @@ func moreSpecific(a, b string) bool {
 func merge(keep, lose gateSpec) gateSpec {
 	keep.source += "; also " + lose.role + " from " + lose.source
 	keep.serial = keep.serial || lose.serial
+	keep.needs = slices.Compact(slices.Sorted(slices.Values(append(slices.Clone(keep.needs), lose.needs...))))
 	keep.e2e = keep.e2e && lose.e2e
 	keep.allowFailure = keep.allowFailure && lose.allowFailure
 	if !keep.hasTimeout && lose.hasTimeout {

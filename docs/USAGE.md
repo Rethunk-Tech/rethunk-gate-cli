@@ -320,7 +320,7 @@ allow-failure = true
 MDBOOK_VERSION = "0.4"
 ```
 
-Gate keys: `run`, `serial`, `timeout`, `dir`, `env`, `allow-failure`, `e2e`.
+Gate keys: `run`, `serial`, `needs`, `timeout`, `dir`, `env`, `allow-failure`, `e2e`.
 Outside: `budget`, `jobs`, `fail-fast`, `[detect] exclude`. `run` is a shell string (`sh` / `cmd`).
 `timeout` is the same grammar as `--timeout` (`5m`, `90s`, `1m30s`, `0`).
 `jobs` is an integer >= 1 (no cap when absent). `fail-fast` is a bool
@@ -360,6 +360,34 @@ reason. `--serial` beats the file; `serial = false` turns off a user default
 (absent ≠ false). `--jobs N` or top-level `jobs = N` caps how many gates run
 at once across groups that would otherwise overlap; serial groups and turbo
 edges keep their order. Flag wins. N>=1; a bad value is exit 129.
+
+## `needs`
+
+`needs = ["tools"]` makes a gate wait until the named gates have passed. Use it
+for an order that is about one gate's *work* feeding another, such as building
+a tool binary once so the gates that run it do not each build it at the same
+time (measured on a cold cache: 9.8s built first, 20.3s when four start together).
+Everything else still runs concurrently.
+
+```toml
+[gates.tools]
+run = "go tool -n golangci-lint >/dev/null && go tool -n govulncheck >/dev/null"
+
+[gates.lint]
+run = "go tool golangci-lint run ./..."
+needs = ["tools"]
+```
+
+- A needed gate that fails, times out or is skipped skips this gate too, named
+  `needs <gate>, which did not pass`; an `allow-failure` gate that fails counts as passed.
+- A name must be a configured or detected gate: an unknown name refuses the
+  file (exit 129), as does a cycle among configured gates. A nearer file's list
+  replaces the further one's.
+- A needed gate this run does not carry (`gate run lint`, or an e2e gate left
+  out) is ignored, so `gate run lint` runs lint alone.
+- Waiting that could never end, because a needed gate sits behind this one in a
+  `serial` chain or under `--serial`, refuses the run (exit 129).
+- `--list` shows `needs` per gate; `--json` has a `needs` array.
 
 A failure stops its group only. `--fail-fast` or top-level `fail-fast = true`
 (flag wins; default off) interrupts every still-running gate in every group

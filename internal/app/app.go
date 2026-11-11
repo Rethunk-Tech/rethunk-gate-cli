@@ -474,6 +474,10 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	}
 
 	st.prepareGates(&project, roles)
+	if err := checkNeedsOrder(opts.gates, opts.serial); err != nil {
+		fmt.Fprintf(stderr, "gate: %v\n", err)
+		return InvalidUsage
+	}
 
 	if code, done := writeRequestedListing(stdout, stderr, project, configured, *opts); done {
 		return code
@@ -649,6 +653,10 @@ func (st *runState) detectGates(ctx context.Context, dir string, roles []string,
 func (st *runState) buildGates(ctx context.Context, proj detect.Project, cfg config.Config, roles []string, stderr io.Writer) (project detect.Project, code Code, ok bool) {
 	opts := &st.opts
 	project = proj
+	if err := unknownNeeds(cfg, proj); err != nil {
+		fmt.Fprintf(stderr, "gate: %v\n", err)
+		return project, InvalidUsage, false
+	}
 	// A config `run` fills a role detection left empty for want of a
 	// tool, so the note saying that role is skipped would contradict the
 	// gate --list prints for it.
@@ -816,6 +824,7 @@ func detectedSpec(g detect.Gate, cfg config.Config, root string) (gateSpec, erro
 	if c.HasSerial {
 		spec.serial = c.Serial
 	}
+	spec.needs = slices.Clone(c.Needs)
 	// Same rule for the same reason: an absent key inherits, and
 	// a deliberate 0 disables the limit for this gate only.
 	if c.HasTimeout {
@@ -852,6 +861,25 @@ func applyDirAndAllow(spec *gateSpec, name string, c config.Gate, root string) e
 	return nil
 }
 
+// unknownNeeds refuses a needs entry that names no gate this project has,
+// configured or detected: a misspelt name would otherwise let the gate run
+// unordered, which is the failure needs exists to prevent.
+func unknownNeeds(cfg config.Config, proj detect.Project) error {
+	var bad []string
+	for _, name := range slices.Sorted(maps.Keys(cfg.Gates)) {
+		for _, need := range cfg.Gates[name].Needs {
+			_, configured := cfg.Gates[need]
+			if !configured && !slices.ContainsFunc(proj.Gates, func(g detect.Gate) bool { return g.Name == need }) {
+				bad = append(bad, fmt.Sprintf("gates.%s.needs names %q, which is no gate here", name, need))
+			}
+		}
+	}
+	if len(bad) > 0 {
+		return errors.New(strings.Join(bad, "\n"))
+	}
+	return nil
+}
+
 // configOnlyGates returns the gates configuration declares and detection
 // could not infer -- an e2e suite, a migration check. Added in name order so a
 // run is reproducible. These are selectable by name like any other gate, which
@@ -877,6 +905,7 @@ func configOnlyGates(cfg config.Config, detected []gateSpec, roles []string, roo
 			argv:       shellArgv(c.Run),
 			display:    c.Run,
 			serial:     c.Serial,
+			needs:      slices.Clone(c.Needs),
 			timeout:    c.Timeout,
 			hasTimeout: c.HasTimeout,
 			env:        maps.Clone(c.Env),

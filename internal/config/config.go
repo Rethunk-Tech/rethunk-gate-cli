@@ -14,6 +14,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	pathpkg "path"
 	"path/filepath"
@@ -42,6 +43,11 @@ type Gate struct {
 	// concurrently unless something says otherwise.
 	Serial    bool
 	HasSerial bool
+
+	// Needs names gates that must pass before this one starts; if one does
+	// not pass, this gate is skipped. The nearer file's list replaces the
+	// further one's whole, because a union could not be shortened.
+	Needs []string
 
 	// Timeout bounds this gate alone; zero means no limit. HasTimeout
 	// distinguishes "not set" from a deliberate 0, which mean opposite
@@ -139,6 +145,7 @@ type File struct {
 type FileGate struct {
 	Run          string            `toml:"run"`
 	Serial       *bool             `toml:"serial"`
+	Needs        []string          `toml:"needs"`
 	Timeout      *string           `toml:"timeout"`
 	Env          map[string]string `toml:"env"`
 	Dir          *string           `toml:"dir"`
@@ -189,7 +196,52 @@ func Load(projectRoot string) (Config, error) {
 		}
 		cfg.Files = append(cfg.Files, path)
 	}
+	if err := cfg.checkNeeds(); err != nil {
+		return Config{}, err
+	}
 	return cfg, nil
+}
+
+// checkNeeds refuses a needs list that waits on its own gate, directly or
+// through other configured gates: such a gate could never start. Names that
+// are not configured here are the app's to resolve, since detection supplies
+// gates the file never mentions.
+func (c *Config) checkNeeds() error {
+	const (
+		visiting = 1
+		done     = 2
+	)
+	state := map[string]int{}
+	var path []string
+	var visit func(name string) error
+	visit = func(name string) error {
+		switch state[name] {
+		case done:
+			return nil
+		case visiting:
+			i := slices.Index(path, name)
+			return fmt.Errorf("gates.%s.needs forms a cycle: %s", name, strings.Join(append(slices.Clone(path[i:]), name), " -> "))
+		}
+		state[name] = visiting
+		path = append(path, name)
+		for _, need := range c.Gates[name].Needs {
+			if _, ok := c.Gates[need]; !ok {
+				continue
+			}
+			if err := visit(need); err != nil {
+				return err
+			}
+		}
+		path = path[:len(path)-1]
+		state[name] = done
+		return nil
+	}
+	for _, name := range slices.Sorted(maps.Keys(c.Gates)) {
+		if err := visit(name); err != nil {
+			return fmt.Errorf("%s: unusable setting(s):\n%w", c.Files[len(c.Files)-1], err)
+		}
+	}
+	return nil
 }
 
 // userPath is the user-level config location: $XDG_CONFIG_HOME/gate/config.toml,
@@ -289,6 +341,9 @@ func mergeGate(name string, merged Gate, g FileGate, path string) (Gate, []strin
 	}
 	if g.Serial != nil {
 		merged.Serial, merged.HasSerial = *g.Serial, true
+	}
+	if g.Needs != nil {
+		merged.Needs = slices.Clone(g.Needs)
 	}
 	if g.Timeout != nil {
 		d, err := ParseTimeout(*g.Timeout)

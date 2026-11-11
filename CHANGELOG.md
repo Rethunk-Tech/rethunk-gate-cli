@@ -6,6 +6,10 @@ Notable changes to `gate`. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `needs = ["gate", ...]` per gate: the gate starts after the named gates pass and is skipped if one does not. An unknown name or a cycle refuses the file.
+
 ### Changed
 
 - `doctor`'s `KnownGoodActionsTag` is `v1.24`, and `gate fix`'s tests read it rather than a literal tag.
