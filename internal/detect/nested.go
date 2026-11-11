@@ -142,15 +142,16 @@ func shadowsAcross(chain, winner string) bool {
 // shadowedGate folds a toolchain's lost gates into one gate named for the
 // toolchain, so both toolchains in a directory run. Where Go code embeds a
 // directory the other toolchain builds (`//go:embed all:dist`), the gate is
-// serial, and so is the build gate it must follow.
+// serial behind that toolchain's build gate.
 func shadowedGate(root, chain string, parts []Gate, proj *Project) Gate {
 	g := packageGate(chain, "", parts)
 	g.Source = "convention: " + chain + " (roles another source in this directory declared)"
 	if chain == "go" && embedsGenerated(root) {
-		g.Serial = true
 		for i := range proj.Gates {
-			if proj.Gates[i].Name == "build" {
+			// Only another toolchain's build writes what the embed reads; go build writes nothing.
+			if proj.Gates[i].Name == "build" && proj.Gates[i].Source != "convention: go" {
 				proj.Gates[i].Serial = true
+				g.Serial = true
 			}
 		}
 	}

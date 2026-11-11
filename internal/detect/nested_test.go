@@ -108,6 +108,22 @@ func TestGoModuleBesideAPackageJSONStillRuns(t *testing.T) {
 	qt.Check(t, qt.Equals(gateNamed(t, proj, "build").Display(), "bun run build"))
 }
 
+// The mortar shape: the embed is there, but no other toolchain builds, so the
+// build gate is Go's own and writes nothing the tests read.
+func TestGoGateOverlapsGoBuildDespiteAnEmbed(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, "go.mod", "module demo\n")
+	testutil.Write(t, root, "main.go", "package main\n\n//go:embed all:dist\nvar assets string\n")
+	testutil.Write(t, root, "package.json", `{"scripts":{"lint":"biome check .","test":"bun test"}}`)
+	testutil.Write(t, root, "bun.lock", "")
+
+	proj := detect(t, root)
+	qt.Check(t, qt.Equals(gateNamed(t, proj, "build").Display(), "go build ./..."))
+	qt.Check(t, qt.IsFalse(gateNamed(t, proj, "build").Serial))
+	qt.Check(t, qt.IsFalse(gateNamed(t, proj, "go").Serial))
+}
+
 // Without an embed there is nothing to order, so the Go gate overlaps.
 func TestGoGateBesideAPackageJSONIsConcurrentWithoutAnEmbed(t *testing.T) {
 	t.Parallel()
