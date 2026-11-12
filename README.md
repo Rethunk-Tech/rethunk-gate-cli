@@ -30,10 +30,10 @@ Install options and first run: [HUMANS.md](HUMANS.md#quick-start).
 | [HUMANS.md](HUMANS.md) | Running and using `gate` |
 | [docs/USAGE.md](docs/USAGE.md) | Detection, configuration, exit codes |
 | [AGENTS.md](AGENTS.md) | Internals, invariants, and why |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | Process — commits, tests, docs |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Process: commits, tests, docs |
 | [CHANGELOG.md](CHANGELOG.md) | Release notes |
 | [SECURITY.md](SECURITY.md) | Vulnerability disclosure |
 
 ## License
 
-MIT — see [LICENSE](LICENSE). © 2026 Rethunk.Tech
+MIT. See [LICENSE](LICENSE). © 2026 Rethunk.Tech
