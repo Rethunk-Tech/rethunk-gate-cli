@@ -54,8 +54,31 @@ func activeRootsValue(dir string) string {
 	return strings.Join(append(activeRoots(), root), "\n")
 }
 
+// repoBoundEnv is the git state a hook runner exports to point git at one
+// repository. A step that runs git in a directory of its own would otherwise
+// act on that repository instead.
+var repoBoundEnv = map[string]bool{
+	"GIT_DIR": true, "GIT_WORK_TREE": true, "GIT_INDEX_FILE": true,
+	"GIT_OBJECT_DIRECTORY": true, "GIT_ALTERNATE_OBJECT_DIRECTORIES": true,
+	"GIT_PREFIX": true, "GIT_COMMON_DIR": true, "GIT_QUARANTINE_PATH": true,
+	"GIT_NAMESPACE": true, "GIT_PUSH_OPTION_COUNT": true,
+}
+
+func childEnviron() []string {
+	env := os.Environ()
+	out := make([]string, 0, len(env))
+	for _, e := range env {
+		k, _, _ := strings.Cut(e, "=")
+		if repoBoundEnv[k] || strings.HasPrefix(k, "GIT_PUSH_OPTION_") {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
 func markRoot(dir string) []string {
-	return append(os.Environ(), activeRootsVar+"="+activeRootsValue(dir))
+	return append(childEnviron(), activeRootsVar+"="+activeRootsValue(dir))
 }
 
 // childPWD names the child's own directory: os/exec only sets PWD when Env is nil,
