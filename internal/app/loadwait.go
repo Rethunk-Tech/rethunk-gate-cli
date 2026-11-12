@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	// loadWaitBound is the longest a gate waits for the machine to quiet down.
+	// loadWaitBound is the longest a run waits for the machine to quiet down.
 	// Past it the gate runs anyway: a host that never idles must not hang the run.
 	loadWaitBound = 2 * time.Minute
 	loadWaitPoll  = time.Second
@@ -23,8 +23,8 @@ func overloaded(load float64, cpus int) bool {
 	return cpus > 0 && load > float64(cpus)
 }
 
-// loadWaiter holds gates back while the machine is oversubscribed, announcing
-// the wait once per run.
+// loadWaiter holds a run back while the machine is oversubscribed, reporting
+// the wait once.
 type loadWaiter struct {
 	stderr io.Writer
 	read   func() (float64, int)
@@ -40,25 +40,37 @@ func newLoadWaiter(opts options, stderr io.Writer) *loadWaiter {
 	return &loadWaiter{stderr: stderr, read: systemLoad, poll: loadWaitPoll, bound: loadWaitBound}
 }
 
-// wait returns once the load is at or under the CPU count, the bound has
-// passed, or ctx ends. A nil waiter returns at once.
+// wait holds the whole run back once, before its first gate: the first caller
+// polls until the load is at or under the CPU count, the bound has passed, or
+// ctx ends, and every other caller blocks on that and then proceeds. Later
+// gates never wait, so load the run itself produced cannot delay it. A nil
+// waiter returns at once.
 func (w *loadWaiter) wait(ctx context.Context) {
 	if w == nil {
 		return
 	}
-	deadline := time.Now().Add(w.bound)
+	w.once.Do(func() { w.poll1(ctx) })
+}
+
+func (w *loadWaiter) poll1(ctx context.Context) {
+	start := time.Now()
+	var load float64
+	var cpus int
 	for {
-		load, cpus := w.read()
-		if !overloaded(load, cpus) || !time.Now().Before(deadline) {
-			return
+		load, cpus = w.read()
+		if !overloaded(load, cpus) {
+			break
 		}
-		w.once.Do(func() {
-			fmt.Fprintf(w.stderr, "gate: waiting for load (%.1f/%d)\n", load, cpus)
-		})
+		if time.Since(start) >= w.bound {
+			break
+		}
 		select {
 		case <-ctx.Done():
 			return
 		case <-time.After(w.poll):
 		}
+	}
+	if elapsed := time.Since(start); elapsed >= w.poll {
+		fmt.Fprintf(w.stderr, "gate: waited %s for load (%.1f/%d)\n", elapsed.Round(time.Second), load, cpus)
 	}
 }

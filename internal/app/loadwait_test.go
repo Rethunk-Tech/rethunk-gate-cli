@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,7 +16,7 @@ func TestOverloaded(t *testing.T) {
 	qt.Check(t, qt.IsFalse(overloaded(99, 0)))
 }
 
-func TestLoadWaiterWaitsOnceThenProceeds(t *testing.T) {
+func TestLoadWaiterWaitsOncePerRun(t *testing.T) {
 	t.Parallel()
 	var out bytes.Buffer
 	reads := 0
@@ -23,26 +24,34 @@ func TestLoadWaiterWaitsOnceThenProceeds(t *testing.T) {
 		stderr: &out, poll: time.Millisecond, bound: time.Minute,
 		read: func() (float64, int) {
 			reads++
-			if reads <= 3 {
+			if reads <= 5 {
 				return 40, 32
 			}
 			return 2, 32
 		},
 	}
 	w.wait(t.Context())
+	after := reads
+	// A later gate sees high load again but must not wait or announce.
+	w.read = func() (float64, int) { reads++; return 99, 32 }
 	w.wait(t.Context())
-	qt.Check(t, qt.Equals(out.String(), "gate: waiting for load (40.0/32)\n"))
+	qt.Check(t, qt.Equals(reads, after))
+	qt.Check(t, qt.Equals(strings.Count(out.String(), "gate: waited "), 1))
 }
 
-func TestLoadWaiterIsBounded(t *testing.T) {
+func TestLoadWaiterBoundIsPerRun(t *testing.T) {
 	t.Parallel()
+	var out bytes.Buffer
 	w := &loadWaiter{
-		stderr: &bytes.Buffer{}, poll: time.Millisecond, bound: 20 * time.Millisecond,
+		stderr: &out, poll: time.Millisecond, bound: 30 * time.Millisecond,
 		read: func() (float64, int) { return 100, 4 },
 	}
 	start := time.Now()
-	w.wait(t.Context())
-	qt.Check(t, qt.IsTrue(time.Since(start) < 5*time.Second))
+	for range 5 {
+		w.wait(t.Context())
+	}
+	qt.Check(t, qt.IsTrue(time.Since(start) < 2*time.Second))
+	qt.Check(t, qt.Equals(strings.Count(out.String(), "gate: waited "), 1))
 }
 
 func TestNilLoadWaiterDoesNotWait(t *testing.T) {
