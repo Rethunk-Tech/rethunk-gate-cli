@@ -96,6 +96,9 @@ Flags:
   --force-cache re-run turbo, go test, and make targets rather than serve them
                 from their own cache (also sets TURBO_FORCE=1, GOFLAGS=-count=1,
                 MAKEFLAGS=-B, including inside a shell-string run gate)
+  --no-load-wait  run gates without first waiting (up to 2m, one "waiting for
+                load" line) for the 1-minute loadavg to fall to the CPU count
+                (also GATE_NO_LOAD_WAIT=1)
   --timeout D   kill a gate that runs longer than D (default 1m, 0 disables;
                 .gate.toml can set it per gate, and this beats that)
   --tail N      trailing lines to quote on failure (default 40)
@@ -199,6 +202,7 @@ func (st *runState) defineFlags(flags *flag.FlagSet) {
 	flags.BoolVar(&st.noStream, "no-stream", false, "")
 	flags.BoolVar(&opts.profile, "profile", false, "")
 	flags.BoolVar(&opts.forceCache, "force-cache", false, "")
+	flags.BoolVar(&opts.noLoadWait, "no-load-wait", false, "")
 	flags.BoolVar(&opts.failed, "failed", false, "")
 	flags.BoolVar(&opts.e2e, "e2e", false, "")
 	flags.BoolVar(&st.showVersion, "version", false, "")

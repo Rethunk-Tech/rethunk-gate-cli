@@ -135,6 +135,8 @@ type options struct {
 	// forceCache re-runs a gate that turbo, `go test`, or make could
 	// otherwise answer from cache. See cache.go, applyForceCache.
 	forceCache bool
+	// noLoadWait skips the wait for a quiet machine before each gate.
+	noLoadWait bool
 	gates      []gateSpec
 
 	// e2e asks for the e2e gates a default run skips. skipE2E is the
@@ -402,7 +404,7 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 	if opts.root != "" {
 		go func() { tree <- stored.ReadTree(ctx, opts.root) }()
 	}
-	sc := groupRun{opts: opts, results: results, stream: stream, needed: resolveNeeds(opts.gates), done: make([]chan struct{}, len(opts.gates))}
+	sc := groupRun{loads: newLoadWaiter(opts, stderr), opts: opts, results: results, stream: stream, needed: resolveNeeds(opts.gates), done: make([]chan struct{}, len(opts.gates))}
 	for i := range sc.done {
 		sc.done[i] = make(chan struct{})
 	}
@@ -503,6 +505,7 @@ type groupRun struct {
 	done     []chan struct{}
 	needed   [][]int
 	slots    chan struct{}
+	loads    *loadWaiter
 	stream   *resultStream
 	stopFast context.CancelFunc
 }
@@ -541,6 +544,7 @@ func (g *groupRun) run(ctx context.Context, group []int) {
 		if !acquireJob(ctx, g.slots) {
 			return
 		}
+		g.loads.wait(ctx)
 		g.results[i] = runOne(ctx, g.opts.gates[i], g.opts)
 		releaseJob(g.slots)
 		close(g.done[i])

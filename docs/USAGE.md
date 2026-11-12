@@ -117,6 +117,13 @@ the child's output:
 `124` for a timeout. Off outside GitHub Actions and under `--json` /
 `--ndjson`.
 
+### Load wait
+
+Before each gate, while the 1-minute loadavg exceeds the CPU count, gate waits
+for a slot (polled each second, at most 2m per gate) and prints one
+`gate: waiting for load (L/N)` line to stderr. `--no-load-wait` or
+`GATE_NO_LOAD_WAIT=1` skips it. Linux only: no `/proc/loadavg`, no wait.
+
 ### Budget and `--profile`
 
 `--profile` prints wall vs summed gate time, then slowest first. Output only.
