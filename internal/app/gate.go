@@ -177,6 +177,9 @@ type gateSpec struct {
 	// set 0 runs unbounded.
 	timeout    time.Duration
 	hasTimeout bool
+	// derivedTimeout marks a limit deriveTimeout chose; the step line names
+	// it because it is not the 60s the docs promise.
+	derivedTimeout bool
 
 	// env carries per-gate environment variables from configuration,
 	// appended after the process environment so the gate wins. Values are
@@ -455,6 +458,16 @@ func saveRecord(stderr io.Writer, opts options, results []gateResult, state stor
 	}
 	if err := writeRecord(rec); err != nil {
 		fmt.Fprintf(stderr, "gate: cannot write the result record: %v\n", err)
+	}
+	// Cached passes are skipped: their speed says nothing about a cold run.
+	passed := map[string]int64{}
+	for _, res := range results {
+		if res.outcome() == outcomeRan && res.code == Success && res.cache.label() == "" {
+			passed[res.spec.short()] = res.elapsed.Milliseconds()
+		}
+	}
+	if err := stored.AppendDurations(opts.root, passed); err != nil {
+		fmt.Fprintf(stderr, "gate: cannot write the duration history: %v\n", err)
 	}
 }
 
@@ -834,6 +847,9 @@ func reportRan(res gateResult, opts options, quote func(io.Writer, *lineTracker)
 			cached := ""
 			if label := res.cache.label(); label != "" {
 				cached = "  (" + label + ")"
+			}
+			if res.spec.derivedTimeout {
+				cached += "  (timeout " + res.spec.timeout.String() + ")"
 			}
 			fmt.Fprintf(stdout, "gate: ok  %s  %s  %s%s\n",
 				res.spec.short(), res.elapsed.Round(time.Millisecond), res.logPath, cached)

@@ -357,3 +357,14 @@ func TestReadPathsCoversRawRecords(t *testing.T) {
 	worktree := ":100644 100644 aaa bbb M\x00edit\x00:100644 100644 aaa 000 D\x00gone\x00:000000 100644 000 aaa A\x00added\x00"
 	qt.Assert(t, qt.DeepEquals(readPaths([]byte(worktree), []byte("c\x00")), []string{"edit", "added", "c"}))
 }
+
+func TestAppendDurationsKeepsTheNewest(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	root := t.TempDir()
+	for i := range maxSamples + 3 {
+		qt.Assert(t, qt.IsNil(AppendDurations(root, map[string]int64{"test": int64(i)})))
+	}
+	got := LoadDurations(root)["test"]
+	qt.Check(t, qt.HasLen(got, maxSamples))
+	qt.Check(t, qt.Equals(got[len(got)-1], int64(maxSamples+2)))
+}

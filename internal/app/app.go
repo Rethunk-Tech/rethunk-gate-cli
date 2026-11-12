@@ -20,6 +20,7 @@ import (
 
 	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/config"
 	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/detect"
+	stored "github.com/Rethunk-Tech/rethunk-gate-cli/internal/result"
 )
 
 // defaultTail is how many trailing lines a failure quotes. Enough to carry a
@@ -506,6 +507,19 @@ func (st *runState) prepareGates(project *detect.Project, roles []string) {
 	for i := range opts.gates {
 		if st.timeoutSet || !opts.gates[i].hasTimeout {
 			opts.gates[i].timeout = st.timeout
+		}
+	}
+	if !st.timeoutSet && st.timeout == defaultTimeout && opts.root != "" {
+		history := stored.LoadDurations(opts.root)
+		load, cpus := systemLoad()
+		for i := range opts.gates {
+			g := &opts.gates[i]
+			if g.hasTimeout {
+				continue
+			}
+			if d := deriveTimeout(history[g.short()], load, cpus); d != defaultTimeout {
+				g.timeout, g.derivedTimeout = d, true
+			}
 		}
 	}
 

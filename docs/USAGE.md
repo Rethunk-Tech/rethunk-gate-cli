@@ -470,6 +470,8 @@ gate: TIMEOUT after 1m0s  make test  (killed, not failed)
 gate: raise it for that gate alone with timeout = "5m" under [gates.test] in .gate.toml, or --timeout 5m for the whole run
 ```
 
+With no `timeout` key and no `--timeout`, the limit is the gate's p95 passing duration (last 20 uncached runs, kept beside the result record) times 2, never under 60s, multiplied by 1-minute loadavg/nproc (max 4) when above 1. An `ok` line shows it when it is not 60s.
+
 `--timeout` is every gate; `.gate.toml` `timeout` is one. Absent inherits;
 `timeout = "0"` removes the limit. `--timeout 0` disables for the run.
 
