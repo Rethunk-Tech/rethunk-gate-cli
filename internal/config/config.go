@@ -116,6 +116,10 @@ type Config struct {
 	FailFast    bool
 	HasFailFast bool
 
+	// LockScope is "repo" to serialise runs across every worktree of one
+	// repository; empty means per worktree.
+	LockScope string
+
 	// Exclude names directories detection found that the project does not
 	// want gated: patterns for the name of a nested or CI-run gate (its
 	// directory), layered user file first. See Excluded.
@@ -151,6 +155,9 @@ type File struct {
 	Detect   struct {
 		Exclude []string `toml:"exclude"`
 	} `toml:"detect"`
+	Lock struct {
+		Scope *string `toml:"scope"`
+	} `toml:"lock"`
 	Gates map[string]FileGate `toml:"gates"`
 }
 
@@ -327,6 +334,14 @@ func (c *Config) mergeSettings(f File) (unusable []string) {
 			unusable = append(unusable, fmt.Sprintf("jobs wants an integer >= 1, got %d", *f.Jobs))
 		} else {
 			c.Jobs, c.HasJobs = *f.Jobs, true
+		}
+	}
+
+	if f.Lock.Scope != nil {
+		if *f.Lock.Scope != "repo" && *f.Lock.Scope != "worktree" {
+			unusable = append(unusable, fmt.Sprintf("lock.scope wants \"worktree\" or \"repo\", got %q", *f.Lock.Scope))
+		} else {
+			c.LockScope = *f.Lock.Scope
 		}
 	}
 

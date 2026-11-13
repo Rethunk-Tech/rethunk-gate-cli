@@ -515,11 +515,11 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		return code
 	}
 
-	if len(command) == 0 && len(roles) == 0 && !opts.failed {
-		if skipUnchanged(ctx, project.Root, *opts, stdout) {
-			return Success
-		}
+	release, code, done := st.lockAndSkip(ctx, dir, project, configured, len(command) == 0 && len(roles) == 0, stdout, stderr)
+	if done {
+		return code
 	}
+	defer release()
 
 	if code, ok := st.announceAndCheckLog(dir, project, stderr); !ok {
 		return code
@@ -530,6 +530,25 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	}
 	st.setBudget(project, configured, len(roles) > 0)
 	return runGates(ctx, *opts, stdout, stderr)
+}
+
+// lockAndSkip takes the workspace lock, then answers from the stored result
+// when a bare run's tree is unchanged since the pass. done means the run ends
+// with code and the lock is already released.
+func (st *runState) lockAndSkip(ctx context.Context, dir string, project detect.Project, cfg config.Config, bare bool, stdout, stderr io.Writer) (release func(), code Code, done bool) {
+	lockDir := project.Root
+	if lockDir == "" {
+		lockDir = dir
+	}
+	release, ok := acquireWorkspaceLock(ctx, lockDir, cfg.LockScope, stderr)
+	if !ok {
+		return nil, Interrupted, true
+	}
+	if bare && !st.opts.failed && skipUnchanged(ctx, project.Root, st.opts, stdout) {
+		release()
+		return nil, Success, true
+	}
+	return release, Success, false
 }
 
 // prepareGates settles each gate's timeout and cache behaviour, and finds the

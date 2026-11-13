@@ -350,3 +350,16 @@ func TestRelativeXDGConfigHomeIsIgnored(t *testing.T) {
 	qt.Check(t, qt.Equals(cfg.Gates["test"].Run, ""))
 	qt.Check(t, qt.HasLen(cfg.Files, 0))
 }
+
+func TestLockScope(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	testutil.Write(t, root, ProjectFile, "[lock]\nscope = \"repo\"\n")
+	cfg, err := Load(root)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.Equals(cfg.LockScope, "repo"))
+
+	testutil.Write(t, root, ProjectFile, "[lock]\nscope = \"galaxy\"\n")
+	_, err = Load(root)
+	qt.Check(t, qt.ErrorMatches(err, `(?s).*lock\.scope wants.*`))
+}

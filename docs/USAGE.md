@@ -349,7 +349,7 @@ MDBOOK_VERSION = "0.4"
 ```
 
 Gate keys: `run`, `serial`, `needs`, `timeout`, `dir`, `env`, `allow-failure`, `e2e`.
-Outside: `budget`, `jobs`, `fail-fast`, `trusted-orgs` ([`--trust`](#--trust)), `[detect] exclude`. `run` is a shell string (`sh` / `cmd`).
+Outside: `budget`, `jobs`, `fail-fast`, `trusted-orgs` ([`--trust`](#--trust)), `[detect] exclude`, `[lock] scope` ([`Concurrent runs`](#concurrent-runs)). `run` is a shell string (`sh` / `cmd`).
 `timeout` is the same grammar as `--timeout` (`5m`, `90s`, `1m30s`, `0`).
 `jobs` is an integer >= 1 (no cap when absent, unless the 1-minute loadavg
 exceeds nproc, then nproc/2). `fail-fast` is a bool
@@ -507,6 +507,31 @@ Gates run with `GORACE=atexit_sleep_ms=0` unless `GORACE` is already set, so a r
 
 `--timeout` is every gate; `.gate.toml` `timeout` is one. Absent inherits;
 `timeout = "0"` removes the limit. `--timeout 0` disables for the run.
+
+## Concurrent runs
+
+One run at a time per workspace, the git worktree root (separate worktrees of
+one repo are separate workspaces; outside git, the directory). A bare run,
+`gate run <role>` and a wrapped command all take an exclusive lock under the
+user cache dir (`gate/locks/`, keyed by a hash of the path). A second run
+prints one line to stderr and waits:
+
+```text
+gate: waiting for the gate already running here (pid 4242, started 14:03:07)
+```
+
+It then takes the normal path: if the tree and gate set are unchanged it
+returns the first run's result (`gate: ok (unchanged since ...)`), otherwise it
+runs. `--force` still waits, then runs without the skip. Ctrl-C while waiting
+exits 130. `--list`, `--json`, `doctor`, `fix`, `record` and `--version` take no
+lock. The pid in the message is informational; the kernel releases the lock when
+its holder dies, so a stale file never blocks. A run started by another gate
+(`GATE_ACTIVE_ROOTS` set) takes no lock, since its parent holds one. Off unix
+the lock is a no-op.
+
+`[lock] scope = "repo"` in `.gate.toml` keys the lock on the repository's
+common git dir instead, serialising every worktree of it; use it when the tests
+share one resource such as a local database. Default is `"worktree"`.
 
 ## Interrupting a run
 

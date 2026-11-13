@@ -8,6 +8,7 @@ Notable changes to `gate`. The format follows
 
 ### Added
 
+- A per-workspace lock: concurrent runs on one git worktree wait for each other (`gate: waiting for the gate already running here`), then take the unchanged-tree skip or run. `[lock] scope = "repo"` serialises all worktrees of a repo. See USAGE.md, Concurrent runs.
 - `needs = ["gate", ...]` per gate: the gate starts after the named gates pass and is skipped if one does not. An unknown name or a cycle refuses the file.
 
 ### Changed
