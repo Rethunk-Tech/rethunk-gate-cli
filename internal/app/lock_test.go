@@ -151,3 +151,21 @@ func TestActiveRootsExemptsTheParentBelowTopOrThroughASymlink(t *testing.T) {
 		qt.Check(t, qt.IsTrue(ok), qt.Commentf("parent root %s", parent))
 	}
 }
+
+// Under scope "repo" the lock is the repository's, so a parent gate in one
+// worktree holds it for a child gate in another; waiting on it deadlocks.
+func TestActiveRootsExemptsTheParentsRepoLockFromAnotherWorktree(t *testing.T) {
+	root := lockTestRepo(t, "true")
+	other := filepath.Join(t.TempDir(), "other")
+	out, err := exec.CommandContext(t.Context(), "git", "-C", root, "worktree", "add", "--quiet", "--detach", other).CombinedOutput() //nolint:gosec // test fixture paths
+	qt.Assert(t, qt.IsNil(err), qt.Commentf("%s", out))
+	release, ok := acquireWorkspaceLock(t.Context(), root, "repo", &bytes.Buffer{})
+	qt.Assert(t, qt.IsTrue(ok))
+	defer release()
+
+	t.Setenv(activeRootsVar, activeRootsValue(root))
+	ctx, cancel := context.WithTimeout(t.Context(), 400*time.Millisecond)
+	defer cancel()
+	_, ok = acquireWorkspaceLock(ctx, other, "repo", &bytes.Buffer{})
+	qt.Check(t, qt.IsTrue(ok), qt.Commentf("a child in another worktree waited on its parent's repo lock"))
+}

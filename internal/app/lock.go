@@ -60,16 +60,17 @@ func lockPath(key string) (string, error) {
 // cannot be set up is skipped rather than refusing the run. ok is false only
 // when ctx ended while waiting.
 func acquireWorkspaceLock(ctx context.Context, dir, scope string, stderr io.Writer) (release func(), ok bool) {
-	// An enclosing gate holds its own workspace's lock, and this run is one of
-	// its children; waiting on it would deadlock. Only that workspace is
-	// exempt: an unrelated one still needs its own lock. A recorded root is
-	// the parent's detected project, which may sit below the top or be
-	// reached through a symlink, so it is keyed the same way before comparing.
-	own := lockKey(ctx, dir, "")
-	if slices.ContainsFunc(activeRoots(), func(root string) bool { return lockKey(ctx, root, "") == own }) {
+	// An enclosing gate holds its workspace's lock, and this run is one of
+	// its children; waiting on it would deadlock. Only the lock that parent
+	// holds is exempt: an unrelated workspace still needs its own. A recorded
+	// root is the parent's detected project, which may sit below the top or
+	// be reached through a symlink, so it is keyed the same way before
+	// comparing; under scope "repo" that key is the repository's.
+	own := lockKey(ctx, dir, scope)
+	if slices.ContainsFunc(activeRoots(), func(root string) bool { return lockKey(ctx, root, scope) == own }) {
 		return func() {}, true
 	}
-	path, err := lockPath(lockKey(ctx, dir, scope))
+	path, err := lockPath(own)
 	if err != nil {
 		return func() {}, true
 	}
