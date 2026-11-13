@@ -107,6 +107,21 @@ jobs:
           sha256sum gate-completions-man.tar.gz > gate-completions-man.tar.gz.sha256
           cat SHA256SUMS
 
+      # Detached signature over SHA256SUMS; the Homebrew tap and Scoop bucket verify it against the pinned
+      # fingerprint (see SECURITY.md).
+      - name: Sign SHA256SUMS
+        env:
+          RELEASE_GPG_KEY: ${{ secrets.RELEASE_GPG_KEY }}
+        run: |
+          set -euo pipefail
+          export GNUPGHOME="$RUNNER_TEMP/gnupg"
+          install -d -m 700 "$GNUPGHOME"
+          trap 'gpgconf --kill all >/dev/null 2>&1 || true; rm -rf "$GNUPGHOME"' EXIT
+          printf '%s\n' "$RELEASE_GPG_KEY" | gpg --batch --quiet --import
+          fpr=$(gpg --with-colons --list-secret-keys | awk -F: '/^fpr/{print $10; exit}')
+          gpg --batch --yes --local-user "$fpr" --armor --detach-sign -o dist/SHA256SUMS.asc dist/SHA256SUMS
+          gpg --batch --verify dist/SHA256SUMS.asc dist/SHA256SUMS
+
       # A checksum says the file did not change in transit; it says nothing
       # about where it came from. This records that these exact bytes were
       # built by this workflow, from this commit, and it is verifiable after
@@ -175,4 +190,4 @@ jobs:
           gh release create "$tag" \
             --title "$tag" \
             --notes "$notes" \
-            dist/gate-* dist/SHA256SUMS
+            dist/gate-* dist/SHA256SUMS dist/SHA256SUMS.asc
