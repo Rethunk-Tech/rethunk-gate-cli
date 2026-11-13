@@ -9,8 +9,10 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -29,10 +31,25 @@ const emptyTreeStatus = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991
 // CI markers are cleared for the same reason: a suite run in CI must not turn
 // on stream mode for tests that assert the default output.
 func TestMain(m *testing.M) {
+	os.Exit(runSuite(m))
+}
+
+// runSuite owns the scratch directory so a panic during setup, or a SIGINT or
+// SIGTERM mid-run (a timeout, a cancelled gate), still removes it: os.Exit in
+// TestMain would skip a defer.
+func runSuite(m *testing.M) int {
 	dir, err := packageScratch("gate-suite-")
 	if err != nil {
 		panic(err)
 	}
+	defer func() { _ = os.RemoveAll(dir) }()
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		sig, _ := (<-sigs).(syscall.Signal)
+		_ = os.RemoveAll(dir)
+		os.Exit(128 + int(sig))
+	}()
 	// A suite on a loaded host must not sit in the load wait, or have its
 	// overlap tests serialised by the load-aware jobs default.
 	if err := os.Setenv(loadWaitOffEnv, "1"); err != nil {
@@ -63,9 +80,7 @@ func TestMain(m *testing.M) {
 			panic(err)
 		}
 	}
-	code := m.Run()
-	_ = os.RemoveAll(dir)
-	os.Exit(code)
+	return m.Run()
 }
 
 // packageScratch makes a directory under TMPDIR, or /var/tmp when TMPDIR is
