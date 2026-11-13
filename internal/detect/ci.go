@@ -319,6 +319,17 @@ func scriptStepOf(lines []string, where, blocked string, jobEnv map[string]strin
 		switch key {
 		case "run":
 			st.run = stripComment(unquote(strings.TrimSpace(value)))
+			// A block scalar's lines are its command; more than one is a
+			// shell script, which the anchored step patterns never match.
+			if strings.HasPrefix(st.run, "|") || strings.HasPrefix(st.run, ">") {
+				var body []string
+				for _, line := range step[i:blockEnd(step, i-1)] {
+					if !blank(line) {
+						body = append(body, strings.TrimSpace(line))
+					}
+				}
+				st.run = strings.Join(body, "\n")
+			}
 		case "working-directory":
 			skip = true
 		case "env":

@@ -1178,6 +1178,21 @@ func TestCIScriptStepsReadWorkflowLevelEnvAndDefaults(t *testing.T) {
 	qt.Check(t, qt.IsFalse(slices.ContainsFunc(proj.Gates, func(g Gate) bool { return g.Name == "sub" })), qt.Commentf("gates = %v", proj.Gates))
 }
 
+// A block scalar holding one command is that command: `run: |` then
+// `bun run knip` is the same step as `run: bun run knip`. Two commands are not
+// a script step.
+func TestCIScriptStepsReadABlockScalarRun(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, "package.json", `{"scripts":{"test":"vitest run","knip":"knip","pagefind":"pagefind","two":"x"}}`)
+	testutil.Write(t, root, ".github/workflows/ci.yml", "on: [push]\njobs:\n  a:\n    steps:\n      - run: |\n          bun run knip\n      - name: index\n        run: >-\n          bun run pagefind\n        env:\n          A: b\n      - run: |\n          bun run two\n          bun run test\n")
+
+	proj := detect(t, root)
+	qt.Check(t, qt.DeepEquals(gateNamed(t, proj, "knip").Argv, []string{"bun", "run", "knip"}))
+	qt.Check(t, qt.Equals(gateNamed(t, proj, "pagefind").Env["A"], "b"))
+	qt.Check(t, qt.IsFalse(slices.ContainsFunc(proj.Gates, func(g Gate) bool { return g.Name == "two" })), qt.Commentf("gates = %v", proj.Gates))
+}
+
 // Go's convention build discards what it compiles, so nothing a CI step runs
 // reads it: it stays concurrent beside the CI script gates.
 func TestCIScriptStepsLeaveTheGoConventionBuildConcurrent(t *testing.T) {
