@@ -57,7 +57,9 @@ type Loaded struct {
 //
 // The read covers the whole worktree even for a project below the top: its
 // gates read sibling packages, a go.work replace, a lint config at the top,
-// and a change there changes their result.
+// and a change there changes their result. skip-worktree and assume-unchanged
+// hide a path from diff-files; those worktree bytes are still hashed when
+// they differ from the index.
 func ReadTree(ctx context.Context, root string) State {
 	// The empty tree in this repository's own object format: sha1 repos and
 	// sha256 repos name it differently, and only git can say which this is.
@@ -108,6 +110,17 @@ func ReadTree(ctx context.Context, root string) State {
 	if !ok {
 		return State{}
 	}
+	// skip-worktree and assume-unchanged keep git diff-files quiet, so a
+	// local edit of either would otherwise hash as a clean tree.
+	verbose, ok := git(nil, "ls-files", "-v", "-z")
+	if !ok {
+		return State{}
+	}
+	hidden, hiddenDirty, ok := hashIndexFlags(verbose, git)
+	if !ok {
+		return State{}
+	}
+	blobs = append(blobs, hidden...)
 	// A changed submodule's raw line keeps the same ids while its files
 	// change, so its own tree is read and hashed in its place.
 	for _, sub := range submodules {
@@ -122,7 +135,7 @@ func ReadTree(ctx context.Context, root string) State {
 	}
 	return State{
 		Head:   strings.TrimSpace(string(head)),
-		Dirty:  len(staged)+len(worktree)+len(untracked) > 0,
+		Dirty:  len(staged)+len(worktree)+len(untracked) > 0 || hiddenDirty,
 		Status: statusHash(staged, worktree, untracked, blobs),
 		OK:     true,
 	}
@@ -170,8 +183,9 @@ func gitEnv(attrSource string) []string {
 // statusHash is the hex SHA-256 of four outputs concatenated, in order: raw
 // index-against-HEAD `git diff-index`, raw worktree-against-index
 // `git diff-files`, raw `git ls-files --others`, and `git hash-object`
-// (never -w) for the content of every changed and untracked file. A clean
-// tree is four empty outputs, which is the SHA-256 of no bytes.
+// (never -w) for the content of every changed and untracked file and of
+// each skip-worktree or assume-unchanged path that differs from the index.
+// A clean tree is four empty outputs, which is the SHA-256 of no bytes.
 func statusHash(staged, worktree, untracked, blobs []byte) string {
 	sum := sha256.New()
 	_, _ = sum.Write(staged)
@@ -185,6 +199,80 @@ func statusHash(staged, worktree, untracked, blobs []byte) string {
 // on any error, which is what makes the caller's record "unreadable" rather
 // than silently about a different tree.
 type gitRead func(stdin []byte, args ...string) ([]byte, bool)
+
+// indexFlags is every tracked path whose skip-worktree bit or
+// assume-unchanged bit is set. `git ls-files -v` tags skip-worktree S (s
+// when both bits are on) and writes a lowercase tag for assume-unchanged.
+func indexFlags(verbose []byte) []string {
+	var paths []string
+	for rec := range bytes.SplitSeq(verbose, []byte{0}) {
+		if len(rec) < 3 || rec[1] != ' ' {
+			continue
+		}
+		tag := rec[0]
+		if tag != 'S' && tag != 's' && (tag < 'a' || tag > 'z') {
+			continue
+		}
+		paths = append(paths, string(rec[2:]))
+	}
+	return paths
+}
+
+// stagedIDs maps each cached path to its index object id.
+func stagedIDs(out []byte) map[string]string {
+	ids := make(map[string]string)
+	for rec := range bytes.SplitSeq(out, []byte{0}) {
+		if len(rec) == 0 {
+			continue
+		}
+		_, rest, ok := bytes.Cut(rec, []byte{' '})
+		if !ok {
+			continue
+		}
+		object, rest, ok := bytes.Cut(rest, []byte{' '})
+		if !ok {
+			continue
+		}
+		_, path, ok := bytes.Cut(rest, []byte{'\t'})
+		if !ok || len(path) == 0 {
+			continue
+		}
+		ids[string(path)] = string(object)
+	}
+	return ids
+}
+
+// hashIndexFlags hashes skip-worktree and assume-unchanged paths whose
+// worktree bytes differ from the index, which diff-files will not name.
+func hashIndexFlags(verbose []byte, git gitRead) (blobs []byte, dirty, ok bool) {
+	flagged := indexFlags(verbose)
+	if len(flagged) == 0 {
+		return nil, false, true
+	}
+	stage, ok := git(nil, "ls-files", "-s", "-z")
+	if !ok {
+		return nil, false, false
+	}
+	hashes, ok := hashChanged(flagged, git)
+	if !ok {
+		return nil, false, false
+	}
+	ids := stagedIDs(stage)
+	for _, p := range flagged {
+		line, rest, found := bytes.Cut(hashes, []byte{'\n'})
+		if !found && len(hashes) == 0 {
+			return nil, false, false
+		}
+		hashes = rest
+		got := string(line)
+		if got == "" || got == ids[p] {
+			continue
+		}
+		blobs = fmt.Appendf(blobs, "%s\n", got)
+		dirty = true
+	}
+	return blobs, dirty, true
+}
 
 // readPaths is every path whose content the hash covers: each path a raw
 // `git diff-files` record names, and each path `git ls-files --others`

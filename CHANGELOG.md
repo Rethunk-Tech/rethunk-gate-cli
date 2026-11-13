@@ -16,6 +16,10 @@ Notable changes to `gate`. The format follows
 - The default gate timeout is derived per gate: its recent p95 passing duration times 2 (floor 60s), stretched by loadavg/nproc when the machine is oversubscribed. An explicit `timeout` or `--timeout` still wins; a derived limit shows in the `ok` line.
 - `doctor`'s `KnownGoodActionsTag` is `v1.24`, and `gate fix`'s tests read it rather than a literal tag.
 
+### Fixed
+
+- The unchanged-tree status hash includes skip-worktree and assume-unchanged files `git diff-files` is silent about, so a local edit there is not a stale pass.
+
 ## [0.6.10] - 2026-11-08
 
 ### Added

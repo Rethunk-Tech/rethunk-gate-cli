@@ -63,6 +63,42 @@ func TestReadTreeRunsNothingTheRepositoryConfigured(t *testing.T) {
 	qt.Assert(t, qt.IsTrue(os.IsNotExist(err)), qt.Commentf("a filter or textconv named by the repository ran"))
 }
 
+// git diff-files is silent about skip-worktree and assume-unchanged, so a
+// local edit of either would otherwise keep the status hash of a clean tree
+// and skipUnchanged would replay a stale pass.
+func TestReadTreeHashesSkipWorktreeAndAssumeUnchanged(t *testing.T) {
+	t.Parallel()
+	repo := t.TempDir()
+	git := gitFixture(t, repo)
+	testutilWrite(t, repo, "skip", "a\n")
+	testutilWrite(t, repo, "assume", "a\n")
+	git("add", ".")
+	git("commit", "--quiet", "-m", "first")
+	git("update-index", "--skip-worktree", "skip")
+	git("update-index", "--assume-unchanged", "assume")
+
+	clean := ReadTree(t.Context(), repo)
+	qt.Assert(t, qt.IsTrue(clean.OK))
+	qt.Check(t, qt.IsFalse(clean.Dirty))
+
+	testutilWrite(t, repo, "skip", "b\n")
+	skipped := ReadTree(t.Context(), repo)
+	qt.Check(t, qt.Not(qt.Equals(skipped.Status, clean.Status)), qt.Commentf("a skip-worktree edit did not move the hash"))
+	qt.Check(t, qt.IsTrue(skipped.Dirty), qt.Commentf("a skip-worktree edit left dirty false"))
+
+	testutilWrite(t, repo, "skip", "a\n")
+	testutilWrite(t, repo, "assume", "b\n")
+	assumed := ReadTree(t.Context(), repo)
+	qt.Check(t, qt.Not(qt.Equals(assumed.Status, clean.Status)), qt.Commentf("an assume-unchanged edit did not move the hash"))
+	qt.Check(t, qt.IsTrue(assumed.Dirty), qt.Commentf("an assume-unchanged edit left dirty false"))
+}
+
+func TestIndexFlagsSelectsSkipWorktreeAndAssumeUnchanged(t *testing.T) {
+	t.Parallel()
+	in := []byte("H tracked\x00S skip\x00h assume\x00s both\x00C staged\x00")
+	qt.Check(t, qt.DeepEquals(indexFlags(in), []string{"skip", "assume", "both"}))
+}
+
 // gitFixture returns a runner for fixed git commands in dir, with the
 // repository created there and skipping a machine with no usable git rather
 // than failing on it.
