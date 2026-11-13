@@ -475,7 +475,22 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 	// the run cost, and printing the answer is not part of it.
 	wall := time.Since(started)
 
+	// ctx is the caller's, so an error here is a signal the user sent. A
+	// fail-fast cancel only cancels runCtx, and must not mask that signal.
+	userStop := ctx.Err() != nil
+	stopped := false
+	for i := range results {
+		if results[i].interrupted {
+			stopped = true
+			if userStop {
+				results[i].cancelled = false
+			}
+		}
+	}
 	code := report(results, opts, stdout, stderr)
+	if userStop && stopped {
+		code = Interrupted
+	}
 	if opts.skippedE2E > 0 && !opts.quiet {
 		fmt.Fprintf(stdout, "gate: %d e2e gate(s) skipped; `gate --e2e` runs them\n", opts.skippedE2E)
 	}
