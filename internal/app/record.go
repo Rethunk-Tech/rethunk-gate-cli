@@ -348,6 +348,33 @@ func toolchainVersions(ctx context.Context, gates []gateSpec) map[string]string 
 	return out
 }
 
+// gateBinaries is the file each gate's program resolves to, with its size and
+// modification time: detection resolves a linter to its path, and an in-place
+// upgrade keeps that path while changing what the gate reports.
+func gateBinaries(gates []gateSpec) map[string]string {
+	out := map[string]string{}
+	for _, g := range gates {
+		if len(g.argv) == 0 {
+			continue
+		}
+		name := g.argv[0]
+		if !filepath.IsAbs(name) && strings.ContainsRune(name, filepath.Separator) {
+			name = filepath.Join(g.dir, name)
+		}
+		path, err := exec.LookPath(name)
+		if err != nil {
+			continue
+		}
+		if resolved, err := filepath.EvalSymlinks(path); err == nil {
+			path = resolved
+		}
+		if info, err := os.Stat(path); err == nil {
+			out[g.argv[0]] = fmt.Sprintf("%s %d %d", path, info.Size(), info.ModTime().UnixNano())
+		}
+	}
+	return out
+}
+
 func buildEnv() map[string]string {
 	out := map[string]string{}
 	for _, kv := range os.Environ() {
@@ -360,7 +387,8 @@ func buildEnv() map[string]string {
 }
 
 // gatesFingerprint hashes everything that decides what each gate runs, and
-// what it runs with: the toolchain versions and the build-affecting environment.
+// what it runs with: the toolchain versions, each gate's own binary, and the
+// build-affecting environment.
 func gatesFingerprint(ctx context.Context, gates []gateSpec) string {
 	h := sha256.New()
 	enc := json.NewEncoder(h)
@@ -374,6 +402,7 @@ func gatesFingerprint(ctx context.Context, gates []gateSpec) string {
 		}{g.argv, g.dir, g.env, g.allowFailure})
 	}
 	_ = enc.Encode(toolchainVersions(ctx, gates))
+	_ = enc.Encode(gateBinaries(gates))
 	_ = enc.Encode(buildEnv())
 	return hex.EncodeToString(h.Sum(nil))
 }

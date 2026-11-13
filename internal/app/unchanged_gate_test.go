@@ -65,3 +65,19 @@ func TestToolchainVersionsCoverOnlyDetectedTools(t *testing.T) {
 	qt.Check(t, qt.HasLen(got, 1))
 	qt.Check(t, qt.StringContains(got["go"], "go version"))
 }
+
+// Detection resolves a linter to its path, and an in-place upgrade (go
+// install, brew) keeps that path while changing what the gate reports.
+func TestFingerprintMovesWhenTheGateBinaryIsReplaced(t *testing.T) {
+	dir := t.TempDir()
+	bin := testutil.WriteExecutable(t, dir, "lint")
+	t.Setenv("PATH", dir)
+	for _, argv0 := range []string{bin, "lint"} {
+		gates := []gateSpec{{argv: []string{argv0, "run"}}}
+		before := gatesFingerprint(t.Context(), gates)
+		// Rewriting keeps the executable bit WriteExecutable set.
+		testutil.Write(t, dir, "lint", "#!/bin/sh\n# v2\nexit 0\n")
+		qt.Check(t, qt.Not(qt.Equals(gatesFingerprint(t.Context(), gates), before)), qt.Commentf("argv[0] %s", argv0))
+		testutil.Write(t, dir, "lint", "#!/bin/sh\nexit 0\n")
+	}
+}

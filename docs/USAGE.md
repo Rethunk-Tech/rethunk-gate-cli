@@ -31,7 +31,8 @@ run also runs.
 
 The stored run also keys on what it ran with: the version of each toolchain a
 detected gate invokes (`go`, `bun`/`bunx`, `node`/`npm`/`npx`/`pnpm`/`yarn`,
-`cargo`/`rustc`, `uv`, `python`) and these environment variables: `GOFLAGS`,
+`cargo`/`rustc`, `uv`, `python`), the path, size and modification time of
+the file each gate's program resolves to, and these environment variables: `GOFLAGS`,
 `CGO_ENABLED`, `GOOS`, `GOARCH`, `GOEXPERIMENT`, `GOTOOLCHAIN`, `NODE_ENV`,
 `NODE_OPTIONS`, `RUSTFLAGS`, `CC`, `CXX`, `CARGO_*`, plus any `env` a gate
 declares in `.gate.toml`. A change to any of them runs the gates.
