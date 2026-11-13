@@ -29,6 +29,13 @@ and the stored run was not `--e2e`. It prints
 `--force` always runs. A flag or gate selection that differs from the stored
 run also runs.
 
+The stored run also keys on what it ran with: the version of each toolchain a
+detected gate invokes (`go`, `bun`/`bunx`, `node`/`npm`/`npx`/`pnpm`/`yarn`,
+`cargo`/`rustc`, `uv`, `python`) and these environment variables: `GOFLAGS`,
+`CGO_ENABLED`, `GOOS`, `GOARCH`, `GOEXPERIMENT`, `GOTOOLCHAIN`, `NODE_ENV`,
+`NODE_OPTIONS`, `RUSTFLAGS`, `CC`, `CXX`, `CARGO_*`, plus any `env` a gate
+declares in `.gate.toml`. A change to any of them runs the gates.
+
 `--list` shows the decision and runs nothing. `--json` is the same listing for
 a program: `"schema": 1`, then each gate's `name`, resolved `argv`, `display`,
 `source`, `shadows`, `group`; plus `root`, `config`, `notes`, `warnings`. Gates
