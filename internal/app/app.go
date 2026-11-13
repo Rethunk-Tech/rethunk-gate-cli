@@ -649,7 +649,17 @@ func (st *runState) detectGates(ctx context.Context, dir string, roles []string,
 	if slices.Contains(activeRoots(), proj.Root) {
 		fmt.Fprintf(stderr, "gate: refusing to detect gates in %s\n", proj.Root)
 		fmt.Fprintln(stderr, "gate: a gate from that project is already running, so this would not terminate")
-		fmt.Fprintln(stderr, "gate: name the command instead, e.g. `gate go test ./...`")
+		if pid, log, ok := activeRun(); ok {
+			fmt.Fprintf(stderr, "gate: running as pid %s, log %s\n", pid, log)
+		}
+		fmt.Fprintln(stderr, "gate: name the command instead, e.g. `gate go test ./...`, or pick one of these gates:")
+		// Detection is refused for the run, not for this listing: it is what
+		// `gate --list` would print, which that command cannot print from here.
+		if cfg, err = config.Load(proj.Root); err == nil {
+			if project, _, ok = st.buildGates(ctx, proj, cfg, roles, io.Discard); ok {
+				writeListing(stderr, project, cfg.Files, st.opts)
+			}
+		}
 		return project, cfg, Fatal, false
 	}
 

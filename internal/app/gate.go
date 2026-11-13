@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -23,6 +24,14 @@ import (
 // Newline-separated: it cannot appear in a Windows path and is far rarer than
 // the list separator in a POSIX one. See AGENTS.md, Recursion.
 const activeRootsVar = "GATE_ACTIVE_ROOTS"
+
+// activeRunVar carries "<pid> <log path>" of the gate that set it, so the
+// refusal can name what to wait on. The path is last: it may hold spaces.
+const activeRunVar = "GATE_ACTIVE_RUN"
+
+func activeRun() (pid, log string, ok bool) {
+	return strings.Cut(os.Getenv(activeRunVar), " ")
+}
 
 // activeRoots reports the projects an enclosing gate is already running.
 func activeRoots() []string {
@@ -967,7 +976,8 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 	for k, v := range spec.env {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}
-	cmd.Env = append(cmd.Env, activeRootsVar+"="+activeRootsValue(spec.dir))
+	cmd.Env = append(cmd.Env, activeRootsVar+"="+activeRootsValue(spec.dir),
+		activeRunVar+"="+strconv.Itoa(os.Getpid())+" "+res.logPath)
 	cmd.Stdin = nil
 	// One writer for both streams, so interleaving in the log matches what a
 	// terminal would have shown. Splitting them would reorder the very lines

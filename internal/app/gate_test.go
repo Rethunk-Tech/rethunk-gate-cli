@@ -851,9 +851,12 @@ func TestGateRefusesToDetectAProjectItIsAlreadyRunning(t *testing.T) {
 	root := t.TempDir()
 	testutil.Write(t, root, "Makefile", "test:\n\ttouch ran\n")
 	t.Setenv(activeRootsVar, root)
+	t.Setenv(activeRunVar, "4242 /var/tmp/x.log")
 
 	_, stderr, code := runGateTest(t, "-C", root)
 
+	qt.Check(t, qt.StringContains(stderr, "pid 4242, log /var/tmp/x.log"))
+	qt.Check(t, qt.StringContains(stderr, "make test"), qt.Commentf("detected gates not listed: %q", stderr))
 	qt.Assert(t, qt.Equals(code, Fatal), qt.Commentf("gate = %d, want Fatal -- stderr = %q", code, stderr))
 	qt.Check(t, qt.IsFalse(exists(filepath.Join(root, "ran"))), qt.Commentf("the gate ran despite the project already being in flight"))
 	// Refusing without saying what to do instead is just a broken tool.
