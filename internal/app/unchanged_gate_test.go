@@ -81,3 +81,23 @@ func TestFingerprintMovesWhenTheGateBinaryIsReplaced(t *testing.T) {
 		testutil.Write(t, dir, "lint", "#!/bin/sh\nexit 0\n")
 	}
 }
+
+// Bun, Vite and Next load .env files from the directory a gate runs in, and
+// those are gitignored, so the tree hash never sees them change.
+func TestUnchangedTreeRunsWhenAnIgnoredDotenvChanges(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	root := t.TempDir()
+	marker := filepath.Join(root, "ran")
+	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
+	testutil.Write(t, root, ".gitignore", ".env.local\nran\n")
+	testutil.Write(t, root, ".env.local", "API=one\n")
+	testutil.Write(t, root, ".gate.toml", "[gates.g0]\nrun = \"echo ran >> "+marker+"\"\n")
+	committedRepo(t, root)
+	_, stderr, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+
+	testutil.Write(t, root, ".env.local", "API=two\n")
+	_, stderr, code = runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.Equals(markerHits(t, marker, "ran"), 2), qt.Commentf("a changed .env.local was skipped"))
+}

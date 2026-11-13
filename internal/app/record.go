@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -375,6 +376,46 @@ func gateBinaries(gates []gateSpec) map[string]string {
 	return out
 }
 
+// dotenvLimit bounds how much of one .env file the fingerprint reads.
+const dotenvLimit = 1 << 20
+
+// dotenvFiles hashes the .env* files in each directory a gate runs in: Bun,
+// Vite and Next load them from there, and they are gitignored, so the tree
+// hash never sees one change. Only regular files are read, so a FIFO cannot
+// block the run.
+func dotenvFiles(gates []gateSpec) map[string]string {
+	out := map[string]string{}
+	for _, g := range gates {
+		if g.dir == "" {
+			continue
+		}
+		dir, err := os.OpenRoot(g.dir)
+		if err != nil {
+			continue
+		}
+		matches, _ := fs.Glob(dir.FS(), ".env*")
+		for _, name := range matches {
+			key := filepath.Join(g.dir, name)
+			if _, seen := out[key]; seen {
+				continue
+			}
+			if info, err := dir.Stat(name); err != nil || !info.Mode().IsRegular() {
+				continue
+			}
+			f, err := dir.Open(name)
+			if err != nil {
+				continue
+			}
+			h := sha256.New()
+			_, _ = io.Copy(h, io.LimitReader(f, dotenvLimit))
+			_ = f.Close()
+			out[key] = hex.EncodeToString(h.Sum(nil))
+		}
+		_ = dir.Close()
+	}
+	return out
+}
+
 func buildEnv() map[string]string {
 	out := map[string]string{}
 	for _, kv := range os.Environ() {
@@ -387,8 +428,8 @@ func buildEnv() map[string]string {
 }
 
 // gatesFingerprint hashes everything that decides what each gate runs, and
-// what it runs with: the toolchain versions, each gate's own binary, and the
-// build-affecting environment.
+// what it runs with: the toolchain versions, each gate's own binary, the
+// .env files it loads, and the build-affecting environment.
 func gatesFingerprint(ctx context.Context, gates []gateSpec) string {
 	h := sha256.New()
 	enc := json.NewEncoder(h)
@@ -403,6 +444,7 @@ func gatesFingerprint(ctx context.Context, gates []gateSpec) string {
 	}
 	_ = enc.Encode(toolchainVersions(ctx, gates))
 	_ = enc.Encode(gateBinaries(gates))
+	_ = enc.Encode(dotenvFiles(gates))
 	_ = enc.Encode(buildEnv())
 	return hex.EncodeToString(h.Sum(nil))
 }
