@@ -120,6 +120,18 @@ type Config struct {
 	// want gated: patterns for the name of a nested or CI-run gate (its
 	// directory), layered user file first. See Excluded.
 	Exclude []string
+
+	// TrustedOrgs replaces DefaultTrustedOrgs when HasTrustedOrgs: the
+	// GitHub orgs and Azure DevOps namespaces whose repos a bare run may
+	// install and gate without --trust. Lowercase.
+	TrustedOrgs    []string
+	HasTrustedOrgs bool
+}
+
+// DefaultTrustedOrgs are the origins a repo without a .gate.toml is trusted from.
+var DefaultTrustedOrgs = []string{
+	"rethunk-tech", "rethunk-ai", "albino-geek-services", "citadel-inc",
+	"peleos-llc", "albinogeek", "lethalmodding", "totative",
 }
 
 // File is the on-disk shape. Both optional settings are pointers so an absent
@@ -132,9 +144,10 @@ type Config struct {
 // `workdir` or `continue-on-error` is refused as an unknown key by
 // DisallowUnknownFields, the same as any typo, rather than silently accepted.
 type File struct {
-	Budget   *string `toml:"budget"`
-	Jobs     *int    `toml:"jobs"`
-	FailFast *bool   `toml:"fail-fast"`
+	Budget   *string   `toml:"budget"`
+	Jobs     *int      `toml:"jobs"`
+	FailFast *bool     `toml:"fail-fast"`
+	Trusted  *[]string `toml:"trusted-orgs"`
 	Detect   struct {
 		Exclude []string `toml:"exclude"`
 	} `toml:"detect"`
@@ -319,6 +332,13 @@ func (c *Config) mergeSettings(f File) (unusable []string) {
 
 	if f.FailFast != nil {
 		c.FailFast, c.HasFailFast = *f.FailFast, true
+	}
+
+	if f.Trusted != nil {
+		c.TrustedOrgs, c.HasTrustedOrgs = nil, true
+		for _, o := range *f.Trusted {
+			c.TrustedOrgs = append(c.TrustedOrgs, strings.ToLower(o))
+		}
 	}
 
 	for _, pattern := range f.Detect.Exclude {

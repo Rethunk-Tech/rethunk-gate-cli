@@ -153,6 +153,9 @@ type options struct {
 	// forceCache re-runs a gate that turbo, `go test`, or make could
 	// otherwise answer from cache. See cache.go, applyForceCache.
 	forceCache bool
+	// trust lets a bare or role run install and gate a repo that has no
+	// .gate.toml and whose origin is not a trusted org. See trust.go.
+	trust bool
 	// noLoadWait skips the wait for a quiet machine before each gate.
 	noLoadWait bool
 	gates      []gateSpec

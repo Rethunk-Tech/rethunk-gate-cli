@@ -98,6 +98,9 @@ Flags:
   --force-cache re-run turbo, go test, and make targets rather than serve them
                 from their own cache (also sets TURBO_FORCE=1, GOFLAGS=-count=1,
                 MAKEFLAGS=-B, including inside a shell-string run gate)
+  --trust       run a bare or role gate in a repo that has no .gate.toml and
+                whose origin is not a trusted org (installs run dependency
+                scripts); orgs: trusted-orgs in ~/.config/gate/config.toml
   --no-load-wait  run gates without first waiting (up to 2m, one "waiting for
                 load" line) for the 1-minute loadavg to fall to the CPU count
                 (also GATE_NO_LOAD_WAIT=1)
@@ -208,6 +211,7 @@ func (st *runState) defineFlags(flags *flag.FlagSet) {
 	flags.BoolVar(&opts.failed, "failed", false, "")
 	flags.BoolVar(&opts.e2e, "e2e", false, "")
 	flags.BoolVar(&opts.force, "force", false, "")
+	flags.BoolVar(&opts.trust, "trust", false, "")
 	flags.BoolVar(&st.showVersion, "version", false, "")
 	// Recognised so `gate --fix` is not "unrecognized". Refused later: a
 	// global flag would look like a silent rewrite of doctor, which this
@@ -486,7 +490,8 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	// detector you cannot inspect is one you end up fighting.
 	var project detect.Project
 	var configured config.Config
-	if len(opts.gates) == 0 || len(roles) > 0 {
+	detected := len(opts.gates) == 0 || len(roles) > 0
+	if detected {
 		project, configured, code, ok = st.detectGates(ctx, dir, roles, stderr)
 		if !ok {
 			return code
@@ -501,6 +506,10 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 
 	if code, done := writeRequestedListing(stdout, stderr, project, configured, *opts); done {
 		return code
+	}
+	if detected && !opts.trust && !trusted(ctx, project.Root, configured) {
+		fmt.Fprintf(stderr, "gate: %s has no .gate.toml and an origin outside the trusted orgs; installs run its dependency scripts. Rerun with --trust to proceed\n", project.Root)
+		return InvalidUsage
 	}
 	if code, ok := st.dropE2E(project, stderr); !ok {
 		return code

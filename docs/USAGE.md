@@ -62,6 +62,20 @@ no such gates: the reason on stderr, exit 129. The re-run is a subset, so
 the record it writes is `partial`. Not combined with `gate run` or a named
 command.
 
+### `--trust`
+
+A bare `gate` or `gate run` installs dependencies, which runs their lifecycle
+scripts. So when the repo has no `.gate.toml` and its `origin` is outside the
+trusted orgs, gate runs nothing and exits 2 with a one-line message naming
+`--trust`; `--trust` restores the normal run for that invocation. A repo with
+no `origin` is trusted. The origin host must be exactly `github.com`,
+`dev.azure.com` or `ssh.dev.azure.com`; the org is the first path segment
+(Azure DevOps: the namespace). Default orgs: Rethunk-Tech, Rethunk-AI,
+Albino-Geek-Services, Citadel-Inc, PeleOs-LLC, AlbinoGeek, LethalModding,
+Totative. Replace the list in `~/.config/gate/config.toml`:
+`trusted-orgs = ["my-org"]`. A wrapped command, `--list` and `--json` are not
+gated.
+
 ### Frozen install
 
 A bare `gate` or `gate run` first runs the workspace lockfile's frozen install
@@ -335,7 +349,7 @@ MDBOOK_VERSION = "0.4"
 ```
 
 Gate keys: `run`, `serial`, `needs`, `timeout`, `dir`, `env`, `allow-failure`, `e2e`.
-Outside: `budget`, `jobs`, `fail-fast`, `[detect] exclude`. `run` is a shell string (`sh` / `cmd`).
+Outside: `budget`, `jobs`, `fail-fast`, `trusted-orgs` ([`--trust`](#--trust)), `[detect] exclude`. `run` is a shell string (`sh` / `cmd`).
 `timeout` is the same grammar as `--timeout` (`5m`, `90s`, `1m30s`, `0`).
 `jobs` is an integer >= 1 (no cap when absent, unless the 1-minute loadavg
 exceeds nproc, then nproc/2). `fail-fast` is a bool
