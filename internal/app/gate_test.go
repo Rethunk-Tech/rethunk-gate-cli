@@ -673,13 +673,14 @@ func TestFailFastInterruptsOtherGroups(t *testing.T) {
 			t.Parallel()
 			root := t.TempDir()
 			testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
-			// fast fails only once slow is running, so slow is interrupted rather than never started.
+			// fast fails only once slow is running, so slow is cancelled rather than never started.
 			started := filepath.Join(root, "slow-started")
 			testutil.Write(t, root, ".gate.toml", tc.toml+"[gates.slow]\nrun = \"touch "+started+" && sleep 10\"\n\n[gates.fast]\nrun = \"while [ ! -f "+started+" ]; do sleep 0.01; done; exit 7\"\n")
 			args := append([]string{"-C", root, "--timeout", "0"}, tc.args...)
 			_, stderr, code := runGateTest(t, args...)
 			qt.Assert(t, qt.Equals(code, Code(7)), qt.Commentf("gate = %d, stderr = %q", code, stderr))
-			qt.Check(t, qt.StringContains(stderr, "INTERRUPTED"), qt.Commentf("stderr = %q", stderr))
+			qt.Check(t, qt.StringContains(stderr, "cancelled"), qt.Commentf("stderr = %q", stderr))
+			qt.Check(t, qt.Not(qt.StringContains(stderr, "INTERRUPTED")), qt.Commentf("stderr = %q", stderr))
 			qt.Check(t, qt.StringContains(stderr, "sleep 10"), qt.Commentf("stderr = %q", stderr))
 			var interruptedLog string
 			for line := range strings.SplitSeq(stderr, "\n") {

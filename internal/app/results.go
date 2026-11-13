@@ -26,8 +26,8 @@ type result struct {
 	Argv    []string `json:"argv"`
 	Display string   `json:"display"`
 
-	// Status is what happened: ok, fail, timeout, interrupted, not-found,
-	// error, or skipped. It is a word rather than a code because the codes
+	// Status is what happened: ok, fail, timeout, interrupted, cancelled,
+	// not-found, error, or skipped. It is a word rather than a code because the codes
 	// collide by design -- a command exiting 124 is not a timeout -- and a
 	// consumer must never have to guess which of the two it is holding.
 	Status string `json:"status"`
@@ -129,6 +129,9 @@ func toResult(res gateResult) result {
 		rec.Status, code = "error", int(Fatal)
 	case outcomeInterrupted:
 		rec.Status, code = "interrupted", int(Interrupted)
+		if res.cancelled {
+			rec.Status = "cancelled"
+		}
 	case outcomeTimedOut:
 		rec.Status, code = "timeout", int(TimedOut)
 		rec.Reason = "exceeded " + res.spec.timeout.String()

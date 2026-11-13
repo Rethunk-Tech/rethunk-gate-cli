@@ -102,8 +102,9 @@ turbo `dependsOn` between roles, `gates.<role>.serial`, `--serial`. Turbo
 `"^build"` is not such an edge. `schedule` groups serial gates; groups run
 concurrently. A failure stops its group unless `allow-failure`; stopped gates
 are skipped. `--fail-fast` / top-level `fail-fast = true` (flag wins; default
-off) interrupts every still-running gate across groups on the first
-non-allowed failure; the aggregate is that failure.
+off) cancels every still-running gate across groups on the first
+non-allowed failure; those gates are `cancelled`, not failed, and the
+aggregate is that failure.
 
 ## Cache awareness
 

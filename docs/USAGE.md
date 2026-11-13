@@ -85,7 +85,7 @@ is the same object a result record stores under `gates`, so it has no
 `schema` of its own.
 
 `status` is a word, never a code: `ok`, `fail`, `timeout`, `interrupted`,
-`not-found`, `error`, `skipped`. A command exiting 124 is not a timeout.
+`cancelled`, `not-found`, `error`, `skipped`. A command exiting 124 is not a timeout.
 `code` and `ms` are absent for a gate that never ran. `reason` is skip/timeout
 detail; `error` is gate's own failure beside the command's verdict. `cache` is
 `"cached"` or `"N/M cached"`, absent when unrecognised. `dir` and `timeout`
@@ -404,12 +404,12 @@ needs = ["tools"]
 - `--list` shows `needs` per gate; `--json` has a `needs` array.
 
 A failure stops its group only. `--fail-fast` or top-level `fail-fast = true`
-(flag wins; default off) interrupts every still-running gate in every group
+(flag wins; default off) cancels every still-running gate in every group
 on the first non-allowed failure (SIGINT to the group, SIGKILL after the
-grace; those gates are `interrupted` and still get a log trailer). The
+grace; those gates are `cancelled` and still get a log trailer). The
 aggregate is that failure, not Interrupted. `allow-failure` does not trigger
-it. Skipped gates are named, have no verdict, and do not change the exit
-status.
+it. Gates that never started are skipped, have no verdict, and do not change
+the exit status.
 
 ## `gate doctor`
 

@@ -322,6 +322,9 @@ type gateResult struct {
 	// is not a failure and must never be reported as one -- the same
 	// distinction a timeout gets, for the same reason.
 	interrupted bool
+	// cancelled is an interrupt that --fail-fast caused, reported as
+	// cancelled rather than as the user-signal INTERRUPTED line.
+	cancelled bool
 
 	// started records that gate reached the exec, so a gate that produced a
 	// verdict of its own -- including "could not run" -- is told apart from
@@ -897,8 +900,12 @@ func reportOutcome(res gateResult, opts options, quote func(io.Writer, *lineTrac
 		// Stopped, not judged -- the same distinction a timeout gets. The
 		// status reported is the signal that reached gate, never the
 		// signal gate sent the child, which would name gate's own
-		// mechanism as the cause.
-		fmt.Fprintf(stderr, "gate: INTERRUPTED  %s  (stopped, not failed)\n", res.spec.short())
+		// mechanism as the cause. fail-fast's own stop is cancelled.
+		word := "INTERRUPTED"
+		if res.cancelled {
+			word = "cancelled"
+		}
+		fmt.Fprintf(stderr, "gate: %s  %s  (stopped, not failed)\n", word, res.spec.short())
 		quote(stderr, res.tracker)
 		fmt.Fprintf(stderr, "gate: partial log  %s\n", res.logPath)
 		return Interrupted
@@ -1080,6 +1087,7 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 		// the kill makes an interrupted gate look signalled, and it was not
 		// -- it was stopped.
 		res.interrupted = true
+		res.cancelled = opts.failFast
 		res.code = Interrupted
 	case runErr != nil && isNotFound(runErr):
 		res.notFound = true
