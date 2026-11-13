@@ -23,6 +23,20 @@ func overloaded(load float64, cpus int) bool {
 	return cpus > 0 && load > float64(cpus)
 }
 
+// loadForJobs is the load reader defaultJobs uses when neither -j nor
+// GATE_JOBS nor a config jobs key set a cap. A test replaces it.
+var loadForJobs = systemLoad
+
+// defaultJobs is the concurrency cap when the caller did not set one: none,
+// unless the 1-minute loadavg exceeds nproc, then nproc/2 (at least 1).
+func defaultJobs(read func() (float64, int)) int {
+	load, cpus := read()
+	if !overloaded(load, cpus) {
+		return 0
+	}
+	return max(1, cpus/2)
+}
+
 // loadWaiter holds a run back while the machine is oversubscribed, reporting
 // the wait once.
 type loadWaiter struct {

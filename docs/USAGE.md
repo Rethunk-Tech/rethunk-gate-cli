@@ -337,7 +337,8 @@ MDBOOK_VERSION = "0.4"
 Gate keys: `run`, `serial`, `needs`, `timeout`, `dir`, `env`, `allow-failure`, `e2e`.
 Outside: `budget`, `jobs`, `fail-fast`, `[detect] exclude`. `run` is a shell string (`sh` / `cmd`).
 `timeout` is the same grammar as `--timeout` (`5m`, `90s`, `1m30s`, `0`).
-`jobs` is an integer >= 1 (no cap when absent). `fail-fast` is a bool
+`jobs` is an integer >= 1 (no cap when absent, unless the 1-minute loadavg
+exceeds nproc, then nproc/2). `fail-fast` is a bool
 (default off). Unknown keys, bad durations,
 and a bad `jobs` refuse the file.
 
@@ -371,9 +372,11 @@ Concurrent by default; nothing infers order. `--serial` for the run, or
 `serial = true` on gates that need another's *result* (`build` before `test`;
 Next `build` and `typecheck` both write `.next`). Cache contention is not a
 reason. `--serial` beats the file; `serial = false` turns off a user default
-(absent ≠ false). `--jobs N` or top-level `jobs = N` caps how many gates run
-at once across groups that would otherwise overlap; serial groups and turbo
-edges keep their order. Flag wins. N>=1; a bad value is exit 129.
+(absent ≠ false). `-j N`, `--jobs N`, `GATE_JOBS`, or top-level `jobs = N` caps how many gates
+run at once across groups that would otherwise overlap; serial groups and turbo
+edges keep their order. Flag wins, then `GATE_JOBS`, then the file. N>=1; a
+bad value is exit 129. With none of those, there is no cap unless the
+1-minute loadavg exceeds nproc, in which case the cap is nproc/2.
 
 ## `needs`
 

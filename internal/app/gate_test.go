@@ -486,8 +486,34 @@ func TestJobsCapsConcurrency(t *testing.T) {
 	if n := peak(t, "", "--jobs", "2"); n > 2 {
 		t.Errorf("--jobs 2 ran %d gates at once", n)
 	}
+	if n := peak(t, "", "-j", "2"); n > 2 {
+		t.Errorf("-j 2 ran %d gates at once", n)
+	}
 	if n := peak(t, "jobs = 2\n\n"); n > 2 {
 		t.Errorf("jobs = 2 ran %d gates at once", n)
+	}
+}
+
+func TestGATEJOBSCapsConcurrency(t *testing.T) {
+	t.Setenv("GATE_JOBS", "0")
+	_, stderr, code := runGateTest(t, "--log", tempLog(t), "true")
+	qt.Check(t, qt.Equals(code, InvalidUsage), qt.Commentf("GATE_JOBS=0 = %d, stderr = %q", code, stderr))
+	qt.Check(t, qt.StringContains(stderr, "GATE_JOBS"), qt.Commentf("stderr = %q", stderr))
+
+	t.Setenv("GATE_JOBS", "2")
+	root := t.TempDir()
+	qt.Assert(t, qt.IsNil(os.Mkdir(filepath.Join(root, "active"), 0o700)))
+	qt.Assert(t, qt.IsNil(os.Mkdir(filepath.Join(root, "seen"), 0o700)))
+	var b strings.Builder
+	for i := range 3 {
+		run := fmt.Sprintf(`touch active/%[1]d; i=0; max=0; while [ "$i" -lt 40 ]; do n=$(ls -1 active | wc -l); n=$((n)); if [ "$n" -gt "$max" ]; then max=$n; fi; i=$((i+1)); done; echo "$max" > seen/%[1]d; rm -f active/%[1]d`, i)
+		fmt.Fprintf(&b, "[gates.g%d]\nrun = %q\n\n", i, run)
+	}
+	testutil.Write(t, root, ".gate.toml", b.String())
+	_, errBuf, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", errBuf))
+	if n := peakSeen(t, filepath.Join(root, "seen")); n > 2 {
+		t.Errorf("GATE_JOBS=2 ran %d gates at once", n)
 	}
 }
 

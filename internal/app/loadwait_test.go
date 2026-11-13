@@ -59,3 +59,11 @@ func TestNilLoadWaiterDoesNotWait(t *testing.T) {
 	var w *loadWaiter
 	w.wait(t.Context())
 }
+
+func TestDefaultJobsFollowsLoad(t *testing.T) {
+	t.Parallel()
+	qt.Check(t, qt.Equals(defaultJobs(func() (float64, int) { return 1, 8 }), 0))
+	qt.Check(t, qt.Equals(defaultJobs(func() (float64, int) { return 8, 8 }), 0))
+	qt.Check(t, qt.Equals(defaultJobs(func() (float64, int) { return 9, 8 }), 4))
+	qt.Check(t, qt.Equals(defaultJobs(func() (float64, int) { return 3, 1 }), 1))
+}

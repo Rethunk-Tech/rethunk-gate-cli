@@ -32,10 +32,12 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic(err)
 	}
-	// A suite on a loaded host must not sit in the load wait.
+	// A suite on a loaded host must not sit in the load wait, or have its
+	// overlap tests serialised by the load-aware jobs default.
 	if err := os.Setenv(loadWaitOffEnv, "1"); err != nil {
 		panic(err)
 	}
+	loadForJobs = func() (float64, int) { return 0, 1 }
 	for k, v := range map[string]string{
 		"XDG_STATE_HOME":  filepath.Join(dir, "state"),
 		"XDG_CONFIG_HOME": filepath.Join(dir, "config"),

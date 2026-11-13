@@ -76,7 +76,8 @@ Flags:
   --fail-fast   interrupt every still-running gate when one fails
                 (default off; allow-failure does not trigger it;
                 .gate.toml: fail-fast = true; this flag wins)
-  --jobs N      run at most N gates at once (default: no cap; N>=1;
+  -j, --jobs N  run at most N gates at once (GATE_JOBS; default: no cap, or
+                nproc/2 when 1-minute loadavg exceeds nproc; N>=1;
                 .gate.toml: jobs = N; this flag wins)
   --failed      re-run only the gates that failed, timed out, or errored last time
                 (reads this root's result record; missing, stale, or none: exit 129)
@@ -226,14 +227,16 @@ func (st *runState) defineFlags(flags *flag.FlagSet) {
 	})
 	flags.Func("timeout", "", durationFlag(func(d time.Duration) { st.timeout, st.timeoutSet = d, true }))
 	flags.Func("budget", "", durationFlag(func(d time.Duration) { st.budget, st.budgetSet = d, true }))
-	flags.Func("jobs", "", func(value string) error {
+	setJobs := func(value string) error {
 		n, err := strconv.Atoi(value)
 		if err != nil || n < 1 {
 			return fmt.Errorf("wants an integer >= 1, got %q", value)
 		}
 		opts.jobs, st.jobsSet = n, true
 		return nil
-	})
+	}
+	flags.Func("jobs", "", setJobs)
+	flags.Func("j", "", setJobs)
 }
 
 // parseFlags returns the arguments left after gate's own flags. ok is false
@@ -298,6 +301,16 @@ func (st *runState) finalizeFlags(stderr io.Writer) (code Code, ok bool) {
 	if st.refuseFix {
 		fmt.Fprintln(stderr, "gate: --fix is not a flag; run `gate fix`")
 		return InvalidUsage, false
+	}
+	if !st.jobsSet {
+		if v := os.Getenv("GATE_JOBS"); v != "" {
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 1 {
+				fmt.Fprintf(stderr, "gate: GATE_JOBS wants an integer >= 1, got %q\n", v)
+				return InvalidUsage, false
+			}
+			opts.jobs, st.jobsSet = n, true
+		}
 	}
 	return Success, true
 }
@@ -790,6 +803,8 @@ func (st *runState) applyConfig(cfg config.Config, roles []string) {
 	}
 	if cfg.HasJobs && !st.jobsSet {
 		opts.jobs = cfg.Jobs
+	} else if !st.jobsSet {
+		opts.jobs = defaultJobs(loadForJobs)
 	}
 	if cfg.HasFailFast && !st.failFastSet {
 		opts.failFast = cfg.FailFast
