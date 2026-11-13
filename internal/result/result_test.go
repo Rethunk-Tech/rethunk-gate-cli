@@ -341,7 +341,9 @@ func TestReadPathsCoversRawRecords(t *testing.T) {
 	// A raw record's path follows its header, a deletion has nothing left to
 	// hash, and every untracked path is hashed.
 	worktree := ":100644 100644 aaa bbb M\x00edit\x00:100644 100644 aaa 000 D\x00gone\x00:000000 100644 000 aaa A\x00added\x00"
-	qt.Assert(t, qt.DeepEquals(readPaths([]byte(worktree), []byte("c\x00")), []string{"edit", "added", "c"}))
+	paths, submodules := readPaths([]byte(worktree), []byte("c\x00"))
+	qt.Assert(t, qt.DeepEquals(paths, []string{"edit", "added", "c"}))
+	qt.Assert(t, qt.HasLen(submodules, 0))
 }
 
 func TestAppendDurationsKeepsTheNewest(t *testing.T) {
@@ -353,4 +355,34 @@ func TestAppendDurationsKeepsTheNewest(t *testing.T) {
 	got := LoadDurations(root)["test"]
 	qt.Check(t, qt.HasLen(got, maxSamples))
 	qt.Check(t, qt.Equals(got[len(got)-1], int64(maxSamples+2)))
+}
+
+// A dirty submodule is one raw diff-files line whose ids do not move as its
+// files do, and hash-object cannot hash a directory. Its own tree has to be
+// read instead, even where .gitmodules asks git to ignore it.
+func TestReadTreeFollowsADirtySubmodule(t *testing.T) {
+	t.Parallel()
+	sub := t.TempDir()
+	subGit := gitFixture(t, sub)
+	testutilWrite(t, sub, "f", "a\n")
+	subGit("add", "f")
+	subGit("commit", "--quiet", "-m", "sub")
+	repo := t.TempDir()
+	git := gitFixture(t, repo)
+	git("-c", "protocol.file.allow=always", "submodule", "add", "--quiet", sub, "sub")
+	git("config", "-f", ".gitmodules", "submodule.sub.ignore", "all")
+	git("add", ".gitmodules")
+	git("commit", "--quiet", "-m", "first")
+
+	testutilWrite(t, repo, "sub/f", "b\n")
+	dirty := ReadTree(t.Context(), repo)
+	qt.Assert(t, qt.IsTrue(dirty.OK), qt.Commentf("a dirty submodule left the tree unreadable"))
+	qt.Check(t, qt.IsTrue(dirty.Dirty))
+
+	testutilWrite(t, repo, "sub/f", "c\n")
+	again := ReadTree(t.Context(), repo)
+	qt.Check(t, qt.Not(qt.Equals(again.Status, dirty.Status)), qt.Commentf("an edit inside the submodule did not move the hash"))
+
+	testutilWrite(t, repo, "sub/new", "u\n")
+	qt.Check(t, qt.Not(qt.Equals(ReadTree(t.Context(), repo).Status, again.Status)), qt.Commentf("an untracked file inside the submodule did not move the hash"))
 }

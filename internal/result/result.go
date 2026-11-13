@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -88,11 +89,13 @@ func ReadTree(ctx context.Context, root string) State {
 	root = strings.TrimSpace(string(top))
 	// Index against HEAD, then the worktree against the index: both raw, so a
 	// changed file is named by ids rather than by diffed content.
-	staged, ok := git(nil, "diff-index", "--cached", "--raw", "-z", "HEAD")
+	// Submodules are never ignored here: .gitmodules and diff.ignoreSubmodules
+	// are the repository's to set, and hiding a dirty one hides an input.
+	staged, ok := git(nil, "diff-index", "--cached", "--raw", "-z", "--ignore-submodules=none", "HEAD")
 	if !ok {
 		return State{}
 	}
-	worktree, ok := git(nil, "diff-files", "--raw", "-z")
+	worktree, ok := git(nil, "diff-files", "--raw", "-z", "--ignore-submodules=none")
 	if !ok {
 		return State{}
 	}
@@ -100,9 +103,22 @@ func ReadTree(ctx context.Context, root string) State {
 	if !ok {
 		return State{}
 	}
-	blobs, ok := hashChanged(readPaths(worktree, untracked), git)
+	paths, submodules := readPaths(worktree, untracked)
+	blobs, ok := hashChanged(paths, git)
 	if !ok {
 		return State{}
+	}
+	// A changed submodule's raw line keeps the same ids while its files
+	// change, so its own tree is read and hashed in its place.
+	for _, sub := range submodules {
+		if !worktreePath(sub) {
+			return State{}
+		}
+		inner := ReadTree(ctx, filepath.Join(root, sub))
+		if !inner.OK {
+			return State{}
+		}
+		blobs = fmt.Appendf(blobs, "%s %s %s\n", sub, inner.Head, inner.Status)
 	}
 	return State{
 		Head:   strings.TrimSpace(string(head)),
@@ -176,9 +192,10 @@ type gitRead func(stdin []byte, args ...string) ([]byte, bool)
 // NUL-terminated path, and plumbing's diff-files detects no renames, so there
 // is never a second path. A deleted path is skipped: there is no file left to
 // hash, and the header's status already says it went. Its new blob id, where
-// there is one, is in the header the hash already covers.
-func readPaths(worktree, untracked []byte) []string {
-	var paths []string
+// there is one, is in the header the hash already covers. A submodule, whose
+// worktree mode is 160000, is a directory hash-object cannot read, so it is
+// returned apart.
+func readPaths(worktree, untracked []byte) (paths, submodules []string) {
 	for len(worktree) > 0 {
 		i := bytes.IndexByte(worktree, 0)
 		if i < 0 {
@@ -195,7 +212,11 @@ func readPaths(worktree, untracked []byte) []string {
 		}
 		p := string(worktree[:j])
 		worktree = worktree[j+1:]
-		if !strings.HasPrefix(string(header[bytes.LastIndexByte(header, ' ')+1:]), "D") {
+		switch fields := bytes.Fields(header); {
+		case strings.HasPrefix(string(header[bytes.LastIndexByte(header, ' ')+1:]), "D"):
+		case len(fields) > 1 && string(fields[1]) == "160000":
+			submodules = append(submodules, p)
+		default:
 			paths = append(paths, p)
 		}
 	}
@@ -204,7 +225,7 @@ func readPaths(worktree, untracked []byte) []string {
 			paths = append(paths, string(p))
 		}
 	}
-	return paths
+	return paths, submodules
 }
 
 // hashChanged is the concatenated stdout of `git hash-object --no-filters`
