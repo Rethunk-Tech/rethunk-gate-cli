@@ -505,6 +505,10 @@ Filename is command plus a random suffix. **0600 in a 0700 directory**.
 `--log PATH` is one file; several gates refuse it. That parent is the
 caller's (0755 if created, never 0700, never swept).
 
+When any step failed, the report ends with one line per failure,
+`gate: failed: <name> -> <full log path>`, after the summary, so
+`tail -3` names what failed and where.
+
 `--version` names timeout, budget, log directory, retention. Own-directory
 logs older than **14 days** are swept at most once a day. `--log` paths are
 never swept.

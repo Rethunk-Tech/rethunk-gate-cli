@@ -844,7 +844,40 @@ func report(results []gateResult, opts options, stdout, stderr io.Writer) Code {
 	if sawTimeout {
 		writeTimeoutRemedy(stderr, killed)
 	}
+	writeFailedSteps(stderr, results)
 	return aggregate
+}
+
+// writeFailedSteps names each failure last, so tail of the report is enough
+// to see what failed and which log holds it.
+func writeFailedSteps(w io.Writer, results []gateResult) {
+	for _, res := range results {
+		name, log := failedStep(res)
+		if name == "" {
+			continue
+		}
+		fmt.Fprintf(w, "gate: failed: %s -> %s\n", name, log)
+	}
+}
+
+func failedStep(res gateResult) (name, log string) {
+	switch res.outcome() {
+	case outcomeRan:
+		if res.code == Success {
+			return "", ""
+		}
+	case outcomeTimedOut, outcomeNotFound, outcomeNoRun:
+	case outcomeInterrupted, outcomeSkipped:
+		return "", ""
+	}
+	if res.logPath == "" {
+		return "", ""
+	}
+	name = res.spec.short()
+	if name == "" {
+		name = res.spec.role
+	}
+	return name, res.logPath
 }
 
 // reportOutcome prints one gate's outcome and returns the status it carries.

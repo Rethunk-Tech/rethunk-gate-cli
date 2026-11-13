@@ -227,6 +227,18 @@ func TestAMultiLineRunKeepsOneTrailerAndOneVerdict(t *testing.T) {
 	body := readLog(t, logs[0])
 	qt.Check(t, qt.Equals(strings.Count(body, trailerPrefix), 1), qt.Commentf("log = %q", body))
 	qt.Check(t, qt.IsTrue(strings.HasSuffix(strings.TrimSuffix(body, "\n"), "exit 3")), qt.Commentf("log = %q", body))
+	qt.Check(t, qt.StringContains(lines[len(lines)-1], "gate: failed: echo one echo two exit 3 -> "))
+}
+
+func TestFailedStepsAreNamedLast(t *testing.T) {
+	t.Parallel()
+	root := gateProject(t, "exit 3", "exit 5")
+	_, stderr, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Code(3)), qt.Commentf("stderr = %q", stderr))
+	lines := strings.Split(strings.TrimSuffix(stderr, "\n"), "\n")
+	qt.Assert(t, qt.IsTrue(len(lines) >= 2), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.StringContains(lines[len(lines)-2], "gate: failed: exit 3 -> "))
+	qt.Check(t, qt.StringContains(lines[len(lines)-1], "gate: failed: exit 5 -> "))
 }
 
 // The guarantee the whole tool rests on. The summary is deliberately bounded
