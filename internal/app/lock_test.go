@@ -169,3 +169,33 @@ func TestActiveRootsExemptsTheParentsRepoLockFromAnotherWorktree(t *testing.T) {
 	_, ok = acquireWorkspaceLock(ctx, other, "repo", &bytes.Buffer{})
 	qt.Check(t, qt.IsTrue(ok), qt.Commentf("a child in another worktree waited on its parent's repo lock"))
 }
+
+// git older than 2.31 has no --path-format=absolute, so rev-parse fails and
+// the lock would otherwise key on the caller's directory instead of the
+// worktree top (and --git-common-dir would stay a relative `.git`).
+func rejectPathFormat(t *testing.T) {
+	t.Helper()
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		t.Skipf("no git to shim: %v", err)
+	}
+	dir := t.TempDir()
+	script := "#!/bin/sh\nfor a in \"$@\"; do\n  if [ \"$a\" = \"--path-format=absolute\" ]; then\n    exit 129\n  fi\ndone\nexec " + strconvQuote(gitPath) + " \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "git"), []byte(script), 0o755); err != nil { //nolint:gosec // fixture must be executable
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+func TestLockKeyWithoutPathFormatStillKeysTheWorktree(t *testing.T) {
+	rejectPathFormat(t)
+	root := lockTestRepo(t, "true")
+	sub := filepath.Join(root, "pkg")
+	qt.Assert(t, qt.IsNil(os.Mkdir(sub, 0o750)))
+
+	ctx := t.Context()
+	qt.Check(t, qt.Equals(lockKey(ctx, sub, ""), lockKey(ctx, root, "")),
+		qt.Commentf("a subdirectory keyed separately when git lacked --path-format"))
+	qt.Check(t, qt.Equals(lockKey(ctx, sub, "repo"), lockKey(ctx, root, "repo")),
+		qt.Commentf("repo scope keyed separately when git lacked --path-format"))
+}

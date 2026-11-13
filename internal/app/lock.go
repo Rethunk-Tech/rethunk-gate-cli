@@ -26,11 +26,16 @@ func lockKey(ctx context.Context, dir, scope string) string {
 	if scope == "repo" {
 		flag = "--git-common-dir"
 	}
-	cmd := exec.CommandContext(ctx, "git", "-C", dir, "rev-parse", "--path-format=absolute", flag) //nolint:gosec // fixed argv, dir is detected
-	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
 	key := dir
-	if out, err := cmd.Output(); err == nil {
-		key = strings.TrimSpace(string(out))
+	if out, ok := gitLockPath(ctx, dir, "--path-format=absolute", flag); ok {
+		key = out
+	} else if out, ok := gitLockPath(ctx, dir, flag); ok {
+		// git older than 2.31 has no --path-format; --git-common-dir
+		// is then relative to dir, not to this process.
+		key = out
+		if !filepath.IsAbs(key) {
+			key = filepath.Join(dir, key)
+		}
 	}
 	if abs, err := filepath.Abs(key); err == nil {
 		key = abs
@@ -39,6 +44,16 @@ func lockKey(ctx context.Context, dir, scope string) string {
 		key = resolved
 	}
 	return key
+}
+
+func gitLockPath(ctx context.Context, dir string, args ...string) (string, bool) {
+	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir, "rev-parse"}, args...)...) //nolint:gosec // fixed argv, dir is detected
+	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
+	out, err := cmd.Output()
+	if err != nil {
+		return "", false
+	}
+	return strings.TrimSpace(string(out)), true
 }
 
 func lockPath(key string) (string, error) {

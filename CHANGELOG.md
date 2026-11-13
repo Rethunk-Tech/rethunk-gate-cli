@@ -19,6 +19,7 @@ Notable changes to `gate`. The format follows
 ### Fixed
 
 - The unchanged-tree status hash includes skip-worktree and assume-unchanged files `git diff-files` is silent about, so a local edit there is not a stale pass.
+- The workspace lock still keys on the worktree when git is older than 2.31 (no `--path-format=absolute`).
 
 ## [0.6.10] - 2026-11-08
 
