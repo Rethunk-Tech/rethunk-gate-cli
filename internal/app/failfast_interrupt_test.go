@@ -39,3 +39,20 @@ func TestUserInterruptBeatsAFailFastFailure(t *testing.T) {
 	code := <-done
 	qt.Check(t, qt.Equals(code, Interrupted), qt.Commentf("stderr = %q", errBuf.String()))
 }
+
+// An interrupt that lands while no gate is running leaves the rest skipped
+// with nothing marked interrupted; the run is still not a pass.
+func TestInterruptBetweenGatesIsNotAPass(t *testing.T) {
+	t.Setenv("GATE_NO_LOAD_WAIT", "1")
+	root := t.TempDir()
+	marker := filepath.Join(root, "ran")
+	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
+	testutil.Write(t, root, ".gate.toml", "[gates.g0]\nrun = 'touch "+marker+"'\n")
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	var out, errBuf bytes.Buffer
+	code := Run(ctx, "v0.0.0-test", []string{"-C", root}, &out, &errBuf)
+	qt.Check(t, qt.IsFalse(exists(marker)))
+	qt.Check(t, qt.Equals(code, Interrupted), qt.Commentf("stderr = %q", errBuf.String()))
+}

@@ -463,6 +463,7 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 	if ctx.Err() != nil {
 		reason = "the run was interrupted"
 	}
+	unreached := false
 	for i := range results {
 		// ran, not a non-empty display: an empty argv is a legitimate gate
 		// whose display is the empty string, and reading that as "never
@@ -472,6 +473,7 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 		if !results[i].ran && !results[i].skipped {
 			results[i] = gateResult{spec: opts.gates[i], skipped: true, skipReason: reason}
 			stream.emit(results[i])
+			unreached = true
 		}
 	}
 	// Measured around the gates, not the report: the profile answers what
@@ -481,7 +483,9 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 	// ctx is the caller's, so an error here is a signal the user sent. A
 	// fail-fast cancel only cancels runCtx, and must not mask that signal.
 	userStop := ctx.Err() != nil
-	stopped := false
+	// A stop that landed between gates interrupts none of them, and the
+	// gates it kept from starting are only skips, which never fail a run.
+	stopped := unreached
 	for i := range results {
 		if results[i].interrupted {
 			stopped = true
