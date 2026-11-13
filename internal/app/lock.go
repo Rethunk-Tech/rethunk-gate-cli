@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -60,8 +61,9 @@ func lockPath(key string) (string, error) {
 // when ctx ended while waiting.
 func acquireWorkspaceLock(ctx context.Context, dir, scope string, stderr io.Writer) (release func(), ok bool) {
 	// An enclosing gate holds its own workspace's lock, and this run is one of
-	// its children; waiting on it would deadlock.
-	if len(activeRoots()) > 0 {
+	// its children; waiting on it would deadlock. Only that workspace is
+	// exempt: an unrelated one still needs its own lock.
+	if slices.Contains(activeRoots(), lockKey(ctx, dir, "")) {
 		return func() {}, true
 	}
 	path, err := lockPath(lockKey(ctx, dir, scope))

@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -39,9 +40,10 @@ func TestMain(m *testing.M) {
 	}
 	loadForJobs = func() (float64, int) { return 0, 1 }
 	// Parallel tests running in the package directory would otherwise all
-	// queue on one workspace lock; an enclosing-gate marker skips it, as it
-	// is when the suite runs under gate. The lock tests clear it themselves.
-	if err := os.Setenv(activeRootsVar, dir); err != nil {
+	// queue on one workspace lock; listing this checkout as an enclosing
+	// gate's root skips it, as it is when the suite runs under gate. The lock
+	// tests clear it themselves.
+	if err := os.Setenv(activeRootsVar, lockKey(context.Background(), ".", "")+"\n"+dir); err != nil {
 		panic(err)
 	}
 	for k, v := range map[string]string{

@@ -114,3 +114,19 @@ func TestReadOnlyCommandsTakeNoLock(t *testing.T) {
 		qt.Check(t, qt.IsFalse(strings.Contains(stderr.String(), "waiting")), qt.Commentf("%v", args))
 	}
 }
+
+func TestActiveRootsOnlyExemptsItsOwnWorkspace(t *testing.T) {
+	root := lockTestRepo(t, "true")
+	ctx, cancel := context.WithTimeout(t.Context(), 400*time.Millisecond)
+	defer cancel()
+	release := holdLock(t, t.Context(), root)
+	defer release()
+
+	t.Setenv(activeRootsVar, "/somewhere/else")
+	_, ok := acquireWorkspaceLock(ctx, root, "", &bytes.Buffer{})
+	qt.Check(t, qt.IsFalse(ok), qt.Commentf("an unrelated GATE_ACTIVE_ROOTS skipped the lock"))
+
+	t.Setenv(activeRootsVar, lockKey(t.Context(), root, ""))
+	_, ok = acquireWorkspaceLock(t.Context(), root, "", &bytes.Buffer{})
+	qt.Check(t, qt.IsTrue(ok))
+}
