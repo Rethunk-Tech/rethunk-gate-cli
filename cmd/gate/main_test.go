@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -86,6 +87,45 @@ func TestSIGTERMEndsGateWith143AndALogTrailer(t *testing.T) {
 	data, err := os.ReadFile(filepath.Clean(logPath))
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.StringContains(strings.TrimSpace(string(data)), "interrupted"))
+}
+
+// A closed terminal or a dropped ssh session sends gate SIGHUP. Its children
+// sit in process groups of their own, out of the terminal's reach, so unless
+// gate stops them they outlive it.
+func TestSIGHUPStopsTheGatedCommandsGroup(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "gate")
+	build := exec.CommandContext(t.Context(), "go", "build", "-o", bin, ".") //nolint:gosec // bin is a path under t.TempDir()
+	out, err := build.CombinedOutput()
+	qt.Assert(t, qt.IsNil(err), qt.Commentf("%s", out))
+
+	pidFile := filepath.Join(dir, "pid")
+	cmd := exec.CommandContext(t.Context(), bin, "--log", filepath.Join(dir, "gate.log"), "sh", "-c", "sleep 30 & echo $! > "+pidFile+"; wait") //nolint:gosec // binary built above from this package
+	qt.Assert(t, qt.IsNil(cmd.Start()))
+
+	var pid int
+	deadline := time.Now().Add(10 * time.Second)
+	for pid == 0 {
+		if data, err := os.ReadFile(filepath.Clean(pidFile)); err == nil && strings.HasSuffix(string(data), "\n") {
+			pid, _ = strconv.Atoi(strings.TrimSpace(string(data)))
+		}
+		if time.Now().After(deadline) {
+			_ = cmd.Process.Kill()
+			t.Fatal("the gated command never started")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
+	qt.Assert(t, qt.IsNil(cmd.Process.Signal(syscall.SIGHUP)))
+	_ = cmd.Wait()
+
+	gone := false
+	for deadline = time.Now().Add(5 * time.Second); !gone && time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		gone = errors.Is(syscall.Kill(pid, 0), syscall.ESRCH)
+	}
+	qt.Check(t, qt.IsTrue(gone), qt.Commentf("the gated command's child outlived gate"))
+	qt.Check(t, qt.Equals(cmd.ProcessState.ExitCode(), 128+int(syscall.SIGHUP)))
 }
 
 // A closed stdout is a reader that has seen enough, not a dead run. --stream

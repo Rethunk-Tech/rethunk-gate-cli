@@ -18,7 +18,9 @@ var version = "dev"
 
 func main() {
 	signals := make(chan os.Signal, 1)
-	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	// SIGHUP is a closed terminal or a dropped session: the children are in
+	// groups of their own, so it never reaches them unless gate passes it on.
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	os.Exit(int(run(os.Args[1:], os.Stdout, os.Stderr, signals)))
 }
 
@@ -48,7 +50,7 @@ func run(args []string, stdout, stderr io.Writer, signals chan os.Signal) app.Co
 			return
 		}
 		if num, ok := s.(syscall.Signal); ok {
-			received.Store(int32(num)) //nolint:gosec // only SIGINT and SIGTERM (2, 15) are registered with signal.Notify above
+			received.Store(int32(num)) //nolint:gosec // only SIGHUP, SIGINT and SIGTERM (1, 2, 15) are registered with signal.Notify above
 		}
 		cancel()
 		// Hand the signal back to the operating system, so a second Ctrl-C

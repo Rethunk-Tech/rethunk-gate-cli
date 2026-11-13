@@ -47,7 +47,7 @@ Breaking one of these is silent.
 Children sit in their **own** process group. Stop is SIGINT to the group, then
 SIGKILL after `stopGrace` (`runOne`, `signal_unix.go`). SIGINT, not SIGTERM:
 Playwright stops its `webServer` only on SIGINT; SIGTERM orphans it on the
-port. `main` catches SIGINT/SIGTERM, cancels, then hands the signal back so a
+port. `main` catches SIGINT/SIGTERM/SIGHUP, cancels, then hands the signal back so a
 second Ctrl-C still ends gate.
 
 ## Working directory
