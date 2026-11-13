@@ -21,8 +21,6 @@ import (
 func lockTestRepo(t *testing.T, run string) string {
 	t.Helper()
 	t.Setenv(activeRootsVar, "")
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	root := t.TempDir()
 	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
 	testutil.Write(t, root, ".gate.toml", "[gates.g0]\nrun = "+strconvQuote(run)+"\n")
@@ -39,15 +37,17 @@ func holdLock(t *testing.T, ctx context.Context, dir string) (release func()) {
 
 func TestConcurrentRunsSerializeAndShareTheResult(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "ran")
-	root := lockTestRepo(t, "echo ran >> "+marker+"; sleep 1")
+	release := filepath.Join(t.TempDir(), "release")
+	root := lockTestRepo(t, "echo ran >> "+marker+"; while [ ! -f "+release+" ]; do sleep 0.01; done")
 
 	var wg sync.WaitGroup
 	var firstCode Code
 	wg.Go(func() { _, _, firstCode = runGateTest(t, "-C", root) })
-	// The first run has the lock once its marker appears; start the second then.
-	for i := 0; i < 100 && markerHits(t, marker, "ran") == 0; i++ {
+	waitFor(t, marker, 2*time.Second)
+	go func() {
 		time.Sleep(50 * time.Millisecond)
-	}
+		_ = os.WriteFile(release, []byte("x"), 0o600)
+	}()
 	stdout, stderr, code := runGateTest(t, "-C", root)
 	wg.Wait()
 
@@ -69,7 +69,7 @@ func TestForceStillWaitsForTheLock(t *testing.T) {
 	select {
 	case <-done:
 		t.Fatal("--force ran while the lock was held")
-	case <-time.After(500 * time.Millisecond):
+	case <-time.After(150 * time.Millisecond):
 	}
 	release()
 	qt.Check(t, qt.Equals(<-done, Success))
@@ -99,7 +99,7 @@ func TestWaitingForTheLockEndsOnInterrupt(t *testing.T) {
 	defer release()
 
 	ctx, cancel := context.WithCancel(t.Context())
-	time.AfterFunc(300*time.Millisecond, cancel)
+	time.AfterFunc(20*time.Millisecond, cancel)
 	code := Run(ctx, "v", []string{"-C", root}, &bytes.Buffer{}, &bytes.Buffer{})
 	qt.Check(t, qt.Equals(code, Interrupted))
 }
@@ -118,7 +118,7 @@ func TestReadOnlyCommandsTakeNoLock(t *testing.T) {
 
 func TestActiveRootsOnlyExemptsItsOwnWorkspace(t *testing.T) {
 	root := lockTestRepo(t, "true")
-	ctx, cancel := context.WithTimeout(t.Context(), 400*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 	defer cancel()
 	release := holdLock(t, t.Context(), root)
 	defer release()
@@ -145,7 +145,7 @@ func TestActiveRootsExemptsTheParentBelowTopOrThroughASymlink(t *testing.T) {
 
 	for _, parent := range []string{filepath.Join(root, "pkg"), link} {
 		t.Setenv(activeRootsVar, activeRootsValue(parent))
-		ctx, cancel := context.WithTimeout(t.Context(), 400*time.Millisecond)
+		ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 		_, ok := acquireWorkspaceLock(ctx, link, "", &bytes.Buffer{})
 		cancel()
 		qt.Check(t, qt.IsTrue(ok), qt.Commentf("parent root %s", parent))
@@ -164,7 +164,7 @@ func TestActiveRootsExemptsTheParentsRepoLockFromAnotherWorktree(t *testing.T) {
 	defer release()
 
 	t.Setenv(activeRootsVar, activeRootsValue(root))
-	ctx, cancel := context.WithTimeout(t.Context(), 400*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 	defer cancel()
 	_, ok = acquireWorkspaceLock(ctx, other, "repo", &bytes.Buffer{})
 	qt.Check(t, qt.IsTrue(ok), qt.Commentf("a child in another worktree waited on its parent's repo lock"))

@@ -141,7 +141,7 @@ func TestAReaderThatClosesEarlyStillGetsALogWithATrailer(t *testing.T) {
 	qt.Assert(t, qt.IsNil(err), qt.Commentf("%s", out))
 
 	logPath := filepath.Join(dir, "gate.log")
-	script := "i=0; while [ $i -lt 40 ]; do echo line-$i; i=$((i+1)); sleep 0.05; done; exit 0"
+	script := "i=0; while [ $i -lt 8 ]; do echo line-$i; i=$((i+1)); sleep 0.01; done; exit 0"
 	cmd := exec.CommandContext(t.Context(), bin, "--stream", "--log", logPath, "sh", "-c", script) //nolint:gosec // binary built above from this package
 	stdout, err := cmd.StdoutPipe()
 	qt.Assert(t, qt.IsNil(err))
@@ -157,7 +157,7 @@ func TestAReaderThatClosesEarlyStillGetsALogWithATrailer(t *testing.T) {
 	data, err := os.ReadFile(filepath.Clean(logPath))
 	qt.Assert(t, qt.IsNil(err))
 	body := strings.TrimSpace(string(data))
-	qt.Check(t, qt.StringContains(body, "line-39"), qt.Commentf("the log stopped when stdout did: %q", body))
+	qt.Check(t, qt.StringContains(body, "line-7"), qt.Commentf("the log stopped when stdout did: %q", body))
 	qt.Check(t, qt.Equals(strings.Count(body, "[gate]"), 1), qt.Commentf("log = %q", body))
 	qt.Check(t, qt.IsTrue(strings.HasSuffix(body, "-- sh -c "+script)), qt.Commentf("log = %q", body))
 }

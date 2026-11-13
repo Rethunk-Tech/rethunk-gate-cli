@@ -15,14 +15,14 @@ import (
 // A real failure that lands while the user is interrupting must still exit
 // 130: fail-fast owns only the cancel it caused itself.
 func TestUserInterruptBeatsAFailFastFailure(t *testing.T) {
-	t.Setenv("GATE_NO_LOAD_WAIT", "1")
+	t.Parallel()
 	root := t.TempDir()
 	started := filepath.Join(root, "slow-started")
 	failed := filepath.Join(root, "fast-failed")
 	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
-	// slow outlives fail-fast's SIGINT by 1s, which is the window the user's Ctrl-C lands in.
+	// slow outlives fail-fast's SIGINT, which is the window the user's Ctrl-C lands in.
 	testutil.Write(t, root, ".gate.toml", "[gates.fast]\nrun = 'while [ ! -f "+started+" ]; do sleep 0.01; done; touch "+failed+"; exit 7'\n\n"+
-		"[gates.slow]\nrun = 'trap \"sleep 1; exit 0\" INT; touch "+started+"; while :; do sleep 0.05; done'\n")
+		"[gates.slow]\nrun = 'trap \"sleep 0.15; exit 0\" INT; touch "+started+"; while :; do sleep 0.01; done'\n")
 
 	ctx, cancel := context.WithCancel(t.Context())
 	var out, errBuf bytes.Buffer
@@ -30,10 +30,8 @@ func TestUserInterruptBeatsAFailFastFailure(t *testing.T) {
 	go func() {
 		done <- Run(ctx, "v0.0.0-test", []string{"-C", root, "--timeout", "0", "--fail-fast"}, &out, &errBuf)
 	}()
-	for !exists(failed) {
-		time.Sleep(10 * time.Millisecond)
-	}
-	time.Sleep(200 * time.Millisecond)
+	waitFor(t, failed, 2*time.Second)
+	time.Sleep(20 * time.Millisecond)
 	cancel()
 
 	code := <-done
@@ -43,7 +41,7 @@ func TestUserInterruptBeatsAFailFastFailure(t *testing.T) {
 // An interrupt that lands while no gate is running leaves the rest skipped
 // with nothing marked interrupted; the run is still not a pass.
 func TestInterruptBetweenGatesIsNotAPass(t *testing.T) {
-	t.Setenv("GATE_NO_LOAD_WAIT", "1")
+	t.Parallel()
 	root := t.TempDir()
 	marker := filepath.Join(root, "ran")
 	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")

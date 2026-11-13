@@ -27,7 +27,7 @@ func TestATimedOutGateRunsItsInterruptHandler(t *testing.T) {
 	script := "trap 'touch " + marker + "; exit 0' INT; sleep 10"
 
 	began := time.Now()
-	_, _, code := runGateTest(t, "--timeout", "200ms", "--log", tempLog(t), "sh", "-c", script)
+	_, _, code := runGateTest(t, "--timeout", "50ms", "--log", tempLog(t), "sh", "-c", script)
 	elapsed := time.Since(began)
 
 	qt.Assert(t, qt.Equals(code, TimedOut))
@@ -41,7 +41,7 @@ func TestAGateIgnoringSigintIsKilledAfterTheGrace(t *testing.T) {
 	// Not parallel: it rewrites stopGrace, and parallel tests only resume
 	// once every serial test, and this cleanup, has finished.
 	orig := stopGrace
-	stopGrace = 500 * time.Millisecond
+	stopGrace = 80 * time.Millisecond
 	t.Cleanup(func() { stopGrace = orig })
 	pidFile := filepath.Join(t.TempDir(), "pid")
 	// sh starts the background sleep with SIGINT ignored, so both the shell
@@ -49,7 +49,7 @@ func TestAGateIgnoringSigintIsKilledAfterTheGrace(t *testing.T) {
 	script := "trap '' INT; sleep 30 & echo $! > " + pidFile + "; wait"
 
 	began := time.Now()
-	_, _, code := runGateTest(t, "--timeout", "200ms", "--log", tempLog(t), "sh", "-c", script)
+	_, _, code := runGateTest(t, "--timeout", "50ms", "--log", tempLog(t), "sh", "-c", script)
 	elapsed := time.Since(began)
 
 	qt.Assert(t, qt.Equals(code, TimedOut))
@@ -79,7 +79,7 @@ func TestAnInstallIsBoundedAndItsWholeGroupStopped(t *testing.T) {
 	// Not parallel: it shortens the SIGINT-to-SIGKILL grace, which the
 	// install runner shares with the gate runner.
 	orig := stopGrace
-	stopGrace = 200 * time.Millisecond
+	stopGrace = 50 * time.Millisecond
 	t.Cleanup(func() { stopGrace = orig })
 
 	pidFile := filepath.Join(t.TempDir(), "pid")
@@ -92,7 +92,7 @@ func TestAnInstallIsBoundedAndItsWholeGroupStopped(t *testing.T) {
 	testutil.Write(t, root, "Makefile", "test:\n\ttrue\n")
 
 	began := time.Now()
-	_, stderr, code := runGateTest(t, "-C", root, "--timeout", "300ms")
+	_, stderr, code := runGateTest(t, "-C", root, "--timeout", "50ms")
 	elapsed := time.Since(began)
 
 	qt.Assert(t, qt.Equals(code, TimedOut), qt.Commentf("stderr = %q", stderr))

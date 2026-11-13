@@ -66,6 +66,17 @@ func exists(path string) bool {
 	return err == nil
 }
 
+func waitFor(t *testing.T, path string, d time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(d)
+	for !exists(path) {
+		if time.Now().After(deadline) {
+			t.Fatalf("%s never appeared", path)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
 // runGateTest drives Run directly with buffers.
 //
 // WARNING: never call this without either a command or a -C into a directory
@@ -172,7 +183,7 @@ func TestRunFailPropagatesExactExitCode(t *testing.T) {
 func TestAPassingCommandThatLeavesAWriterBehindStillPasses(t *testing.T) {
 	// Not parallel: it shortens stopGrace, the pipe wait this case sits out.
 	orig := stopGrace
-	stopGrace = 500 * time.Millisecond
+	stopGrace = 50 * time.Millisecond
 	t.Cleanup(func() { stopGrace = orig })
 	log := tempLog(t)
 
@@ -432,17 +443,17 @@ func gateProject(t *testing.T, commands ...string) string {
 func TestIndependentGatesOverlap(t *testing.T) {
 	t.Parallel()
 
-	root := gateProject(t, "sleep 0.4", "sleep 0.40")
+	root := gateProject(t, "sleep 0.15", "sleep 0.15")
 	started := time.Now()
 	_, stderr, code := runGateTest(t, "-C", root)
 	elapsed := time.Since(started)
 
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("gate = %d, stderr = %q", code, stderr))
-	// Two 0.4s gates: overlapped they finish near 0.4s, serialised near 0.8s.
+	// Two 0.15s gates: overlapped they finish near 0.15s, serialised near 0.3s.
 	// The threshold sits between the two rather than near either, so ordinary
 	// scheduling noise cannot decide the result.
-	if elapsed > 700*time.Millisecond {
-		t.Errorf("two 0.4s gates took %s, want them overlapped", elapsed)
+	if elapsed > 280*time.Millisecond {
+		t.Errorf("two 0.15s gates took %s, want them overlapped", elapsed)
 	}
 }
 
@@ -559,10 +570,10 @@ func TestEveryGateIsReportedAndTheFirstFailureWins(t *testing.T) {
 func TestReportFollowsDeclarationOrderNotFinishOrder(t *testing.T) {
 	t.Parallel()
 
-	root := gateProject(t, "sleep 0.3", "true")
+	root := gateProject(t, "sleep 0.05", "true")
 	stdout, stderr, code := runGateTest(t, "-C", root)
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("gate = %d, stderr = %q", code, stderr))
-	slow := strings.Index(stdout, "sleep 0.3")
+	slow := strings.Index(stdout, "sleep 0.05")
 	fast := strings.Index(stdout, "true")
 	if slow < 0 || fast < 0 {
 		t.Fatalf("stdout did not report both gates: %q", stdout)
@@ -1148,7 +1159,7 @@ func TestAnInterruptedGateIsStoppedNotFailedAndKeepsItsLog(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(t.Context())
 	script := "echo before-the-interrupt; (touch " + started +
-		"; sleep 0.4; touch " + orphan + "); sleep 10"
+		"; sleep 0.2; touch " + orphan + "); sleep 10"
 
 	var out, errBuf bytes.Buffer
 	done := make(chan Code, 1)
@@ -1159,8 +1170,7 @@ func TestAnInterruptedGateIsStoppedNotFailedAndKeepsItsLog(t *testing.T) {
 		}, &out, &errBuf)
 	}()
 
-	// Let the child get going, then interrupt.
-	time.Sleep(150 * time.Millisecond)
+	waitFor(t, started, 2*time.Second)
 	cancel()
 
 	code := <-done
@@ -1173,7 +1183,7 @@ func TestAnInterruptedGateIsStoppedNotFailedAndKeepsItsLog(t *testing.T) {
 		qt.Commentf("an interrupt was reported as a failure: %q", stderr))
 
 	qt.Assert(t, qt.IsTrue(exists(started)), qt.Commentf("the background child never ran, so nothing here is proven"))
-	time.Sleep(700 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 	qt.Check(t, qt.IsFalse(exists(orphan)), qt.Commentf("a process spawned by the gate survived the interrupt"))
 
 	// The log is the guarantee: an interrupted run still finishes its file.
@@ -1196,7 +1206,7 @@ func TestGatesNotStartedWhenInterruptedSayTheRunWasInterrupted(t *testing.T) {
 			[]string{"-C", root, "--serial", "--timeout", "0"}, &out, &errBuf)
 	}()
 
-	time.Sleep(150 * time.Millisecond)
+	time.Sleep(40 * time.Millisecond)
 	cancel()
 	<-done
 
@@ -1435,7 +1445,7 @@ func TestTimeoutReportsKilledNotFailed(t *testing.T) {
 	t.Parallel()
 	log := tempLog(t)
 
-	_, stderr, code := runGateTest(t, "--timeout", "300ms", "--log", log,
+	_, stderr, code := runGateTest(t, "--timeout", "50ms", "--log", log,
 		"sh", "-c", "echo before-the-kill; sleep 10")
 
 	qt.Assert(t, qt.Equals(code, TimedOut))
@@ -1462,7 +1472,7 @@ func TestTimeoutReportsKilledNotFailed(t *testing.T) {
 func TestALogFailureNeverMasksWhatHappenedToTheCommand(t *testing.T) {
 	t.Parallel()
 	res := gateResult{
-		spec:     gateSpec{argv: []string{"sleep", "10"}, display: "sleep 10", timeout: 300 * time.Millisecond},
+		spec:     gateSpec{argv: []string{"sleep", "10"}, display: "sleep 10", timeout: 50 * time.Millisecond},
 		code:     TimedOut,
 		started:  true,
 		timedOut: true,
@@ -1555,7 +1565,7 @@ func TestGateInsideItsTimeoutIsUnaffected(t *testing.T) {
 func TestTimeoutZeroDisablesTheLimit(t *testing.T) {
 	t.Parallel()
 	_, stderr, code := runGateTest(t, "--timeout", "0", "--log", tempLog(t),
-		"sh", "-c", "sleep 0.2")
+		"sh", "-c", "sleep 0.05")
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("gate = %d, stderr = %q", code, stderr))
 }
 
@@ -1573,14 +1583,14 @@ func TestTimeoutKillsTheWholeProcessGroup(t *testing.T) {
 	// ran cannot be mistaken for one that was killed -- without that, this
 	// test passes whether or not the kill works. It runs in the foreground
 	// because sh starts a background job with SIGINT ignored.
-	script := "(touch " + started + "; sleep 0.4; touch " + orphan + "); sleep 10"
-	_, _, code := runGateTest(t, "--timeout", "150ms", "--log", tempLog(t), "sh", "-c", script)
+	script := "(touch " + started + "; sleep 0.2; touch " + orphan + "); sleep 10"
+	_, _, code := runGateTest(t, "--timeout", "50ms", "--log", tempLog(t), "sh", "-c", script)
 	qt.Assert(t, qt.Equals(code, TimedOut))
 	qt.Assert(t, qt.IsTrue(exists(started)), qt.Commentf("the background child never ran, so nothing here is proven"))
 
-	// Long enough that a survivor would have fired -- it was due 400ms after
-	// a start that preceded the 150ms kill.
-	time.Sleep(700 * time.Millisecond)
+	// Long enough that a survivor would have fired -- it was due 200ms after
+	// a start that preceded the 50ms kill.
+	time.Sleep(300 * time.Millisecond)
 	qt.Check(t, qt.IsFalse(exists(orphan)), qt.Commentf("a process spawned by the gate survived the timeout kill"))
 }
 
@@ -1606,12 +1616,12 @@ func timeoutProject(t *testing.T, body string) string {
 // shape for: raising it for the run raises it for everything.
 func TestAGatesOwnTimeoutBoundsIt(t *testing.T) {
 	t.Parallel()
-	root := timeoutProject(t, "[gates.slow]\nrun = \"sleep 10\"\ntimeout = \"200ms\"\n")
+	root := timeoutProject(t, "[gates.slow]\nrun = \"sleep 10\"\ntimeout = \"50ms\"\n")
 
 	_, stderr, code := runGateTest(t, "-C", root)
 	qt.Assert(t, qt.Equals(code, TimedOut), qt.Commentf("gate = %d, stderr = %q", code, stderr))
 	// The gate's own limit, not the default, is what the report names.
-	qt.Check(t, qt.StringContains(stderr, "TIMEOUT after 200ms"))
+	qt.Check(t, qt.StringContains(stderr, "TIMEOUT after 50ms"))
 }
 
 // An absent key and a deliberate 0 mean opposite things, and the difference
@@ -1622,12 +1632,12 @@ func TestAGateTimeoutOfZeroDisablesTheLimitForThatGateAlone(t *testing.T) {
 	root := t.TempDir()
 	finished := filepath.Join(root, "unbounded-finished")
 	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
-	testutil.Write(t, root, ".gate.toml", "[gates.bounded]\nrun = \"sleep 10\"\ntimeout = \"150ms\"\n\n"+
-		"[gates.unbounded]\nrun = \"sleep 0.4; touch "+finished+"\"\ntimeout = \"0\"\n")
+	testutil.Write(t, root, ".gate.toml", "[gates.bounded]\nrun = \"sleep 10\"\ntimeout = \"50ms\"\n\n"+
+		"[gates.unbounded]\nrun = \"sleep 0.1; touch "+finished+"\"\ntimeout = \"0\"\n")
 
 	_, stderr, code := runGateTest(t, "-C", root)
 	qt.Assert(t, qt.Equals(code, TimedOut), qt.Commentf("gate = %d, stderr = %q", code, stderr))
-	qt.Check(t, qt.StringContains(stderr, "TIMEOUT after 150ms"))
+	qt.Check(t, qt.StringContains(stderr, "TIMEOUT after 50ms"))
 	// It outlived the sibling's limit by a wide margin, so a limit that leaked
 	// across gates would have killed it.
 	qt.Check(t, qt.IsTrue(exists(finished)),
@@ -1638,7 +1648,7 @@ func TestAGateTimeoutOfZeroDisablesTheLimitForThatGateAlone(t *testing.T) {
 // own key -- in both directions, which is why the file is proven to bite first.
 func TestTheTimeoutFlagBeatsAGatesOwnTimeout(t *testing.T) {
 	t.Parallel()
-	root := timeoutProject(t, "[gates.slow]\nrun = \"sleep 0.4\"\ntimeout = \"100ms\"\n")
+	root := timeoutProject(t, "[gates.slow]\nrun = \"sleep 0.08\"\ntimeout = \"20ms\"\n")
 
 	_, stderr, code := runGateTest(t, "-C", root)
 	qt.Assert(t, qt.Equals(code, TimedOut), qt.Commentf("the file's own timeout did not fire: %d, %q", code, stderr))
@@ -2218,7 +2228,7 @@ func TestTimeoutNamesItsRemedy(t *testing.T) {
 	root := t.TempDir()
 	testutil.Write(t, root, "Makefile", "test:\n\tsleep 10\n")
 
-	_, stderr, code := runGateTest(t, "-C", root, "--timeout", "300ms", "run", "test")
+	_, stderr, code := runGateTest(t, "-C", root, "--timeout", "50ms", "run", "test")
 	qt.Assert(t, qt.Equals(code, TimedOut), qt.Commentf("stderr = %q", stderr))
 	// The per-gate key, named with the gate it belongs to: one slow gate in a
 	// project of fast ones is the usual shape, and --timeout is the wrong
@@ -2232,7 +2242,7 @@ func TestTimeoutNamesItsRemedy(t *testing.T) {
 // pointing at one would be advice that cannot be taken.
 func TestTimeoutRemedyForAWrappedCommandNamesOnlyTheFlag(t *testing.T) {
 	t.Parallel()
-	_, stderr, code := runGateTest(t, "--timeout", "300ms", "--log", tempLog(t),
+	_, stderr, code := runGateTest(t, "--timeout", "50ms", "--log", tempLog(t),
 		"sh", "-c", "sleep 10")
 
 	qt.Assert(t, qt.Equals(code, TimedOut))
@@ -2247,7 +2257,7 @@ func TestTimeoutRemedyIsPrintedOncePerRun(t *testing.T) {
 	root := t.TempDir()
 	testutil.Write(t, root, "Makefile", "build:\n\tsleep 10\n\ntest:\n\tsleep 10\n")
 
-	_, stderr, _ := runGateTest(t, "-C", root, "--timeout", "300ms")
+	_, stderr, _ := runGateTest(t, "-C", root, "--timeout", "50ms")
 	qt.Check(t, qt.Equals(strings.Count(stderr, "raise it"), 1),
 		qt.Commentf("stderr = %q", stderr))
 }
@@ -2262,7 +2272,7 @@ func TestAllowedTimeoutStillPrintsRemedyAndStaysGreen(t *testing.T) {
 	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
 	testutil.Write(t, root, ".gate.toml", "[gates.a]\nrun = \"sleep 10\"\nallow-failure = true\n")
 
-	_, stderr, code := runGateTest(t, "-C", root, "--timeout", "300ms")
+	_, stderr, code := runGateTest(t, "-C", root, "--timeout", "50ms")
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("an allowed timeout failed the run: %q", stderr))
 	qt.Check(t, qt.StringContains(stderr, "TIMEOUT"), qt.Commentf("the kill went unreported: %q", stderr))
 	qt.Check(t, qt.StringContains(stderr, "allowed"), qt.Commentf("the report does not say the timeout was allowed: %q", stderr))
@@ -2889,7 +2899,7 @@ func TestListingShowsConfiguredSerial(t *testing.T) {
 func TestProfileNamesSlowestFirst(t *testing.T) {
 	t.Parallel()
 
-	root := gateProject(t, "sleep 0.3", "true")
+	root := gateProject(t, "sleep 0.05", "true")
 	stdout, stderr, code := runGateTest(t, "-C", root, "--profile")
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("gate = %d, stderr = %q", code, stderr))
 
@@ -2900,7 +2910,7 @@ func TestProfileNamesSlowestFirst(t *testing.T) {
 
 	_, slowest, found := strings.Cut(stderr, "gate: slowest ")
 	qt.Assert(t, qt.IsTrue(found), qt.Commentf("no slowest line: %q", stderr))
-	slow, fast := strings.Index(slowest, "sleep 0.3"), strings.Index(slowest, "true")
+	slow, fast := strings.Index(slowest, "sleep 0.05"), strings.Index(slowest, "true")
 	if slow < 0 || fast < 0 {
 		t.Fatalf("slowest line does not name both gates: %q", slowest)
 	}
@@ -3054,7 +3064,7 @@ func TestNDJSONCarriesConfiguredDirAndTimeout(t *testing.T) {
 
 func TestNDJSONTimeoutKillKeepsCode124(t *testing.T) {
 	t.Parallel()
-	root := timeoutProject(t, "[gates.slow]\nrun = \"sleep 10\"\ntimeout = \"200ms\"\n")
+	root := timeoutProject(t, "[gates.slow]\nrun = \"sleep 10\"\ntimeout = \"50ms\"\n")
 
 	stdout, stderr, code := runGateTest(t, "-C", root, "--ndjson")
 	qt.Assert(t, qt.Equals(code, TimedOut), qt.Commentf("stderr = %q", stderr))
@@ -3065,7 +3075,7 @@ func TestNDJSONTimeoutKillKeepsCode124(t *testing.T) {
 	qt.Check(t, qt.Equals(r.Status, "timeout"))
 	qt.Assert(t, qt.IsNotNil(r.Code))
 	qt.Check(t, qt.Equals(*r.Code, int(TimedOut)))
-	qt.Check(t, qt.Equals(r.Timeout, describeTimeout(200*time.Millisecond)))
+	qt.Check(t, qt.Equals(r.Timeout, describeTimeout(50*time.Millisecond)))
 }
 
 // --force-cache rewrites a `go test` gate so Go's own cache cannot answer
@@ -3519,7 +3529,7 @@ func TestNeedsOrdersAGateAfterItsNeed(t *testing.T) {
 
 	order := filepath.Join(t.TempDir(), "order")
 	root := needsProject(t, fmt.Sprintf(`[gates.a]
-run = "sleep 0.3; echo tools >> %[1]s"
+run = "sleep 0.05; echo tools >> %[1]s"
 
 [gates.b]
 run = "echo b >> %[1]s"

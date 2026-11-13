@@ -55,6 +55,7 @@ func runSuite(m *testing.M) int {
 	if err := os.Setenv(loadWaitOffEnv, "1"); err != nil {
 		panic(err)
 	}
+	lockPoll = 10 * time.Millisecond
 	loadForJobs = func() (float64, int) { return 0, 1 }
 	// Parallel tests running in the package directory would otherwise all
 	// queue on one workspace lock; listing this checkout as an enclosing

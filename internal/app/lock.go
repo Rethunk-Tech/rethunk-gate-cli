@@ -16,8 +16,8 @@ import (
 )
 
 // lockPoll is how often a waiting run retries; flock itself cannot be
-// interrupted by a context.
-const lockPoll = 100 * time.Millisecond
+// interrupted by a context. A var so the suite can shorten it.
+var lockPoll = 100 * time.Millisecond
 
 // lockKey names what a run is exclusive over: the git worktree root, or the
 // repository's common git dir for scope "repo". Outside git it is dir itself.
