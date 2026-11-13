@@ -55,12 +55,21 @@ func pinTempDir(env []string) []string {
 	return append(env, "TMPDIR="+dir, "GOTMPDIR="+dir)
 }
 
-func activeRootsValue(dir string) string {
-	root, err := filepath.Abs(dir)
-	if err != nil {
-		root = dir
+func activeRootsValue(dirs ...string) string {
+	roots := activeRoots()
+	for _, dir := range dirs {
+		if dir == "" {
+			continue
+		}
+		abs, err := filepath.Abs(dir)
+		if err != nil {
+			abs = dir
+		}
+		if !slices.Contains(roots, abs) {
+			roots = append(roots, abs)
+		}
 	}
-	return strings.Join(append(activeRoots(), root), "\n")
+	return strings.Join(roots, "\n")
 }
 
 // repoBoundEnv is the git state a hook runner exports to point git at one
@@ -86,8 +95,8 @@ func childEnviron() []string {
 	return out
 }
 
-func markRoot(dir string) []string {
-	return append(childEnviron(), activeRootsVar+"="+activeRootsValue(dir))
+func markRoot(dirs ...string) []string {
+	return append(childEnviron(), activeRootsVar+"="+activeRootsValue(dirs...))
 }
 
 // childPWD names the child's own directory: os/exec only sets PWD when Env is nil,
@@ -203,6 +212,10 @@ type gateSpec struct {
 	// run concurrently, and the working directory is process-global, so one
 	// chdir would apply to every gate in flight.
 	dir string
+
+	// root is the detected project. GATE_ACTIVE_ROOTS records this even when
+	// dir is a subdirectory, because the child's Detect walks up to it.
+	root string
 
 	// timeout bounds this gate alone. It sits here rather than on options
 	// so per-project configuration can set it per gate without the runner
@@ -966,7 +979,7 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 	// invariant.
 	cmd.WaitDelay = stopGrace
 	cmd.Dir = spec.dir
-	cmd.Env = childPWD(quickRaceExit(pinTempDir(markRoot(spec.dir))), spec.dir)
+	cmd.Env = childPWD(quickRaceExit(pinTempDir(markRoot(spec.root, spec.dir))), spec.dir)
 	// Appended after the process environment, so the gate wins over an
 	// inherited value the way a prefix on the command line would. os/exec
 	// keeps the last of duplicate keys, which is what makes appending an
@@ -976,7 +989,7 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 	for k, v := range spec.env {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}
-	cmd.Env = append(cmd.Env, activeRootsVar+"="+activeRootsValue(spec.dir),
+	cmd.Env = append(cmd.Env, activeRootsVar+"="+activeRootsValue(spec.root, spec.dir),
 		activeRunVar+"="+strconv.Itoa(os.Getpid())+" "+res.logPath)
 	cmd.Stdin = nil
 	// One writer for both streams, so interleaving in the log matches what a

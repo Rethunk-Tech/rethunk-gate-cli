@@ -889,6 +889,26 @@ func TestTheActiveProjectReachesTheChildEnvironment(t *testing.T) {
 	qt.Check(t, qt.StringContains(output, root), qt.Commentf("child did not see its project root in %s: %q", activeRootsVar, output))
 }
 
+// A configured dir is where the child runs, not the project it belongs to.
+// Detect walks up from that cwd, so GATE_ACTIVE_ROOTS must still name the
+// root or a nested `gate` re-enters the same project.
+func TestActiveRootsIncludeTheProjectRootWhenTheGateRunsInASubdir(t *testing.T) {
+	root := t.TempDir()
+	sub := filepath.Join(root, "empty-subdir")
+	if err := os.Mkdir(sub, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	testutil.Write(t, root, "Makefile", "test:\n\ttrue\n")
+	testutil.Write(t, root, ".gate.toml", "[gates.loop]\nrun = \"printenv GATE_ACTIVE_ROOTS\"\ndir = \"empty-subdir\"\n")
+	log := tempLog(t)
+
+	_, stderr, code := runGateTest(t, "-C", root, "--log", log, "run", "loop")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	output, _ := splitLog(t, log)
+	qt.Check(t, qt.IsTrue(slices.Contains(strings.Split(strings.TrimSuffix(output, "\n"), "\n"), root)),
+		qt.Commentf("child = %q", output))
+}
+
 // Go's test cache keys on the PWD a test reads through os.Getwd, so a child that
 // inherited gate's would miss the cache whenever gate started somewhere else.
 func TestTheChildPWDIsItsOwnDirectory(t *testing.T) {

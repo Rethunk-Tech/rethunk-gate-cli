@@ -824,7 +824,8 @@ func detectedSpec(g detect.Gate, cfg config.Config, root string) (gateSpec, erro
 		env:      maps.Clone(g.Env),
 		// The project's own commands only work at its root, which
 		// is not necessarily where the caller stood.
-		dir: root,
+		dir:  root,
+		root: root,
 	}
 	if g.Dir != "" {
 		spec.dir, spec.hasDir = g.Dir, true
@@ -940,6 +941,7 @@ func configOnlyGates(cfg config.Config, detected []gateSpec, roles []string, roo
 			role:       name,
 			source:     c.Source + " gates." + name,
 			dir:        root,
+			root:       root,
 		}
 		if err := applyDirAndAllow(&spec, name, c, root); err != nil {
 			return nil, err
