@@ -79,7 +79,7 @@ Flags:
   -j, --jobs N  run at most N gates at once (GATE_JOBS; default: no cap, or
                 nproc/2 when 1-minute loadavg exceeds nproc; N>=1;
                 .gate.toml: jobs = N; this flag wins)
-  --failed      re-run only the gates that failed, timed out, or errored last time
+  --failed      re-run only the gates that failed, timed out, errored, or were cancelled last time
                 (reads this root's result record; missing, stale, or none: exit 129)
   --e2e         also run the e2e gates a default run skips
   --force       run even when a fresh result record would skip

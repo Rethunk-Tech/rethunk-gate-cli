@@ -283,14 +283,14 @@ func sameRunGates(gates []gateSpec, stored []result) bool {
 
 func lastFailedName(g result) string {
 	switch g.Status {
-	case "fail", "timeout", "error":
+	case "fail", "timeout", "error", "cancelled":
 		return g.Name
 	}
 	return ""
 }
 
 // selectFailed keeps only the detected gates whose last record status was
-// fail, timeout, or error. Missing or stale records, and a last run with
+// fail, timeout, error, or cancelled. Missing or stale records, and a last run with
 // none of those statuses, are a no-op: 129, with the reason on stderr.
 func selectFailed(ctx context.Context, root string, opts *options, stderr io.Writer) Code {
 	rec, err := loadRecord(root)
