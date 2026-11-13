@@ -257,7 +257,9 @@ func skipUnchanged(ctx context.Context, root string, opts options, stdout io.Wri
 	}
 	state := stored.ReadTree(ctx, root)
 	fresh, _ := stored.Verdict(rec.Schema, rec.Head, rec.Status, rec.Partial, rec.Exit, state)
-	if !fresh || rec.Finished.IsZero() || time.Since(rec.Finished) >= unchangedAge {
+	// A finish time ahead of now means the clock stepped back since the run;
+	// the pass's age is unknowable, so it cannot stand in for a new run.
+	if age := time.Since(rec.Finished); !fresh || rec.Finished.IsZero() || age < 0 || age >= unchangedAge {
 		return false
 	}
 	if !sameRunGates(opts.gates, rec.Gates) {

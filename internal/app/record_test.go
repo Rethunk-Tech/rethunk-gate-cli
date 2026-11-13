@@ -798,6 +798,20 @@ func TestUnchangedTreeRunsWhenAged(t *testing.T) {
 	qt.Check(t, qt.Equals(markerHits(t, marker, "ran"), 2), qt.Commentf("an aged record was skipped"))
 }
 
+func TestUnchangedTreeRunsWhenRecordIsFromTheFuture(t *testing.T) {
+	root, marker := unchangedSkipRepo(t)
+	_, stderr, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+
+	rec := readRecord(t, root)
+	rec.Finished = time.Now().Add(2 * time.Hour)
+	qt.Assert(t, qt.IsNil(writeRecord(rec)))
+
+	_, stderr, code = runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.Equals(markerHits(t, marker, "ran"), 2), qt.Commentf("a record dated after now was skipped"))
+}
+
 func TestUnchangedTreeForceRuns(t *testing.T) {
 	root, marker := unchangedSkipRepo(t)
 	_, stderr, code := runGateTest(t, "-C", root)
