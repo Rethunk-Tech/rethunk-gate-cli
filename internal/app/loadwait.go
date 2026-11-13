@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -16,7 +17,20 @@ const (
 	loadWaitPoll  = time.Second
 	// loadWaitOffEnv disables the wait when set to anything non-empty.
 	loadWaitOffEnv = "GATE_NO_LOAD_WAIT"
+	// loadMaxEnv sets the wait ceiling as an absolute 1-minute load average.
+	loadMaxEnv = "GATE_MAX_LOAD"
+	// loadCeilingPerCPU is the default ceiling per CPU: a box runs gates fine
+	// well past load == nproc, and waiting at nproc stalls every run.
+	loadCeilingPerCPU = 3
 )
+
+// loadCeiling is the load above which a run waits.
+func loadCeiling(cpus int) float64 {
+	if v, err := strconv.ParseFloat(os.Getenv(loadMaxEnv), 64); err == nil && v > 0 {
+		return v
+	}
+	return float64(cpus * loadCeilingPerCPU)
+}
 
 // overloaded is the decision: the 1-minute load average exceeds the CPU count.
 func overloaded(load float64, cpus int) bool {
@@ -55,7 +69,7 @@ func newLoadWaiter(opts options, stderr io.Writer) *loadWaiter {
 }
 
 // wait holds the whole run back once, before its first gate: the first caller
-// polls until the load is at or under the CPU count, the bound has passed, or
+// polls until the load is at or under loadCeiling, the bound has passed, or
 // ctx ends, and every other caller blocks on that and then proceeds. Later
 // gates never wait, so load the run itself produced cannot delay it. A nil
 // waiter returns at once.
@@ -72,7 +86,7 @@ func (w *loadWaiter) poll1(ctx context.Context) {
 	var cpus int
 	for {
 		load, cpus = w.read()
-		if !overloaded(load, cpus) {
+		if cpus <= 0 || load <= loadCeiling(cpus) {
 			break
 		}
 		if time.Since(start) >= w.bound {

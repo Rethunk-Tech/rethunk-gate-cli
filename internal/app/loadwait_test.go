@@ -25,7 +25,7 @@ func TestLoadWaiterWaitsOncePerRun(t *testing.T) {
 		read: func() (float64, int) {
 			reads++
 			if reads <= 5 {
-				return 40, 32
+				return 120, 32
 			}
 			return 2, 32
 		},
@@ -33,7 +33,7 @@ func TestLoadWaiterWaitsOncePerRun(t *testing.T) {
 	w.wait(t.Context())
 	after := reads
 	// A later gate sees high load again but must not wait or announce.
-	w.read = func() (float64, int) { reads++; return 99, 32 }
+	w.read = func() (float64, int) { reads++; return 200, 32 }
 	w.wait(t.Context())
 	qt.Check(t, qt.Equals(reads, after))
 	qt.Check(t, qt.Equals(strings.Count(out.String(), "gate: waited "), 1))
@@ -52,6 +52,25 @@ func TestLoadWaiterBoundIsPerRun(t *testing.T) {
 	}
 	qt.Check(t, qt.IsTrue(time.Since(start) < 2*time.Second))
 	qt.Check(t, qt.Equals(strings.Count(out.String(), "gate: waited "), 1))
+}
+
+func TestLoadWaiterCeiling(t *testing.T) {
+	t.Setenv(loadMaxEnv, "")
+	qt.Check(t, qt.Equals(loadCeiling(32), 96.0))
+	t.Setenv(loadMaxEnv, "50.5")
+	qt.Check(t, qt.Equals(loadCeiling(32), 50.5))
+	t.Setenv(loadMaxEnv, "junk")
+	qt.Check(t, qt.Equals(loadCeiling(32), 96.0))
+
+	t.Setenv(loadMaxEnv, "")
+	var out bytes.Buffer
+	reads := 0
+	w := &loadWaiter{
+		stderr: &out, poll: time.Millisecond, bound: time.Minute,
+		read: func() (float64, int) { reads++; return 90, 32 },
+	}
+	w.wait(t.Context())
+	qt.Check(t, qt.Equals(reads, 1), qt.Commentf("load 90 of 32 cpus is under 3x and must not wait"))
 }
 
 func TestNilLoadWaiterDoesNotWait(t *testing.T) {

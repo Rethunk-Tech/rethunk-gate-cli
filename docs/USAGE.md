@@ -126,10 +126,10 @@ the child's output:
 
 ### Load wait
 
-Before each gate, while the 1-minute loadavg exceeds the CPU count, gate waits
-for a slot (polled each second, at most 2m per gate) and prints one
-`gate: waiting for load (L/N)` line to stderr. `--no-load-wait` or
-`GATE_NO_LOAD_WAIT=1` skips it. Linux only: no `/proc/loadavg`, no wait.
+Before the first gate, while the 1-minute loadavg exceeds 3 x the CPU count,
+gate waits (polled each second, at most 2m per run) and prints one
+`gate: waited T for load (L/N)` line to stderr. `GATE_MAX_LOAD=<load>` sets the
+ceiling absolutely. `--no-load-wait` or `GATE_NO_LOAD_WAIT=1` skips it. Linux only: no `/proc/loadavg`, no wait.
 
 ### Budget and `--profile`
 
