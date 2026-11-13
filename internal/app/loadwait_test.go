@@ -86,3 +86,35 @@ func TestDefaultJobsFollowsLoad(t *testing.T) {
 	qt.Check(t, qt.Equals(defaultJobs(func() (float64, int) { return 9, 8 }), 4))
 	qt.Check(t, qt.Equals(defaultJobs(func() (float64, int) { return 3, 1 }), 1))
 }
+
+func TestPoll1ReturnsHowLongItWaited(t *testing.T) {
+	t.Parallel()
+	reads := 0
+	w := &loadWaiter{
+		stderr: &bytes.Buffer{}, poll: 5 * time.Millisecond, bound: time.Minute,
+		read: func() (float64, int) {
+			reads++
+			if reads <= 3 {
+				return 120, 32
+			}
+			return 2, 32
+		},
+	}
+	w.wait(t.Context())
+	qt.Check(t, qt.IsTrue(w.waitedFor() >= 10*time.Millisecond))
+	var nilWaiter *loadWaiter
+	qt.Check(t, qt.Equals(nilWaiter.waitedFor(), time.Duration(0)))
+}
+
+func TestWaitedNote(t *testing.T) {
+	t.Parallel()
+	qt.Check(t, qt.Equals(waitedNote(0), ""))
+	qt.Check(t, qt.Equals(waitedNote(12*time.Second), " (waited 12s for load)"))
+}
+
+func TestDoubled(t *testing.T) {
+	t.Parallel()
+	qt.Check(t, qt.Equals(doubled(time.Minute), "2m"))
+	qt.Check(t, qt.Equals(doubled(90*time.Second), "3m"))
+	qt.Check(t, qt.Equals(doubled(25*time.Second), "50s"))
+}

@@ -66,6 +66,10 @@ type record struct {
 	// same run.
 	Fingerprint string `json:"fingerprint,omitempty"`
 
+	// LoadWaitMs is how long the run waited for the machine to quiet down
+	// before its first gate; the budget judges wall time minus this.
+	LoadWaitMs int64 `json:"load_wait_ms,omitempty"`
+
 	// Gates are the same objects --ndjson emits, in declaration order.
 	Gates []result `json:"gates"`
 }

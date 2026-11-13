@@ -59,6 +59,7 @@ type loadWaiter struct {
 	poll   time.Duration
 	bound  time.Duration
 	once   sync.Once
+	waited time.Duration
 }
 
 func newLoadWaiter(opts options, stderr io.Writer) *loadWaiter {
@@ -77,10 +78,26 @@ func (w *loadWaiter) wait(ctx context.Context) {
 	if w == nil {
 		return
 	}
-	w.once.Do(func() { w.poll1(ctx) })
+	w.once.Do(func() { w.waited = w.poll1(ctx) })
 }
 
-func (w *loadWaiter) poll1(ctx context.Context) {
+// waitedFor is how long the run's one wait took; read it after the gates
+// finished. A nil waiter never waited.
+func (w *loadWaiter) waitedFor() time.Duration {
+	if w == nil {
+		return 0
+	}
+	return w.waited
+}
+
+func waitedNote(d time.Duration) string {
+	if d < time.Second {
+		return ""
+	}
+	return fmt.Sprintf(" (waited %s for load)", d.Round(time.Second))
+}
+
+func (w *loadWaiter) poll1(ctx context.Context) time.Duration {
 	start := time.Now()
 	var load float64
 	var cpus int
@@ -94,11 +111,13 @@ func (w *loadWaiter) poll1(ctx context.Context) {
 		}
 		select {
 		case <-ctx.Done():
-			return
+			return time.Since(start)
 		case <-time.After(w.poll):
 		}
 	}
-	if elapsed := time.Since(start); elapsed >= w.poll {
+	elapsed := time.Since(start)
+	if elapsed >= w.poll {
 		fmt.Fprintf(w.stderr, "gate: waited %s for load (%.1f/%d)\n", elapsed.Round(time.Second), load, cpus)
 	}
+	return elapsed
 }

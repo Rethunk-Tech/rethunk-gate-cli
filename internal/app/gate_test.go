@@ -2223,7 +2223,8 @@ func TestTimeoutNamesItsRemedy(t *testing.T) {
 	// The per-gate key, named with the gate it belongs to: one slow gate in a
 	// project of fast ones is the usual shape, and --timeout is the wrong
 	// tool for it.
-	qt.Check(t, qt.StringContains(stderr, `timeout = "5m"`))
+	qt.Check(t, qt.StringContains(stderr, `timeout = "1s"`))
+	qt.Check(t, qt.Not(qt.StringContains(stderr, "--timeout 5m")))
 	qt.Check(t, qt.StringContains(stderr, "[gates.test]"))
 }
 

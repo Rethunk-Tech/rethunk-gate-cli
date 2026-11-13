@@ -139,7 +139,7 @@ Gates that never ran are omitted. Refused beside `--list`, `--json`, `doctor`,
 
 A pass over budget still exits 0 and names the three slowest. Default 10s, or
 2m when an e2e gate ran. `--budget D` or top-level `budget = "15s"` replaces
-it (flag wins); `0` silences it. A named command has no budget.
+it (flag wins); `0` silences it. A named command has no budget. Time spent waiting for load before the first gate is not counted; the line says `(waited Ns for load)` and the record keeps `load_wait_ms`.
 
 ### Cache awareness
 
@@ -484,10 +484,12 @@ Windows: killed outright. Why SIGINT: [AGENTS.md](../AGENTS.md#interrupts).
 
 ```console
 gate: TIMEOUT after 1m0s  make test  (killed, not failed)
-gate: raise it for that gate alone with timeout = "5m" under [gates.test] in .gate.toml, or --timeout 5m for the whole run
+gate: raise it for that gate alone: .gate.toml [gates.test] timeout = "2m"
 ```
 
 With no `timeout` key and no `--timeout`, the limit is the gate's p95 passing duration (last 20 uncached runs, kept beside the result record) times 2, never under 60s, multiplied by 1-minute loadavg/nproc (max 4) when above 1. An `ok` line shows it when it is not 60s.
+
+Gates run with `GORACE=atexit_sleep_ms=0` unless `GORACE` is already set, so a race-built test binary skips its default 1 s sleep at exit.
 
 `--timeout` is every gate; `.gate.toml` `timeout` is one. Absent inherits;
 `timeout = "0"` removes the limit. `--timeout 0` disables for the run.

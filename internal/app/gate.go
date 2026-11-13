@@ -499,14 +499,15 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 	}
 	// A warning, never a verdict: the command's status is the verdict, and
 	// a slow pass is still a pass.
-	if code == Success && opts.budget > 0 && wall > opts.budget {
+	waited := sc.loads.waitedFor()
+	if busy := wall - waited; code == Success && opts.budget > 0 && busy > opts.budget {
 		_, _, slowest := profile(results)
-		fmt.Fprintf(stderr, "gate: wall %s is over the %s budget; slowest %s\n",
-			wall.Round(time.Millisecond), opts.budget, slowest)
+		fmt.Fprintf(stderr, "gate: wall %s is over the %s budget; slowest %s%s\n",
+			busy.Round(time.Millisecond), opts.budget, slowest, waitedNote(waited))
 	}
 	if opts.root != "" {
 		if state := <-tree; state.OK {
-			saveRecord(stderr, opts, results, state, started, wall, code)
+			saveRecord(stderr, opts, results, state, started, wall, waited, code)
 		}
 	}
 	return code
@@ -515,12 +516,12 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 // saveRecord writes the run's result record. Reported, never fatal: the
 // record is a convenience for other tools, and the run's own status is the
 // verdict.
-func saveRecord(stderr io.Writer, opts options, results []gateResult, state stored.State, started time.Time, wall time.Duration, code Code) {
+func saveRecord(stderr io.Writer, opts options, results []gateResult, state stored.State, started time.Time, wall, waited time.Duration, code Code) {
 	rec := record{
 		Schema: recordSchema, Root: stored.Canonical(opts.root), Head: state.Head, Dirty: state.Dirty, Status: state.Status,
 		Partial: opts.partial, Started: started, Finished: started.Add(wall), Exit: int(code),
-		Fingerprint: gatesFingerprint(opts.gates),
-		Gates:       make([]result, 0, len(results)),
+		Fingerprint: gatesFingerprint(opts.gates), LoadWaitMs: waited.Milliseconds(),
+		Gates: make([]result, 0, len(results)),
 	}
 	for _, res := range results {
 		rec.Gates = append(rec.Gates, toResult(res))
@@ -820,7 +821,7 @@ func report(results []gateResult, opts options, stdout, stderr io.Writer) Code {
 	}
 	// The first gate a limit killed, for the remedy printed once at the end.
 	// A run where three gates overran has one thing to say, not three.
-	killed, sawTimeout := "", false
+	killed, killedAfter, sawTimeout := "", time.Duration(0), false
 	// Fail-fast interrupts are collateral of a command's own failure.
 	// They must not become the aggregate -- that verdict is the first
 	// non-allowed failure -- the way a user signal's Interrupted must.
@@ -828,7 +829,7 @@ func report(results []gateResult, opts options, stdout, stderr io.Writer) Code {
 	for _, res := range results {
 		code := reportOutcome(res, opts, quote, stdout, stderr)
 		if res.outcome() == outcomeTimedOut && !sawTimeout {
-			killed, sawTimeout = res.spec.role, true
+			killed, killedAfter, sawTimeout = res.spec.role, res.spec.timeout, true
 		}
 
 		// Said out loud whatever else happened to this gate: losing a log is
@@ -861,7 +862,7 @@ func report(results []gateResult, opts options, stdout, stderr io.Writer) Code {
 		}
 	}
 	if sawTimeout {
-		writeTimeoutRemedy(stderr, killed)
+		writeTimeoutRemedy(stderr, killed, killedAfter)
 	}
 	writeFailedSteps(stderr, results)
 	return aggregate
@@ -984,12 +985,23 @@ func reportRan(res gateResult, opts options, quote func(io.Writer, *lineTracker)
 // A gate with a role has a home in .gate.toml, which is where a project's one
 // genuinely slow gate belongs; a command the caller named has none, so only
 // the flag applies to it.
-func writeTimeoutRemedy(w io.Writer, role string) {
+func writeTimeoutRemedy(w io.Writer, role string, limit time.Duration) {
 	if role == "" {
 		fmt.Fprintln(w, "gate: raise it with --timeout 5m, or --timeout 0 to run with no limit")
 		return
 	}
-	fmt.Fprintf(w, "gate: raise it for that gate alone with timeout = \"5m\" under [gates.%s] in .gate.toml, or --timeout 5m for the whole run\n", role)
+	// A suggested --timeout gets passed on every later run and overrides the
+	// p95-based limit of gates that need none, so the advice stays per gate.
+	fmt.Fprintf(w, "gate: raise it for that gate alone: .gate.toml [gates.%s] timeout = %q\n", role, doubled(limit))
+}
+
+// doubled is twice limit, rounded up to a whole second, in the config grammar.
+func doubled(limit time.Duration) string {
+	secs := int64((2*limit + time.Second - 1) / time.Second)
+	if secs%60 == 0 {
+		return fmt.Sprintf("%dm", secs/60)
+	}
+	return fmt.Sprintf("%ds", secs)
 }
 
 // stopGrace is how long a timed-out or interrupted gate has between SIGINT
