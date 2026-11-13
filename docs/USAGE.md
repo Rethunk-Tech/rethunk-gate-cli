@@ -599,7 +599,7 @@ No record for a named command, a non-git tree, or a repo with no commit.
 | `schema` | Bumped on any change a reader has to know about |
 | `head` | `git rev-parse HEAD` at the start of the run |
 | `dirty` | a raw `git diff-index --cached HEAD`, `git diff-files`, or `git ls-files --others` was non-empty (untracked counts) |
-| `status` | SHA-256 of raw `diff-index --cached HEAD`, raw `diff-files`, raw `ls-files --others`, then `git hash-object --no-filters` (never `-w`) of every changed and untracked path, scoped to the project root |
+| `status` | SHA-256 of raw `diff-index --cached HEAD`, raw `diff-files`, raw `ls-files --others`, then `git hash-object --no-filters` (never `-w`) of every changed and untracked path, over the whole worktree even for a project below the top |
 | `partial` | `gate run <names>` — not the whole project |
 | `exit` | gate's exit for the run |
 | `gates` | Declaration order; each object is an `--ndjson` line |

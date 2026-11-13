@@ -54,10 +54,9 @@ type Loaded struct {
 // driver to run, so every read below sees raw bytes. What the hash covers is
 // then the file on disk and nothing the repository configured.
 //
-// Paths git prints are relative to the repository top whatever directory the
-// read ran in, so the prefix a subdirectory adds is stripped before a path is
-// hashed. Without that, a project root below the top named files that do not
-// exist from there and every read failed.
+// The read covers the whole worktree even for a project below the top: its
+// gates read sibling packages, a go.work replace, a lint config at the top,
+// and a change there changes their result.
 func ReadTree(ctx context.Context, root string) State {
 	// The empty tree in this repository's own object format: sha1 repos and
 	// sha256 repos name it differently, and only git can say which this is.
@@ -81,27 +80,27 @@ func ReadTree(ctx context.Context, root string) State {
 	if !ok {
 		return State{}
 	}
-	prefix, ok := git(nil, "rev-parse", "--show-prefix")
+	top, ok := git(nil, "rev-parse", "--show-toplevel")
 	if !ok {
 		return State{}
 	}
+	// git reads root on each call, so every read below runs from the top.
+	root = strings.TrimSpace(string(top))
 	// Index against HEAD, then the worktree against the index: both raw, so a
 	// changed file is named by ids rather than by diffed content.
-	staged, ok := git(nil, "diff-index", "--cached", "--raw", "-z", "HEAD", "--", ".")
+	staged, ok := git(nil, "diff-index", "--cached", "--raw", "-z", "HEAD")
 	if !ok {
 		return State{}
 	}
-	worktree, ok := git(nil, "diff-files", "--raw", "-z", "--", ".")
+	worktree, ok := git(nil, "diff-files", "--raw", "-z")
 	if !ok {
 		return State{}
 	}
-	// --full-name, because ls-files alone answers relative to the directory
-	// it ran in while the two diffs answer relative to the top.
-	untracked, ok := git(nil, "ls-files", "--full-name", "-z", "--others", "--exclude-standard", "--", ".")
+	untracked, ok := git(nil, "ls-files", "-z", "--others", "--exclude-standard")
 	if !ok {
 		return State{}
 	}
-	blobs, ok := hashChanged(string(prefix), readPaths(worktree, untracked), git)
+	blobs, ok := hashChanged(readPaths(worktree, untracked), git)
 	if !ok {
 		return State{}
 	}
@@ -209,31 +208,28 @@ func readPaths(worktree, untracked []byte) []string {
 }
 
 // hashChanged is the concatenated stdout of `git hash-object --no-filters`
-// over paths, which git prints relative to the repository top while they were
-// read from root. prefix is what root adds to that, and is what makes a
-// monorepo root below the top name a file that exists from there. No -w: the
-// object database is not modified.
+// over paths, relative to the repository top. No -w: the object database is
+// not modified.
 //
 // The whole list goes in one `--stdin-paths` call, which is the difference
 // between one git spawn and one per fifty files on a tree with a large
 // unignored build directory. A path carrying a newline cannot be one line of
 // that list and is hashed from argv instead.
-func hashChanged(prefix string, paths []string, git gitRead) ([]byte, bool) {
+func hashChanged(paths []string, git gitRead) ([]byte, bool) {
 	if len(paths) == 0 {
 		return nil, true
 	}
 	var stdin []byte
 	var argv []string
 	for _, p := range paths {
-		rel := strings.TrimPrefix(p, prefix)
-		if !worktreePath(rel) {
+		if !worktreePath(p) {
 			return nil, false
 		}
-		if strings.ContainsRune(rel, '\n') {
-			argv = append(argv, rel)
+		if strings.ContainsRune(p, '\n') {
+			argv = append(argv, p)
 			continue
 		}
-		stdin = append(append(stdin, rel...), '\n')
+		stdin = append(append(stdin, p...), '\n')
 	}
 	var buf bytes.Buffer
 	if len(stdin) > 0 {

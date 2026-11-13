@@ -13,30 +13,30 @@ import (
 	"github.com/go-quicktest/qt"
 )
 
-// A project root below the git top names paths git prints from the top. Each
-// read must stay scoped to root, and the prefix it adds must come off again,
-// or the record is never written at all.
-func TestReadTreeHashesAProjectBelowTheGitTop(t *testing.T) {
+// A project below the git top still reads the rest of the worktree: a sibling
+// workspace package, a go.work replace, a lint config at the top. A change
+// there changes the gate's result, so it must move the hash too.
+func TestReadTreeHashesTheWholeWorktreeForAProjectBelowTheTop(t *testing.T) {
 	t.Parallel()
 	repo := t.TempDir()
 	git := gitFixture(t, repo)
 	testutilWrite(t, repo, "svc/keep", "a\n")
+	testutilWrite(t, repo, "shared/lib", "a\n")
 	git("add", ".")
 	git("commit", "--quiet", "-m", "first")
 	root := filepath.Join(repo, "svc")
-	// One dirty file inside the project and one outside it: the read must
-	// stay readable and must still see the one inside.
-	testutilWrite(t, repo, "outside", "x\n")
 	testutilWrite(t, repo, "svc/inside", "x\n")
 
 	state := ReadTree(t.Context(), root)
 	qt.Assert(t, qt.IsTrue(state.OK), qt.Commentf("a root below the top left the tree unreadable"))
 	qt.Check(t, qt.IsTrue(state.Dirty))
-	qt.Check(t, qt.Not(qt.Equals(state.Status, ReadTree(t.Context(), repo).Status)), qt.Commentf("a project below the top hashes its own tree, not the repository's"))
 
-	clean := state
 	testutilWrite(t, repo, "svc/inside", "y\n")
-	qt.Check(t, qt.Not(qt.Equals(ReadTree(t.Context(), root).Status, clean.Status)), qt.Commentf("content inside the project did not move the hash"))
+	inside := ReadTree(t.Context(), root)
+	qt.Check(t, qt.Not(qt.Equals(inside.Status, state.Status)), qt.Commentf("content inside the project did not move the hash"))
+
+	testutilWrite(t, repo, "shared/lib", "b\n")
+	qt.Check(t, qt.Not(qt.Equals(ReadTree(t.Context(), root).Status, inside.Status)), qt.Commentf("a tracked file outside the project did not move the hash"))
 }
 
 // A repository must not get to name a program this read runs. .gitattributes
@@ -141,25 +141,11 @@ func TestHashChangedRejectsEscapingPaths(t *testing.T) {
 		{path: "/etc/passwd", ok: false},
 		{path: ".", ok: false},
 	} {
-		_, ok := hashChanged("", []string{c.path}, func([]byte, ...string) ([]byte, bool) {
+		_, ok := hashChanged([]string{c.path}, func([]byte, ...string) ([]byte, bool) {
 			return nil, true
 		})
 		qt.Check(t, qt.Equals(ok, c.ok), qt.Commentf("path %q", c.path))
 	}
-}
-
-// The hash covers the file on disk, so what git is asked to hash is the path
-// from the repository top with the prefix this root adds stripped off.
-func TestHashChangedStripsTheRootPrefix(t *testing.T) {
-	t.Parallel()
-	var got []string
-	out, ok := hashChanged("svc/", []string{"svc/a", "svc/b"}, func(stdin []byte, args ...string) ([]byte, bool) {
-		got = append(got, args...)
-		return stdin, true
-	})
-	qt.Assert(t, qt.IsTrue(ok))
-	qt.Check(t, qt.DeepEquals(got, []string{"hash-object", "--no-filters", "--stdin-paths"}))
-	qt.Check(t, qt.Equals(string(out), "a\nb\n"))
 }
 
 // One hash-object call for the whole list: a build directory that is not
@@ -236,7 +222,7 @@ func gitShim(t *testing.T, subcommand string) func() int {
 func TestHashChangedSendsNewlinePathsThroughArgv(t *testing.T) {
 	t.Parallel()
 	var calls [][]string
-	_, ok := hashChanged("", []string{"new\nline", "plain"}, func(_ []byte, args ...string) ([]byte, bool) {
+	_, ok := hashChanged([]string{"new\nline", "plain"}, func(_ []byte, args ...string) ([]byte, bool) {
 		calls = append(calls, args)
 		return []byte("x"), true
 	})
