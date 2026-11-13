@@ -504,7 +504,8 @@ func saveRecord(stderr io.Writer, opts options, results []gateResult, state stor
 	rec := record{
 		Schema: recordSchema, Root: stored.Canonical(opts.root), Head: state.Head, Dirty: state.Dirty, Status: state.Status,
 		Partial: opts.partial, Started: started, Finished: started.Add(wall), Exit: int(code),
-		Gates: make([]result, 0, len(results)),
+		Fingerprint: gatesFingerprint(opts.gates),
+		Gates:       make([]result, 0, len(results)),
 	}
 	for _, res := range results {
 		rec.Gates = append(rec.Gates, toResult(res))

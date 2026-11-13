@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -58,6 +60,11 @@ type record struct {
 	Started  time.Time `json:"started"`
 	Finished time.Time `json:"finished"`
 	Exit     int       `json:"exit"`
+
+	// Fingerprint hashes each gate's argv, dir and env, so a changed command
+	// (in an ignored .gate.toml or the user config) is not mistaken for the
+	// same run.
+	Fingerprint string `json:"fingerprint,omitempty"`
 
 	// Gates are the same objects --ndjson emits, in declaration order.
 	Gates []result `json:"gates"`
@@ -262,7 +269,7 @@ func skipUnchanged(ctx context.Context, root string, opts options, stdout io.Wri
 	if age := time.Since(rec.Finished); !fresh || rec.Finished.IsZero() || age < 0 || age >= unchangedAge {
 		return false
 	}
-	if !sameRunGates(opts.gates, rec.Gates) {
+	if !sameRunGates(opts.gates, rec.Gates) || rec.Fingerprint != gatesFingerprint(opts.gates) {
 		return false
 	}
 	if !opts.quiet {
@@ -281,6 +288,21 @@ func sameRunGates(gates []gateSpec, stored []result) bool {
 		}
 	}
 	return true
+}
+
+// gatesFingerprint hashes everything that decides what each gate runs.
+func gatesFingerprint(gates []gateSpec) string {
+	h := sha256.New()
+	enc := json.NewEncoder(h)
+	for _, g := range gates {
+		// Marshalling a map sorts its keys, so the hash is stable.
+		_ = enc.Encode(struct {
+			Argv []string          `json:"argv"`
+			Dir  string            `json:"dir"`
+			Env  map[string]string `json:"env"`
+		}{g.argv, g.dir, g.env})
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 func lastFailedName(g result) string {
