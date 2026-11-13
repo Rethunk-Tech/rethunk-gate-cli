@@ -101,3 +101,23 @@ func TestUnchangedTreeRunsWhenAnIgnoredDotenvChanges(t *testing.T) {
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
 	qt.Check(t, qt.Equals(markerHits(t, marker, "ran"), 2), qt.Commentf("a changed .env.local was skipped"))
 }
+
+// The fingerprint is of what the run started with, like the tree: an input
+// that changes while the gates run was never tested, so the next run must not
+// skip on it.
+func TestUnchangedTreeRunsWhenAnInputChangedDuringTheRun(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	root := t.TempDir()
+	marker := filepath.Join(root, "ran")
+	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
+	testutil.Write(t, root, ".gitignore", ".env.local\nran\n")
+	testutil.Write(t, root, ".env.local", "API=one\n")
+	testutil.Write(t, root, ".gate.toml", "[gates.g0]\nrun = \"echo ran >> "+marker+"; sleep 1; echo API=two > .env.local\"\n")
+	committedRepo(t, root)
+	_, stderr, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+
+	_, stderr, code = runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.Equals(markerHits(t, marker, "ran"), 2), qt.Commentf("an input changed mid-run was skipped"))
+}

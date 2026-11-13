@@ -430,10 +430,15 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 	started := time.Now()
 	// Read beside the gates rather than before them: it costs a git spawn or
 	// two, and the median run is short enough for that to show. A gate that
-	// rewrites the tree within those milliseconds is the ceiling.
-	tree := make(chan stored.State, 1)
+	// rewrites the tree within those milliseconds is the ceiling. The
+	// fingerprint is read with it, so both describe what the run started on.
+	type startState struct {
+		tree        stored.State
+		fingerprint string
+	}
+	tree := make(chan startState, 1)
 	if opts.root != "" {
-		go func() { tree <- stored.ReadTree(ctx, opts.root) }()
+		go func() { tree <- startState{stored.ReadTree(ctx, opts.root), gatesFingerprint(ctx, opts.gates)} }()
 	}
 	sc := groupRun{loads: newLoadWaiter(opts, stderr), opts: opts, results: results, stream: stream, needed: resolveNeeds(opts.gates), done: make([]chan struct{}, len(opts.gates))}
 	for i := range sc.done {
@@ -513,8 +518,8 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 			busy.Round(time.Millisecond), opts.budget, slowest, waitedNote(waited))
 	}
 	if opts.root != "" {
-		if state := <-tree; state.OK {
-			saveRecord(ctx, stderr, opts, results, state, started, wall, waited, code)
+		if at := <-tree; at.tree.OK {
+			saveRecord(stderr, opts, results, at.tree, at.fingerprint, started, wall, waited, code)
 		}
 	}
 	return code
@@ -523,11 +528,11 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 // saveRecord writes the run's result record. Reported, never fatal: the
 // record is a convenience for other tools, and the run's own status is the
 // verdict.
-func saveRecord(ctx context.Context, stderr io.Writer, opts options, results []gateResult, state stored.State, started time.Time, wall, waited time.Duration, code Code) {
+func saveRecord(stderr io.Writer, opts options, results []gateResult, state stored.State, fingerprint string, started time.Time, wall, waited time.Duration, code Code) {
 	rec := record{
 		Schema: recordSchema, Root: stored.Canonical(opts.root), Head: state.Head, Dirty: state.Dirty, Status: state.Status,
 		Partial: opts.partial, Started: started, Finished: started.Add(wall), Exit: int(code),
-		Fingerprint: gatesFingerprint(ctx, opts.gates), LoadWaitMs: waited.Milliseconds(),
+		Fingerprint: fingerprint, LoadWaitMs: waited.Milliseconds(),
 		Gates: make([]result, 0, len(results)),
 	}
 	for _, res := range results {
