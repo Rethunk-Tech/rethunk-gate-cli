@@ -742,13 +742,17 @@ func (st *runState) buildGates(ctx context.Context, proj detect.Project, cfg con
 			return s.Note == note && cfg.Gates[s.Role].Run != ""
 		})
 	})
+	include := roles
+	if len(roles) > 0 {
+		include, _ = expandNeeds(roles, cfg)
+	}
 	for _, g := range proj.Gates {
 		if note := leftOutNote(cfg, proj.Root, g); note != "" {
 			project.Notes = append(project.Notes, note)
 			project.Installs = slices.DeleteFunc(slices.Clone(project.Installs), func(in detect.Install) bool { return in.Dir == g.Dir })
 			continue
 		}
-		if len(roles) > 0 && !slices.Contains(roles, g.Name) {
+		if len(include) > 0 && !slices.Contains(include, g.Name) {
 			continue
 		}
 		spec, err := detectedSpec(g, cfg, proj.Root)
@@ -759,7 +763,7 @@ func (st *runState) buildGates(ctx context.Context, proj detect.Project, cfg con
 		opts.gates = append(opts.gates, spec)
 	}
 
-	extra, err := configOnlyGates(cfg, opts.gates, roles, proj.Root)
+	extra, err := configOnlyGates(cfg, opts.gates, include, proj.Root)
 	if err != nil {
 		fmt.Fprintf(stderr, "gate: %v\n", err)
 		return project, InvalidUsage, false
@@ -800,6 +804,12 @@ func (st *runState) buildGates(ctx context.Context, proj detect.Project, cfg con
 	var merged []string
 	opts.gates, merged = dedupe(opts.gates)
 	project.Notes = append(project.Notes, merged...)
+	if len(roles) > 0 {
+		opts.gates = orderGates(opts.gates, include)
+		if pulled := pulledNeeds(opts.gates, roles); len(pulled) > 0 {
+			fmt.Fprintf(stderr, "gate: also running %s\n", strings.Join(pulled, ", "))
+		}
+	}
 
 	if opts.failed {
 		if code := selectFailed(ctx, proj.Root, opts, stderr); code != Success {
@@ -939,6 +949,70 @@ func applyDirAndAllow(spec *gateSpec, name string, c config.Gate, root string) e
 		spec.allowFailure = c.AllowFailure
 	}
 	return nil
+}
+
+// expandNeeds returns the named gates plus every gate they need, transitively,
+// in dependency order: a need before the gates that wait on it, original
+// relative order otherwise. extra is the names that were not asked for.
+func expandNeeds(named []string, cfg config.Config) (order, extra []string) {
+	if len(named) == 0 {
+		return nil, nil
+	}
+	seen := make(map[string]bool, len(named)+len(cfg.Gates))
+	var visit func(string)
+	visit = func(name string) {
+		if seen[name] {
+			return
+		}
+		seen[name] = true
+		for _, n := range cfg.Gates[name].Needs {
+			visit(n)
+		}
+		order = append(order, name)
+	}
+	for _, name := range named {
+		visit(name)
+	}
+	asked := make(map[string]bool, len(named))
+	for _, name := range named {
+		asked[name] = true
+	}
+	for _, name := range order {
+		if !asked[name] {
+			extra = append(extra, name)
+		}
+	}
+	return order, extra
+}
+
+// orderGates sorts gates to match names, which is the dependency order
+// expandNeeds produced. Names that did not become a gate are skipped.
+func orderGates(gates []gateSpec, names []string) []gateSpec {
+	rank := make(map[string]int, len(names))
+	for i, name := range names {
+		rank[name] = i
+	}
+	out := slices.Clone(gates)
+	slices.SortStableFunc(out, func(a, b gateSpec) int {
+		return rank[a.role] - rank[b.role]
+	})
+	return out
+}
+
+// pulledNeeds names the gates a subset run added because a named gate needs
+// them, in the order they will run.
+func pulledNeeds(gates []gateSpec, named []string) []string {
+	asked := make(map[string]bool, len(named))
+	for _, name := range named {
+		asked[name] = true
+	}
+	var extra []string
+	for _, g := range gates {
+		if g.role != "" && !asked[g.role] {
+			extra = append(extra, g.role)
+		}
+	}
+	return extra
 }
 
 // unknownNeeds refuses a needs entry that names no gate this project has,

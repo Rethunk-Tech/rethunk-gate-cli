@@ -3582,11 +3582,25 @@ func TestNeedsRefusesACycle(t *testing.T) {
 	qt.Check(t, qt.StringContains(stderr, "wait on each other"), qt.Commentf("stderr = %q", stderr))
 }
 
-// `gate run a` carries no b, so a need on b is ignored rather than an error.
-func TestNeedsOnAGateOutsideTheRunIsIgnored(t *testing.T) {
+// `gate run step` still runs the gates step needs, even when those names
+// were not asked for, and in that dependency order.
+func TestNamedRunPullsInUnnamedNeeds(t *testing.T) {
 	t.Parallel()
 
-	root := needsProject(t, "[gates.a]\nrun = \"true\"\nneeds = [\"b\"]\n\n[gates.b]\nrun = \"exit 3\"\n")
-	_, stderr, code := runGateTest(t, "-C", root, "run", "a")
-	qt.Check(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	order := filepath.Join(t.TempDir(), "order")
+	root := needsProject(t, fmt.Sprintf(`[gates.a]
+run = "echo a >> %[1]s"
+
+[gates.b]
+run = "echo b >> %[1]s"
+needs = ["a"]
+
+[gates.step]
+run = "echo step >> %[1]s"
+needs = ["b"]
+`, order))
+	_, stderr, code := runGateTest(t, "-C", root, "run", "step")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.DeepEquals(strings.Fields(readLog(t, order)), []string{"a", "b", "step"}))
+	qt.Check(t, qt.StringContains(stderr, "also running a, b"), qt.Commentf("stderr = %q", stderr))
 }

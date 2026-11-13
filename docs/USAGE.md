@@ -333,6 +333,8 @@ convention losing to a declaration is silent.
 
 `gate run lint test` runs those two. One unknown name fails the whole run
 without running anything (`gate -- nosuch` for a program by that name).
+Unmet `needs` of the named gates are pulled in too, transitively, in
+dependency order, and printed (`gate: also running tools`).
 
 ## Configuration
 
@@ -424,8 +426,10 @@ needs = ["tools"]
 - A name must be a configured or detected gate: an unknown name refuses the
   file (exit 129), as does a cycle among configured gates. A nearer file's list
   replaces the further one's.
-- A needed gate this run does not carry (`gate run lint`, or an e2e gate left
-  out) is ignored, so `gate run lint` runs lint alone.
+- A named subset (`gate run lint`) also runs every unmet need, transitively,
+  in dependency order, and prints the extra names (`gate: also running tools`).
+  An e2e gate a default run skips is still left out; a need this run does not
+  carry is ignored.
 - Waiting that could never end, because a needed gate sits behind this one in a
   `serial` chain or under `--serial`, refuses the run (exit 129).
 - `--list` shows `needs` per gate; `--json` has a `needs` array.

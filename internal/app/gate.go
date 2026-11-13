@@ -210,8 +210,9 @@ type gateSpec struct {
 	serial bool
 
 	// needs names the gates (by role) that must pass before this one
-	// starts. A name no gate in this run carries is ignored, so
-	// `gate run lint` still runs lint alone.
+	// starts. A named subset pulls unmet needs into the run; a name
+	// this run still does not carry (an e2e gate a default run skips)
+	// is ignored.
 	needs []string
 
 	// dir is where this gate runs. Set per gate rather than by chdir: gates

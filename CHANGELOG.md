@@ -13,6 +13,7 @@ Notable changes to `gate`. The format follows
 
 ### Changed
 
+- A named subset (`gate run lint`) also runs the named gates' unmet `needs`, transitively, in dependency order, and prints the extra names.
 - The default gate timeout is derived per gate: its recent p95 passing duration times 2 (floor 60s), stretched by loadavg/nproc when the machine is oversubscribed. An explicit `timeout` or `--timeout` still wins; a derived limit shows in the `ok` line.
 - `doctor`'s `KnownGoodActionsTag` is `v1.24`, and `gate fix`'s tests read it rather than a literal tag.
 
