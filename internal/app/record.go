@@ -9,8 +9,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/detect"
@@ -273,7 +276,7 @@ func skipUnchanged(ctx context.Context, root string, opts options, stdout io.Wri
 	if age := time.Since(rec.Finished); !fresh || rec.Finished.IsZero() || age < 0 || age >= unchangedAge {
 		return false
 	}
-	if !sameRunGates(opts.gates, rec.Gates) || rec.Fingerprint != gatesFingerprint(opts.gates) {
+	if !sameRunGates(opts.gates, rec.Gates) || rec.Fingerprint != gatesFingerprint(ctx, opts.gates) {
 		return false
 	}
 	if !opts.quiet {
@@ -294,9 +297,71 @@ func sameRunGates(gates []gateSpec, stored []result) bool {
 	return true
 }
 
-// gatesFingerprint hashes everything that decides what each gate runs and
-// whether its failure counts.
-func gatesFingerprint(gates []gateSpec) string {
+// fingerprintEnvPrefixes and fingerprintEnv list the variables that change
+// what a build or test produces; documented in docs/USAGE.md.
+var (
+	fingerprintEnvPrefixes = []string{"CARGO_"}
+	fingerprintEnv         = []string{
+		"GOFLAGS", "CGO_ENABLED", "GOOS", "GOARCH", "GOEXPERIMENT", "GOTOOLCHAIN",
+		"NODE_ENV", "NODE_OPTIONS", "RUSTFLAGS", "CC", "CXX",
+	}
+)
+
+// toolVersionArgv maps a gate's program to the command that prints the version
+// of the toolchain it runs on.
+var toolVersionArgv = map[string][]string{
+	"go": {"go", "version"}, "bun": {"bun", "--version"}, "bunx": {"bun", "--version"},
+	"node": {"node", "--version"}, "npm": {"node", "--version"}, "npx": {"node", "--version"},
+	"pnpm": {"node", "--version"}, "yarn": {"node", "--version"},
+	"cargo": {"rustc", "--version"}, "rustc": {"rustc", "--version"},
+	"uv": {"uv", "--version"}, "uvx": {"uv", "--version"},
+	"python": {"python", "--version"}, "python3": {"python3", "--version"},
+}
+
+var (
+	toolVersionMu    sync.Mutex
+	toolVersionCache = map[string]string{}
+)
+
+// toolchainVersions returns the version output of each toolchain the gates
+// invoke, probed once per process.
+func toolchainVersions(ctx context.Context, gates []gateSpec) map[string]string {
+	out := map[string]string{}
+	for _, g := range gates {
+		if len(g.argv) == 0 {
+			continue
+		}
+		argv, ok := toolVersionArgv[filepath.Base(g.argv[0])]
+		if !ok {
+			continue
+		}
+		toolVersionMu.Lock()
+		v, seen := toolVersionCache[argv[0]]
+		if !seen {
+			b, _ := exec.CommandContext(ctx, argv[0], argv[1:]...).CombinedOutput()
+			v = strings.TrimSpace(string(b))
+			toolVersionCache[argv[0]] = v
+		}
+		toolVersionMu.Unlock()
+		out[argv[0]] = v
+	}
+	return out
+}
+
+func buildEnv() map[string]string {
+	out := map[string]string{}
+	for _, kv := range os.Environ() {
+		k, v, _ := strings.Cut(kv, "=")
+		if slices.Contains(fingerprintEnv, k) || slices.ContainsFunc(fingerprintEnvPrefixes, func(p string) bool { return strings.HasPrefix(k, p) }) {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+// gatesFingerprint hashes everything that decides what each gate runs, and
+// what it runs with: the toolchain versions and the build-affecting environment.
+func gatesFingerprint(ctx context.Context, gates []gateSpec) string {
 	h := sha256.New()
 	enc := json.NewEncoder(h)
 	for _, g := range gates {
@@ -308,6 +373,8 @@ func gatesFingerprint(gates []gateSpec) string {
 			AllowFailure bool              `json:"allow_failure"`
 		}{g.argv, g.dir, g.env, g.allowFailure})
 	}
+	_ = enc.Encode(toolchainVersions(ctx, gates))
+	_ = enc.Encode(buildEnv())
 	return hex.EncodeToString(h.Sum(nil))
 }
 

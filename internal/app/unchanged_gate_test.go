@@ -40,3 +40,28 @@ func TestUnchangedTreeRunsWhenAGateCommandOrEnvChanges(t *testing.T) {
 		})
 	}
 }
+
+// The tree key knows nothing of the environment or toolchain a gate builds
+// with: GOFLAGS or a compiler upgrade must force a run.
+func TestUnchangedTreeRunsWhenBuildEnvChanges(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("GOFLAGS", "")
+	root := t.TempDir()
+	marker := filepath.Join(root, "ran")
+	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
+	testutil.Write(t, root, ".gate.toml", "[gates.g0]\nrun = \"echo ran >> "+marker+"\"\n")
+	committedRepo(t, root)
+	_, stderr, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+
+	t.Setenv("GOFLAGS", "-tags=x")
+	_, stderr, code = runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.Equals(markerHits(t, marker, "ran"), 2), qt.Commentf("a changed build env was skipped"))
+}
+
+func TestToolchainVersionsCoverOnlyDetectedTools(t *testing.T) {
+	got := toolchainVersions(t.Context(), []gateSpec{{argv: []string{"go", "test"}}, {argv: []string{"sh", "-c", "x"}}})
+	qt.Check(t, qt.HasLen(got, 1))
+	qt.Check(t, qt.StringContains(got["go"], "go version"))
+}

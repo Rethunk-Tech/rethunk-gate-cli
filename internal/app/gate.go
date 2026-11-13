@@ -514,7 +514,7 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 	}
 	if opts.root != "" {
 		if state := <-tree; state.OK {
-			saveRecord(stderr, opts, results, state, started, wall, waited, code)
+			saveRecord(ctx, stderr, opts, results, state, started, wall, waited, code)
 		}
 	}
 	return code
@@ -523,11 +523,11 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 // saveRecord writes the run's result record. Reported, never fatal: the
 // record is a convenience for other tools, and the run's own status is the
 // verdict.
-func saveRecord(stderr io.Writer, opts options, results []gateResult, state stored.State, started time.Time, wall, waited time.Duration, code Code) {
+func saveRecord(ctx context.Context, stderr io.Writer, opts options, results []gateResult, state stored.State, started time.Time, wall, waited time.Duration, code Code) {
 	rec := record{
 		Schema: recordSchema, Root: stored.Canonical(opts.root), Head: state.Head, Dirty: state.Dirty, Status: state.Status,
 		Partial: opts.partial, Started: started, Finished: started.Add(wall), Exit: int(code),
-		Fingerprint: gatesFingerprint(opts.gates), LoadWaitMs: waited.Milliseconds(),
+		Fingerprint: gatesFingerprint(ctx, opts.gates), LoadWaitMs: waited.Milliseconds(),
 		Gates: make([]result, 0, len(results)),
 	}
 	for _, res := range results {
