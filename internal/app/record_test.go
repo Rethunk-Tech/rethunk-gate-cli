@@ -38,6 +38,12 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	loadForJobs = func() (float64, int) { return 0, 1 }
+	// Parallel tests running in the package directory would otherwise all
+	// queue on one workspace lock; an enclosing-gate marker skips it, as it
+	// is when the suite runs under gate. The lock tests clear it themselves.
+	if err := os.Setenv(activeRootsVar, dir); err != nil {
+		panic(err)
+	}
 	for k, v := range map[string]string{
 		"XDG_STATE_HOME":  filepath.Join(dir, "state"),
 		"XDG_CONFIG_HOME": filepath.Join(dir, "config"),
