@@ -85,8 +85,32 @@ func (b *ciGateBuilder) have(name string) bool {
 	return slices.ContainsFunc(b.proj.Gates, match) || slices.ContainsFunc(b.added, match)
 }
 
+func (b *ciGateBuilder) applyEnv(name string, env map[string]string) {
+	apply := func(gates []Gate) {
+		for i := range gates {
+			if gates[i].Name != name {
+				continue
+			}
+			if gates[i].Env == nil {
+				gates[i].Env = maps.Clone(env)
+				continue
+			}
+			for k, v := range env {
+				if _, set := gates[i].Env[k]; !set {
+					gates[i].Env[k] = v
+				}
+			}
+		}
+	}
+	apply(b.proj.Gates)
+	apply(b.added)
+}
+
 func (b *ciGateBuilder) add(name string, argv []string, st ciStep, via string) {
 	if slices.Contains(declaredNames, name) || b.have(name) {
+		if st.blocked == "" {
+			b.applyEnv(name, st.env)
+		}
 		return
 	}
 	if st.blocked != "" {
@@ -107,7 +131,7 @@ func (b *ciGateBuilder) add(name string, argv []string, st ciStep, via string) {
 
 func (b *ciGateBuilder) expand(script string, st ciStep, seen []string) {
 	body, ok := b.pkg.Scripts[script]
-	if !ok || slices.Contains(seen, script) || slices.Contains(declaredNames, script) {
+	if !ok || slices.Contains(seen, script) {
 		return
 	}
 	// An aggregate gate declined is one whose roles are already gates;

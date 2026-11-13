@@ -1150,6 +1150,19 @@ func TestCIScriptStepsCoveredByRolesChangeNothing(t *testing.T) {
 		qt.Commentf("gates = %v", proj.Gates))
 }
 
+// Playwright (and any other declared-role CI script) sets CI on the step so
+// reuseExistingServer is off. That env has to reach the existing test gate,
+// not only extra scripts like knip that detection did not already cover.
+func TestCIScriptEnvReachesADeclaredRole(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, "package.json", `{"scripts":{"test":"playwright test"}}`)
+	testutil.Write(t, root, ".github/workflows/ci.yml", "on: [push]\njobs:\n  a:\n    steps:\n      - run: bun run test\n")
+
+	env := gateNamed(t, detect(t, root), "test").Env
+	qt.Check(t, qt.Equals(env["CI"], "true"), qt.Commentf("env = %v", env))
+}
+
 // Go's convention build discards what it compiles, so nothing a CI step runs
 // reads it: it stays concurrent beside the CI script gates.
 func TestCIScriptStepsLeaveTheGoConventionBuildConcurrent(t *testing.T) {
