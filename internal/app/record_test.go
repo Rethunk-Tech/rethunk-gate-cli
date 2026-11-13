@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	stored "github.com/Rethunk-Tech/rethunk-gate-cli/internal/result"
 	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/testutil"
@@ -711,4 +712,132 @@ func TestRecordTextWriteErrorIsFatal(t *testing.T) {
 	code = runRecord(t.Context(), root, false, errWriter{}, &stderr)
 	qt.Assert(t, qt.Equals(code, Fatal), qt.Commentf("stderr = %q", stderr.String()))
 	qt.Check(t, qt.StringContains(stderr.String(), "cannot write the record"))
+}
+
+func unchangedSkipRepo(t *testing.T) (root, marker string) {
+	t.Helper()
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	root = t.TempDir()
+	marker = filepath.Join(root, "ran")
+	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
+	testutil.Write(t, root, ".gate.toml",
+		"[gates.g0]\nrun = "+strconvQuote("echo ran >> "+marker)+"\n\n[gates.e2e]\nrun = "+strconvQuote("echo e2e >> "+marker)+"\n")
+	committedRepo(t, root)
+	return root, marker
+}
+
+func strconvQuote(s string) string {
+	return `"` + strings.ReplaceAll(s, `"`, `\"`) + `"`
+}
+
+func markerHits(t *testing.T, marker, word string) int {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Clean(marker))
+	if err != nil {
+		return 0
+	}
+	return strings.Count(string(data), word)
+}
+
+func TestUnchangedTreeSkip(t *testing.T) {
+	root, marker := unchangedSkipRepo(t)
+	_, stderr, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Assert(t, qt.Equals(markerHits(t, marker, "ran"), 1))
+
+	stdout, stderr, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.StringContains(stdout, "gate: ok (unchanged since "))
+	qt.Check(t, qt.Equals(markerHits(t, marker, "ran"), 1), qt.Commentf("a fresh pass ran again"))
+}
+
+func TestUnchangedTreeRunsWhenEdited(t *testing.T) {
+	root, marker := unchangedSkipRepo(t)
+	_, stderr, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+
+	testutil.Write(t, root, "dirty", "x")
+	_, stderr, code = runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.Equals(markerHits(t, marker, "ran"), 2), qt.Commentf("an edit was skipped"))
+}
+
+func TestUnchangedTreeRunsWhenHeadMoves(t *testing.T) {
+	root, marker := unchangedSkipRepo(t)
+	_, stderr, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+
+	testutil.Write(t, root, "Makefile", "help:\n\t@echo moved\n")
+	cmd := exec.CommandContext(t.Context(), "git", "-c", "user.name=t", "-c", "user.email=t@t", "add", ".")
+	cmd.Dir = root
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
+	qt.Assert(t, qt.IsNil(cmd.Run()))
+	cmd = exec.CommandContext(t.Context(), "git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "--quiet", "-m", "move")
+	cmd.Dir = root
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
+	qt.Assert(t, qt.IsNil(cmd.Run()))
+
+	_, stderr, code = runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.Equals(markerHits(t, marker, "ran"), 2), qt.Commentf("a new commit was skipped"))
+}
+
+func TestUnchangedTreeRunsWhenAged(t *testing.T) {
+	root, marker := unchangedSkipRepo(t)
+	_, stderr, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+
+	rec := readRecord(t, root)
+	rec.Finished = time.Now().Add(-11 * time.Minute)
+	qt.Assert(t, qt.IsNil(writeRecord(rec)))
+
+	_, stderr, code = runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.Equals(markerHits(t, marker, "ran"), 2), qt.Commentf("an aged record was skipped"))
+}
+
+func TestUnchangedTreeForceRuns(t *testing.T) {
+	root, marker := unchangedSkipRepo(t)
+	_, stderr, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+
+	_, stderr, code = runGateTest(t, "-C", root, "--force")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.Equals(markerHits(t, marker, "ran"), 2), qt.Commentf("--force was skipped"))
+}
+
+func TestUnchangedTreeE2ERuns(t *testing.T) {
+	root, marker := unchangedSkipRepo(t)
+	_, stderr, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+
+	_, stderr, code = runGateTest(t, "-C", root, "--e2e")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.Equals(markerHits(t, marker, "e2e"), 1), qt.Commentf("--e2e was skipped"))
+}
+
+func TestUnchangedTreePartialAndFailedRun(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	root := t.TempDir()
+	marker := filepath.Join(root, "ran")
+	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
+	testutil.Write(t, root, ".gate.toml",
+		"[gates.g0]\nrun = "+strconvQuote("echo ran >> "+marker)+"\n\n[gates.g1]\nrun = \"exit 3\"\n")
+	committedRepo(t, root)
+
+	_, stderr, code := runGateTest(t, "-C", root, "run", "g0")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Assert(t, qt.Equals(markerHits(t, marker, "ran"), 1))
+
+	_, stderr, code = runGateTest(t, "-C", root, "run", "g0")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.Equals(markerHits(t, marker, "ran"), 2), qt.Commentf("a partial record was skipped"))
+
+	_, stderr, code = runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Code(3)), qt.Commentf("stderr = %q", stderr))
+	failedHits := markerHits(t, marker, "ran")
+
+	_, stderr, code = runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Code(3)), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.Equals(markerHits(t, marker, "ran"), failedHits+1), qt.Commentf("a failed record was skipped"))
 }

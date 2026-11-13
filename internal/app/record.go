@@ -239,6 +239,48 @@ func runRecord(ctx context.Context, dir string, asJSON bool, stdout, stderr io.W
 	return Success
 }
 
+// unchangedAge is how long a fresh pass still stands in for a new run.
+const unchangedAge = 10 * time.Minute
+
+// skipUnchanged reports a stored pass that is still true of this tree, so a
+// bare gate does not run again. false means the caller must run.
+func skipUnchanged(ctx context.Context, root string, opts options, stdout io.Writer) bool {
+	if root == "" || opts.force || opts.e2e || opts.ndjson || opts.forceCache || opts.partial {
+		return false
+	}
+	rec, err := loadRecord(root)
+	if err != nil {
+		return false
+	}
+	if rec.Root != stored.Canonical(root) {
+		return false
+	}
+	state := stored.ReadTree(ctx, root)
+	fresh, _ := stored.Verdict(rec.Schema, rec.Head, rec.Status, rec.Partial, rec.Exit, state)
+	if !fresh || rec.Finished.IsZero() || time.Since(rec.Finished) >= unchangedAge {
+		return false
+	}
+	if !sameRunGates(opts.gates, rec.Gates) {
+		return false
+	}
+	if !opts.quiet {
+		fmt.Fprintf(stdout, "gate: ok (unchanged since %s)\n", rec.Finished.Local().Format("15:04:05"))
+	}
+	return true
+}
+
+func sameRunGates(gates []gateSpec, stored []result) bool {
+	if len(gates) != len(stored) {
+		return false
+	}
+	for i, g := range gates {
+		if g.role != stored[i].Name {
+			return false
+		}
+	}
+	return true
+}
+
 func lastFailedName(g result) string {
 	switch g.Status {
 	case "fail", "timeout", "error":

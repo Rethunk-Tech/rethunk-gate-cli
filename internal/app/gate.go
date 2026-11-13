@@ -168,6 +168,9 @@ type options struct {
 	// timeout, or error. Detection still runs; this only narrows selection.
 	failed bool
 
+	// force runs even when a stored result is still fresh for this tree.
+	force bool
+
 	// budget is the wall time a passing run may take before gate warns;
 	// zero means no warning.
 	budget time.Duration

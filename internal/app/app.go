@@ -81,6 +81,7 @@ Flags:
   --failed      re-run only the gates that failed, timed out, or errored last time
                 (reads this root's result record; missing, stale, or none: exit 129)
   --e2e         also run the e2e gates a default run skips
+  --force       run even when a fresh result record would skip
   --list        print the gates that would run, and run nothing
                 (e2e gates are shown, marked skipped unless --e2e; a gate
                 repeating another's work is merged, dropped or split, noted)
@@ -205,6 +206,7 @@ func (st *runState) defineFlags(flags *flag.FlagSet) {
 	flags.BoolVar(&opts.noLoadWait, "no-load-wait", false, "")
 	flags.BoolVar(&opts.failed, "failed", false, "")
 	flags.BoolVar(&opts.e2e, "e2e", false, "")
+	flags.BoolVar(&opts.force, "force", false, "")
 	flags.BoolVar(&st.showVersion, "version", false, "")
 	// Recognised so `gate --fix` is not "unrecognized". Refused later: a
 	// global flag would look like a silent rewrite of doctor, which this
@@ -489,6 +491,12 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	}
 	if code, ok := st.dropE2E(project, stderr); !ok {
 		return code
+	}
+
+	if len(command) == 0 && len(roles) == 0 && !opts.failed {
+		if skipUnchanged(ctx, project.Root, *opts, stdout) {
+			return Success
+		}
 	}
 
 	if code, ok := st.announceAndCheckLog(dir, project, stderr); !ok {

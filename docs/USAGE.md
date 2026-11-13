@@ -22,6 +22,13 @@ the `-C` directory.
 
 ## Bare `gate`
 
+A stored result that is still fresh skips the run: same HEAD and working-tree
+status hash as now, not partial, exit 0, same root, younger than 10 minutes,
+and the stored run was not `--e2e`. It prints
+`gate: ok (unchanged since <HH:MM:SS>)` and exits 0 without starting anything.
+`--force` always runs. A flag or gate selection that differs from the stored
+run also runs.
+
 `--list` shows the decision and runs nothing. `--json` is the same listing for
 a program: `"schema": 1`, then each gate's `name`, resolved `argv`, `display`,
 `source`, `shadows`, `group`; plus `root`, `config`, `notes`, `warnings`. Gates
