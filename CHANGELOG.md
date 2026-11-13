@@ -6,6 +6,8 @@ Notable changes to `gate`. The format follows
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-13
+
 ### Added
 
 - A per-workspace lock: concurrent runs on one git worktree wait for each other (`gate: waiting for the gate already running here`), then take the unchanged-tree skip or run. `[lock] scope = "repo"` serialises all worktrees of a repo. See USAGE.md, Concurrent runs.
