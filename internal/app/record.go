@@ -61,7 +61,7 @@ type record struct {
 	Finished time.Time `json:"finished"`
 	Exit     int       `json:"exit"`
 
-	// Fingerprint hashes each gate's argv, dir and env, so a changed command
+	// Fingerprint hashes each gate's argv, dir, env and allow-failure, so a changed command
 	// (in an ignored .gate.toml or the user config) is not mistaken for the
 	// same run.
 	Fingerprint string `json:"fingerprint,omitempty"`
@@ -294,17 +294,19 @@ func sameRunGates(gates []gateSpec, stored []result) bool {
 	return true
 }
 
-// gatesFingerprint hashes everything that decides what each gate runs.
+// gatesFingerprint hashes everything that decides what each gate runs and
+// whether its failure counts.
 func gatesFingerprint(gates []gateSpec) string {
 	h := sha256.New()
 	enc := json.NewEncoder(h)
 	for _, g := range gates {
 		// Marshalling a map sorts its keys, so the hash is stable.
 		_ = enc.Encode(struct {
-			Argv []string          `json:"argv"`
-			Dir  string            `json:"dir"`
-			Env  map[string]string `json:"env"`
-		}{g.argv, g.dir, g.env})
+			Argv         []string          `json:"argv"`
+			Dir          string            `json:"dir"`
+			Env          map[string]string `json:"env"`
+			AllowFailure bool              `json:"allow_failure"`
+		}{g.argv, g.dir, g.env, g.allowFailure})
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }
