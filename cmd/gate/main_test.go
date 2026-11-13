@@ -101,7 +101,7 @@ func TestSIGHUPStopsTheGatedCommandsGroup(t *testing.T) {
 	qt.Assert(t, qt.IsNil(err), qt.Commentf("%s", out))
 
 	pidFile := filepath.Join(dir, "pid")
-	cmd := exec.CommandContext(t.Context(), bin, "--log", filepath.Join(dir, "gate.log"), "sh", "-c", "sleep 30 & echo $! > "+pidFile+"; wait") //nolint:gosec // binary built above from this package
+	cmd := exec.CommandContext(t.Context(), bin, "--log", filepath.Join(dir, "gate.log"), "sh", "-c", "sh -c 'echo $$ > "+pidFile+"; exec sleep 30'") //nolint:gosec // binary built above from this package
 	qt.Assert(t, qt.IsNil(cmd.Start()))
 
 	var pid int

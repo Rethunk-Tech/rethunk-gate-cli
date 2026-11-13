@@ -112,7 +112,7 @@ func TestUnchangedTreeRunsWhenAnInputChangedDuringTheRun(t *testing.T) {
 	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
 	testutil.Write(t, root, ".gitignore", ".env.local\nran\n")
 	testutil.Write(t, root, ".env.local", "API=one\n")
-	testutil.Write(t, root, ".gate.toml", "[gates.g0]\nrun = \"echo ran >> "+marker+"; sleep 1; echo API=two > .env.local\"\n")
+	testutil.Write(t, root, ".gate.toml", "[gates.g0]\nrun = \"echo ran >> "+marker+"; sleep 0.5; echo API=two > .env.local\"\n")
 	committedRepo(t, root)
 	_, stderr, code := runGateTest(t, "-C", root)
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
