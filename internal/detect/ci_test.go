@@ -17,6 +17,10 @@ func TestTriggersOnPush(t *testing.T) {
 		{"on:\n  push:\n    branches: [main]", true},
 		{"on:\n  pull_request_target:", true},
 		{"\"on\":\n  pull_request:", true},
+		{"'on':\n  push:", true},
+		{"on:\n  - push", true},
+		{"on:\n  - workflow_dispatch\n  - 'pull_request' # PRs", true},
+		{"on:\n  - workflow_dispatch", false},
 		{"on:\n  schedule:\n    - cron: '0 0 * * *'\n  workflow_dispatch:", false},
 		{"name: x", false},
 	} {

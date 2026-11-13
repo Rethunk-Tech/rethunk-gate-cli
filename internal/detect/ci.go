@@ -26,6 +26,7 @@ var (
 	// A workspace package's script: `bun run --filter '@app/mobile' check`.
 	filteredScriptStep = regexp.MustCompile(`^bun run --filter[= ]'?([^' ]+)'? ([A-Za-z0-9_:.@/-]+)$`)
 	yamlKey            = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_-]*$`)
+	pushEvents         = []string{"push", "pull_request", "pull_request_target"}
 	prTrigger          = regexp.MustCompile(`\b(push|pull_request|pull_request_target)\b`)
 	// A job that brings up a database or a stack first runs its later steps
 	// against it, and nothing on this machine is guaranteed to be listening.
@@ -229,13 +230,29 @@ func triggersOnPush(lines []string) bool {
 		i, ok = topLevel(lines, `"on"`)
 	}
 	if !ok {
+		i, ok = topLevel(lines, `'on'`)
+	}
+	if !ok {
 		return false
 	}
 	if _, rest, _ := strings.Cut(lines[i], ":"); prTrigger.MatchString(stripComment(rest)) {
 		return true
 	}
 	for key := range children(lines, i) {
-		if key == "push" || key == "pull_request" || key == "pull_request_target" {
+		if slices.Contains(pushEvents, key) {
+			return true
+		}
+	}
+	// The block sequence form: `on:` then `- push`.
+	for _, line := range lines[i+1:] {
+		if blank(line) {
+			continue
+		}
+		event, item := strings.CutPrefix(strings.TrimSpace(line), "- ")
+		if !item {
+			break
+		}
+		if slices.Contains(pushEvents, unquote(stripComment(event))) {
 			return true
 		}
 	}
