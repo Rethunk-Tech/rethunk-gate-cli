@@ -62,8 +62,11 @@ func lockPath(key string) (string, error) {
 func acquireWorkspaceLock(ctx context.Context, dir, scope string, stderr io.Writer) (release func(), ok bool) {
 	// An enclosing gate holds its own workspace's lock, and this run is one of
 	// its children; waiting on it would deadlock. Only that workspace is
-	// exempt: an unrelated one still needs its own lock.
-	if slices.Contains(activeRoots(), lockKey(ctx, dir, "")) {
+	// exempt: an unrelated one still needs its own lock. A recorded root is
+	// the parent's detected project, which may sit below the top or be
+	// reached through a symlink, so it is keyed the same way before comparing.
+	own := lockKey(ctx, dir, "")
+	if slices.ContainsFunc(activeRoots(), func(root string) bool { return lockKey(ctx, root, "") == own }) {
 		return func() {}, true
 	}
 	path, err := lockPath(lockKey(ctx, dir, scope))

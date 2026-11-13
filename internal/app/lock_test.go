@@ -5,6 +5,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -129,4 +130,24 @@ func TestActiveRootsOnlyExemptsItsOwnWorkspace(t *testing.T) {
 	t.Setenv(activeRootsVar, lockKey(t.Context(), root, ""))
 	_, ok = acquireWorkspaceLock(t.Context(), root, "", &bytes.Buffer{})
 	qt.Check(t, qt.IsTrue(ok))
+}
+
+// A parent gate records its detected project root, which can sit below the
+// worktree top or be reached through a symlink, while the lock is keyed on the
+// resolved top. Its child must still recognise the lock as its parent's.
+func TestActiveRootsExemptsTheParentBelowTopOrThroughASymlink(t *testing.T) {
+	root := lockTestRepo(t, "true")
+	testutil.Write(t, root, "pkg/Makefile", "help:\n\t@true\n")
+	link := filepath.Join(t.TempDir(), "link")
+	qt.Assert(t, qt.IsNil(os.Symlink(root, link)))
+	release := holdLock(t, t.Context(), root)
+	defer release()
+
+	for _, parent := range []string{filepath.Join(root, "pkg"), link} {
+		t.Setenv(activeRootsVar, activeRootsValue(parent))
+		ctx, cancel := context.WithTimeout(t.Context(), 400*time.Millisecond)
+		_, ok := acquireWorkspaceLock(ctx, link, "", &bytes.Buffer{})
+		cancel()
+		qt.Check(t, qt.IsTrue(ok), qt.Commentf("parent root %s", parent))
+	}
 }
