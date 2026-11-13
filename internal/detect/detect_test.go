@@ -1163,6 +1163,21 @@ func TestCIScriptEnvReachesADeclaredRole(t *testing.T) {
 	qt.Check(t, qt.Equals(env["CI"], "true"), qt.Commentf("env = %v", env))
 }
 
+// Workflow-level env and defaults apply to every job the way job-level ones
+// do: the script runs with that env, and a workflow-wide working-directory
+// moves every step out of the root.
+func TestCIScriptStepsReadWorkflowLevelEnvAndDefaults(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, "package.json", `{"scripts":{"test":"vitest run","knip":"knip","sub":"x"}}`)
+	testutil.Write(t, root, ".github/workflows/ci.yml", "on: [push]\nenv:\n  NODE_ENV: test\n  SHARED: workflow\njobs:\n  a:\n    env:\n      SHARED: job\n    steps:\n      - run: bun run knip\n")
+	testutil.Write(t, root, ".github/workflows/web.yml", "on: [push]\ndefaults:\n  run:\n    working-directory: web\njobs:\n  a:\n    steps:\n      - run: bun run sub\n")
+
+	proj := detect(t, root)
+	qt.Check(t, qt.DeepEquals(gateNamed(t, proj, "knip").Env, map[string]string{"NODE_ENV": "test", "SHARED": "job", "CI": "true"}))
+	qt.Check(t, qt.IsFalse(slices.ContainsFunc(proj.Gates, func(g Gate) bool { return g.Name == "sub" })), qt.Commentf("gates = %v", proj.Gates))
+}
+
 // Go's convention build discards what it compiles, so nothing a CI step runs
 // reads it: it stays concurrent beside the CI script gates.
 func TestCIScriptStepsLeaveTheGoConventionBuildConcurrent(t *testing.T) {

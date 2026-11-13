@@ -214,8 +214,16 @@ func ciScriptSteps(root string) []ciStep {
 		if !ok {
 			continue
 		}
+		// Workflow-level env and defaults apply to every job beneath them.
+		var env map[string]string
+		if i, ok := topLevel(lines, "env"); ok {
+			env = mapping(lines, i)
+		}
+		if i, ok := topLevel(lines, "defaults"); ok && strings.Contains(strings.Join(lines[i:blockEnd(lines, i)], "\n"), "working-directory:") {
+			continue
+		}
 		for name, job := range children(lines, jobs) {
-			steps = append(steps, jobSteps(lines, job, filepath.Base(file)+" job "+name)...)
+			steps = append(steps, jobSteps(lines, job, filepath.Base(file)+" job "+name, env)...)
 		}
 	}
 	return steps
@@ -260,15 +268,18 @@ func triggersOnPush(lines []string) bool {
 }
 
 // jobSteps returns the script steps of the job whose key sits on line job.
-func jobSteps(lines []string, job int, where string) []ciStep {
-	var env map[string]string
+func jobSteps(lines []string, job int, where string, workflowEnv map[string]string) []ciStep {
+	env := maps.Clone(workflowEnv)
+	if env == nil {
+		env = map[string]string{}
+	}
 	blocked, stepsAt := "", -1
 	for key, i := range children(lines, job) {
 		switch key {
 		case "services":
 			blocked = "its job starts service containers"
 		case "env":
-			env = mapping(lines, i)
+			maps.Copy(env, mapping(lines, i))
 		case "steps":
 			stepsAt = i
 		case "defaults":
