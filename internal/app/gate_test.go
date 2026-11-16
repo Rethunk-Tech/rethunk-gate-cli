@@ -623,11 +623,17 @@ func TestSlug(t *testing.T) {
 // Concurrent gates in one process share a pid, and two gates can reduce to
 // the same slug -- so without a disambiguator they would overwrite each
 // other's logs, losing exactly what this tool exists to keep.
+//
+// --timeout 0 is the flag that keeps the verdict line to its default shape:
+// with a limit derived from this machine's load average, the line grows a
+// "(timeout 4m0s)" note after the log path, and parsing the path off the end
+// would read that note instead. The limit is a property of the host the suite
+// happens to run on, so it is pinned rather than read.
 func TestEachGateGetsItsOwnLog(t *testing.T) {
 	t.Parallel()
 
 	root := gateProject(t, "echo aaa", "echo bbb")
-	stdout, stderr, code := runGateTest(t, "-C", root)
+	stdout, stderr, code := runGateTest(t, "-C", root, "--timeout", "0")
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("gate = %d, stderr = %q", code, stderr))
 
 	var logs []string
