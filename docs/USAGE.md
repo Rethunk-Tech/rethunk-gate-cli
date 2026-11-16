@@ -67,7 +67,8 @@ under `--e2e`. A project whose every gate is e2e refuses a bare run.
 ### `--failed`
 
 `gate --failed` still detects, then runs only the gates whose last result
-record for this root had status `fail`, `timeout`, or `error`. The record
+record for this root had status `fail`, `timeout`, or `error`, plus those
+skipped because a `needs` gate did not pass. The record
 must name the current HEAD and this tree's status hash. Missing, stale, or
 no such gates: the reason on stderr, exit 129. The re-run is a subset, so
 the record it writes is `partial`. Not combined with `gate run` or a named
@@ -655,7 +656,7 @@ with the codes below**. These apply only when `gate` could not run it.
 | 124 | Timed out and was killed |
 | 127 | Could not be executed |
 | 128 | `gate` could not proceed (log, unresolved command line) |
-| 129 | Wrong invocation; also `--failed` when the record is missing, stale, or has no fail/timeout/error gates |
+| 129 | Wrong invocation; also `--failed` when the record is missing, stale, or has no fail/timeout/error/skipped-by-a-need gates |
 | 130 | Interrupted; generally 128+the signal that reached `gate` |
 
 Any other value is the command's own status.

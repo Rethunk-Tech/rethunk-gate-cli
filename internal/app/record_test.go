@@ -708,6 +708,28 @@ func TestFailedRerunsOnlyLastFailures(t *testing.T) {
 	}
 }
 
+// A gate skipped because its need did not pass has no verdict of its own, so
+// --failed re-runs it: fixing only the need would otherwise park it forever.
+func TestFailedRerunsAGateSkippedByItsNeed(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	root, scratch := t.TempDir(), t.TempDir()
+	marker, state := filepath.Join(scratch, "smoke-ran"), filepath.Join(scratch, "state")
+	qt.Assert(t, qt.IsNil(os.WriteFile(state, []byte("fail"), 0o600)))
+	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
+	testutil.Write(t, root, ".gate.toml",
+		"[gates.migrate]\nrun = "+strconvQuote("grep -q ok "+state)+"\n\n[gates.smoke]\nrun = "+strconvQuote("touch "+marker)+"\nneeds = [\"migrate\"]\n")
+	committedRepo(t, root)
+
+	_, stderr, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Code(1)), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.IsFalse(exists(marker)), qt.Commentf("smoke ran though its need failed"))
+
+	qt.Assert(t, qt.IsNil(os.WriteFile(state, []byte("ok"), 0o600)))
+	_, stderr, code = runGateTest(t, "-C", root, "--failed")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.IsTrue(exists(marker)), qt.Commentf("--failed left the skipped gate unrun: stderr = %q", stderr))
+}
+
 // The record is a convenience for other tools, so a run that cannot write one
 // still reports the command's own verdict and says what it lost. Here the
 // state directory sits under a regular file, which no mkdir can fix.
