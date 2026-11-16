@@ -2,6 +2,7 @@ package detect
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -170,9 +171,88 @@ func TestDotnetConvention(t *testing.T) {
 	}
 }
 
-// dotnet format needs the restore and obj/ files the build gate writes, so the
-// two exist or are missing together. A format gate whose toolchain probe
-// disagreed with the build's would run in exactly the case nothing restored.
+// make reads GNUmakefile, then makefile, then Makefile, and only the first of
+// those that exists. Reading Makefile alone wrapped a project's pipeline with
+// the convention ladder instead, which runs something that only resembles it.
+func TestMakeReadsItsDefaultNamesInMakeOrder(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name  string
+		files []string
+		want  string
+	}{
+		{"all three", []string{"Makefile", "makefile", "GNUmakefile"}, "GNUmakefile"},
+		{"no GNUmakefile", []string{"Makefile", "makefile"}, "makefile"},
+		{"Makefile alone", []string{"Makefile"}, "Makefile"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			root := t.TempDir()
+			for _, name := range tc.files {
+				// Only the winner declares a target: a gate from any other
+				// file proves precedence was not honoured.
+				body := "all:\n\t@true\n"
+				if name == tc.want {
+					body = "test:\n\tgo test ./...\n"
+				}
+				testutil.Write(t, root, name, body)
+			}
+			qt.Check(t, qt.HasLen(makefileGates(root), 1), qt.Commentf("gates = %v", makefileGates(root)))
+			qt.Check(t, qt.Equals(makeRecipes(root, "test"), "\tgo test ./..."))
+		})
+	}
+}
+
+// --cached lists a tracked file deleted from the worktree, and the shell gate
+// handed shellcheck the path anyway, failing on a file the project no longer
+// has.
+func TestGitFilesDropsFilesMissingFromTheWorktree(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, "a.sh", "true\n")
+	testutil.Write(t, root, "b.sh", "true\n")
+	gitRepo(t, root)
+	add := exec.CommandContext(t.Context(), "git", "add", "a.sh", "b.sh")
+	add.Dir = root
+	if out, err := add.CombinedOutput(); err != nil {
+		t.Fatalf("git add: %v: %s", err, out)
+	}
+	if err := os.Remove(filepath.Join(root, "b.sh")); err != nil {
+		t.Fatal(err)
+	}
+
+	scripts, ok := gitScripts(t.Context(), root)
+	qt.Assert(t, qt.IsTrue(ok))
+	qt.Check(t, qt.DeepEquals(scripts, []string{"a.sh"}), qt.Commentf("scripts = %v", scripts))
+}
+
+// bun collects *.test.*, *.spec.*, *_test.* and *_spec.* -- not `.test.`
+// alone, which left a project whose tests are all .spec.ts with no test gate.
+func TestBunTestsAreFoundInEveryShapeBunCollects(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		file string
+		want bool
+	}{
+		{"test infix", "src/a.test.ts", true},
+		{"spec infix", "src/a.spec.ts", true},
+		{"underscore test", "src/a_test.ts", true},
+		{"underscore spec", "src/a_spec.ts", true},
+		{"not a test file", "src/a.ts", false},
+		{"test name, other extension", "src/a.test.md", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			root := t.TempDir()
+			testutil.Write(t, root, tc.file, "")
+			qt.Check(t, qt.Equals(hasBunTests(root), tc.want))
+		})
+	}
+}
+
 func TestDotnetFormatIsSkippedExactlyWhenBuildIs(t *testing.T) {
 	// Not parallel: PATH is set rather than trusted, so the machine's own SDK
 	// cannot decide whether the gates exist.

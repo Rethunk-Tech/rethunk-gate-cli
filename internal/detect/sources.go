@@ -73,15 +73,29 @@ func makeRuleHead(line string) (targets []string, prereqs string, ok bool) {
 	return strings.Fields(head), prereqs, true
 }
 
-// makefileGates reads targets a project declares in its Makefile.
+// makefileName is the file make reads for root: GNUmakefile, then makefile,
+// then Makefile, which is make's own precedence.
+func makefileName(root string) (string, bool) {
+	for _, name := range []string{"GNUmakefile", "makefile", "Makefile"} {
+		if exists(filepath.Join(root, name)) {
+			return name, true
+		}
+	}
+	return "", false
+}
+
+// makefileGates reads targets a project declares in its makefile.
 //
-// These outrank everything else. A Makefile target that exists is a deliberate
+// These outrank everything else. A makefile target that exists is a deliberate
 // wrapper -- rgit's own `make test` adds coverage flags the bare `go test`
 // convention would miss -- so honouring it is the difference between running
 // the project's pipeline and running one that merely resembles it.
 func makefileGates(root string) []Gate {
-	path := filepath.Join(root, "Makefile")
-	data, err := os.ReadFile(filepath.Clean(path))
+	name, ok := makefileName(root)
+	if !ok {
+		return nil
+	}
+	data, err := os.ReadFile(filepath.Clean(filepath.Join(root, name)))
 	if err != nil {
 		return nil
 	}
@@ -695,9 +709,17 @@ func gitFiles(ctx context.Context, root string) ([]string, bool) {
 	}
 	var found []string
 	for name := range strings.SplitSeq(string(out), "\x00") {
-		if slash := filepath.ToSlash(name); repoPath(slash) {
-			found = append(found, slash)
+		slash := filepath.ToSlash(name)
+		if !repoPath(slash) {
+			continue
 		}
+		// --cached lists a tracked file deleted from the worktree but not yet
+		// staged, and a caller that hands it to a program fails on a path that
+		// is not there.
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(slash))); err != nil {
+			continue
+		}
+		found = append(found, slash)
 	}
 	slices.Sort(found)
 	return found, true
@@ -1068,7 +1090,11 @@ func gateText(root string, g Gate) string {
 // reaches in root's Makefile. Read textually, like makefileGates: evaluating
 // the file would mean running make.
 func makeRecipes(root, target string) string {
-	data, err := os.ReadFile(filepath.Clean(filepath.Join(root, "Makefile")))
+	name, ok := makefileName(root)
+	if !ok {
+		return ""
+	}
+	data, err := os.ReadFile(filepath.Clean(filepath.Join(root, name)))
 	if err != nil {
 		return ""
 	}
@@ -1185,10 +1211,14 @@ func siblingTsconfigs(root string) []string {
 	return names
 }
 
-// testExts are the extensions bun test collects `.test.` files in.
+// testExts are the extensions bun test collects test files in.
 var testExts = []string{".ts", ".tsx", ".js", ".jsx", ".mjs"}
 
-// hasBunTests reports whether a `.test.` file bun would collect sits in root
+// bunTestMarkers are the name patterns bun test collects: *.test.*, *.spec.*,
+// *_test.* and *_spec.*.
+var bunTestMarkers = []string{".test.", ".spec.", "_test.", "_spec."}
+
+// hasBunTests reports whether a file bun test would collect sits in root
 // outside the skipped directories.
 func hasBunTests(root string) bool {
 	found := false
@@ -1205,7 +1235,9 @@ func hasBunTests(root string) bool {
 			}
 			return nil
 		}
-		found = strings.Contains(d.Name(), ".test.") && slices.Contains(testExts, filepath.Ext(d.Name()))
+		name := d.Name()
+		found = slices.Contains(testExts, filepath.Ext(name)) &&
+			slices.ContainsFunc(bunTestMarkers, func(marker string) bool { return strings.Contains(name, marker) })
 		return nil
 	})
 	return found
