@@ -1248,6 +1248,28 @@ jobs:
 	qt.Check(t, qt.DeepEquals(g.Argv, []string{"bun", "run", "--filter", "@app/mobile", "check:native-config"}))
 }
 
+// `bun run --filter <pkg> test` runs the package's test, not the root's, so a
+// role-named script cannot be dropped as already covered: the root either has
+// no test gate to cover it, or has a different one.
+func TestCIFilteredWorkspaceRoleScriptIsGated(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("PATH", filepath.Join(root, "no-such-bin"))
+	testutil.Write(t, root, "package.json", `{"workspaces":["apps/*"],"scripts":{"build":"vite build","test":"vitest run"}}`)
+	testutil.Write(t, root, "bun.lock", "")
+	testutil.Write(t, root, "apps/mobile/package.json", `{"name":"mobile","scripts":{"test":"vitest run --root ."}}`)
+	testutil.Write(t, root, ".github/workflows/ci.yml", `on: push
+jobs:
+  verify:
+    steps:
+      - run: bun run --filter mobile test
+`)
+
+	proj := detect(t, root)
+	g := gateNamed(t, proj, "test:mobile")
+	qt.Check(t, qt.DeepEquals(g.Argv, []string{"bun", "run", "--filter", "mobile", "test"}))
+	qt.Check(t, qt.IsTrue(hasGate(proj, "test")), qt.Commentf("the root's own test gate is still there"))
+}
+
 // A declined aggregate's chain is read by the parser Work uses: a turbo
 // segment holding a flag stays one step no gate is named for, a quoted script
 // name is the script, and a resolved turbo path is turbo.

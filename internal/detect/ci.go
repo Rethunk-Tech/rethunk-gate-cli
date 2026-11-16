@@ -62,7 +62,13 @@ func ciScriptGates(proj *Project) {
 	for _, st := range steps {
 		if st.filter != "" {
 			if b.runner[0] == "bun" {
-				b.add(st.script, append(slices.Clone(b.runner), "--filter", st.filter, st.script), st, "")
+				// The root gate of the same name runs the root's script, a
+				// different command, so the package's run is a gate of its own.
+				name := st.script
+				if slices.Contains(declaredNames, name) || b.have(name) {
+					name = st.script + ":" + st.filter
+				}
+				b.add(name, append(slices.Clone(b.runner), "--filter", st.filter, st.script), st, "")
 			}
 			continue
 		}
