@@ -347,7 +347,7 @@ func hashChanged(root string, paths []string, git gitRead) ([]byte, bool) {
 		if !worktreePath(p) {
 			return nil, false
 		}
-		if fi, err := os.Lstat(filepath.Join(root, filepath.FromSlash(p))); err == nil && !fi.Mode().IsRegular() {
+		if blocksHash(root, p) {
 			continue
 		}
 		if strings.ContainsRune(p, '\n') {
@@ -377,20 +377,26 @@ func hashChanged(root string, paths []string, git gitRead) ([]byte, bool) {
 	return buf.Bytes(), true
 }
 
-// worktreePath is a path that stays inside the repository. hash-object reads
-// the named file, so an absolute path or a `..` component would hash
-// something git was not asked to track.
+// blocksHash reports a path hash-object would block opening: a FIFO, socket,
+// or device, including a symlink that resolves to one.
+func blocksHash(root, p string) bool {
+	fi, err := os.Stat(filepath.Join(root, filepath.FromSlash(p)))
+	return err == nil && fi.Mode()&(os.ModeNamedPipe|os.ModeSocket|os.ModeDevice|os.ModeCharDevice) != 0
+}
+
 func skipNonRegular(root string, paths []string) []string {
 	var kept []string
 	for _, p := range paths {
-		if fi, err := os.Lstat(filepath.Join(root, filepath.FromSlash(p))); err == nil && !fi.Mode().IsRegular() {
-			continue
+		if !blocksHash(root, p) {
+			kept = append(kept, p)
 		}
-		kept = append(kept, p)
 	}
 	return kept
 }
 
+// worktreePath is a path that stays inside the repository. hash-object reads
+// the named file, so an absolute path or a `..` component would hash
+// something git was not asked to track.
 func worktreePath(p string) bool {
 	if p == "" || strings.ContainsRune(p, 0) || filepath.IsAbs(p) {
 		return false
