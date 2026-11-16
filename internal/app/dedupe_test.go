@@ -30,6 +30,60 @@ func listDedupe(t *testing.T, root string) string {
 	return stdout
 }
 
+// dedupeInstrumented is a plain suite and the same suite under -race, with the
+// instrumented gate carrying option.
+func dedupeInstrumented(t *testing.T, option string) string {
+	t.Helper()
+	return dedupeProject(t, "", `
+[gates.test]
+run = "go test ./..."
+
+[gates.race]
+run = "go test -race ./..."
+`+option+"\n")
+}
+
+// failingDedupeProject is the same pair as a command whose exit status shows
+// which of them ran: both fail, so the verdict is 0 only when the plain gate
+// was dropped.
+func failingDedupeProject(t *testing.T, option string) string {
+	t.Helper()
+	root := gateProject(t)
+	testutil.Write(t, root, ".gate.toml", `
+[gates.test]
+run = "./check.sh suite"
+
+[gates.race]
+run = "./check.sh suite -race"
+`+option+"\n")
+	testutil.Write(t, root, "check.sh", "#!/bin/sh\nexit 1\n")
+	qt.Assert(t, qt.IsNil(os.Chmod(filepath.Join(root, "check.sh"), 0o755))) //nolint:gosec // fixture script must be executable
+	return root
+}
+
+// A suite is not handed to a gate whose failure the run excuses: it would then
+// run only where failing cannot fail the run.
+func TestDedupeKeepsAPlainGateOverAnAllowFailureRun(t *testing.T) {
+	t.Parallel()
+	out := listDedupe(t, dedupeInstrumented(t, "allow-failure = true"))
+	qt.Check(t, qt.StringContains(out, "test       go test ./..."))
+	qt.Check(t, qt.Not(qt.StringContains(out, "dropped test")))
+
+	_, stderr, code := runGateTest(t, "-C", failingDedupeProject(t, "allow-failure = true"))
+	qt.Assert(t, qt.Equals(code, Code(1)), qt.Commentf("the plain suite's failure was excused: stderr = %q", stderr))
+}
+
+// Nor to a gate a default run removes, which would leave the suite unrun.
+func TestDedupeKeepsAPlainGateOverAnE2ERun(t *testing.T) {
+	t.Parallel()
+	out := listDedupe(t, dedupeInstrumented(t, "e2e = true"))
+	qt.Check(t, qt.StringContains(out, "test       go test ./..."))
+	qt.Check(t, qt.Not(qt.StringContains(out, "dropped test")))
+
+	_, stderr, code := runGateTest(t, "-C", failingDedupeProject(t, "e2e = true"))
+	qt.Assert(t, qt.Equals(code, Code(1)), qt.Commentf("the plain suite did not run: stderr = %q", stderr))
+}
+
 // Two declarations of one command are one gate, under the name that says
 // more, with both origins on its line and a note saying so.
 func TestDedupeMergesTheSameCommandUnderTheMoreSpecificName(t *testing.T) {

@@ -121,12 +121,18 @@ func (p *dedupePlan) claimed(i int, key string) bool {
 func (p *dedupePlan) size(i int) int { return len(stepKeys(p.work[i])) }
 
 // owner is the gate a shared step stays in: a default run's gate before an
-// opt-in e2e one, then a script that runs it, then the fewest steps, then
-// the first scheduled.
+// opt-in e2e one, an unexcused gate before one whose failure is allowed, then
+// a script that runs it, then the fewest steps, then the first scheduled.
 func (p *dedupePlan) owner(key string, held []int) int {
 	return slices.MinFunc(held, func(a, b int) int {
 		if p.gates[a].e2e != p.gates[b].e2e {
 			if p.gates[a].e2e {
+				return 1
+			}
+			return -1
+		}
+		if p.gates[a].allowFailure != p.gates[b].allowFailure {
+			if p.gates[a].allowFailure {
 				return 1
 			}
 			return -1
@@ -152,13 +158,27 @@ func (p *dedupePlan) coveredBy(i int, s detect.Step) (by int, instrumented strin
 	for _, k := range slices.Sorted(maps.Keys(byKey)) {
 		held := byKey[k]
 		if plain, how := (detect.Step{Key: k}).Instrumented(); how != "" && plain == s.Key && !slices.Contains(held, i) {
-			return p.owner(k, held), how
+			if o := p.owner(k, held); !p.excused(i, o) {
+				return o, how
+			}
+			// A run a default run skips, or whose failure the run excuses,
+			// does not stand in for one it would neither skip nor excuse:
+			// deferring to it is how a suite stops counting at all.
+			continue
 		}
 	}
 	if o := p.owner(s.Key, byKey[s.Key]); o != i {
 		return o, ""
 	}
 	return -1, ""
+}
+
+// excused reports whether keeping the step in j rather than i would stop it
+// counting: j's run is skipped by default, or its failure allowed, and i's is
+// neither.
+func (p *dedupePlan) excused(i, j int) bool {
+	return (p.gates[j].e2e && !p.gates[i].e2e) ||
+		(p.gates[j].allowFailure && !p.gates[i].allowFailure)
 }
 
 // resolve decides what becomes of gate i: kept whole, dropped, or split to
