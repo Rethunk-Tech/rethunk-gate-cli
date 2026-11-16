@@ -1,6 +1,7 @@
 package config
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -365,6 +366,22 @@ func TestRelativeXDGConfigHomeIsIgnored(t *testing.T) {
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.Equals(cfg.Gates["test"].Run, ""))
 	qt.Check(t, qt.HasLen(cfg.Files, 0))
+}
+
+// A cycle is reported against the file that declares it. Naming the last file
+// read pointed a project's .gate.toml, which declares nothing, at a cycle in
+// the user-level config.
+func TestANeedsCycleNamesTheDeclaringFile(t *testing.T) {
+	home := isolate(t)
+	testutil.Write(t, home, "gate/config.toml", "[gates.a]\nneeds = [\"b\"]\n\n[gates.b]\nneeds = [\"a\"]\n")
+	user := filepath.Join(home, "gate", "config.toml")
+	root := t.TempDir()
+	testutil.Write(t, root, ProjectFile, "[gates.test]\nrun = \"go test\"\n")
+
+	_, err := Load(root)
+	qt.Assert(t, qt.IsNotNil(err))
+	qt.Check(t, qt.StringContains(err.Error(), user), qt.Commentf("error = %v", err))
+	qt.Check(t, qt.IsFalse(strings.Contains(err.Error(), filepath.Base(ProjectFile))), qt.Commentf("error = %v", err))
 }
 
 func TestLockScope(t *testing.T) {

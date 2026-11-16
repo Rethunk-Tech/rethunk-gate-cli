@@ -96,6 +96,12 @@ type Gate struct {
 	// Source is the file this gate's settings came from, so --list can name
 	// it. A gate that loses its source silently undoes the point of --list.
 	Source string
+
+	// needsSource is the file that wrote this gate's Needs list, which a
+	// nearer file can replace or leave standing while re-declaring the gate
+	// itself: a cycle is reported against the file that declares the edge,
+	// not the last one read.
+	needsSource string
 }
 
 // Config is the merged result of every layer that was found.
@@ -248,7 +254,11 @@ func (c *Config) checkNeeds() error {
 			return nil
 		case visiting:
 			i := slices.Index(path, name)
-			return fmt.Errorf("gates.%s.needs forms a cycle: %s", name, strings.Join(append(slices.Clone(path[i:]), name), " -> "))
+			by := c.Gates[name].needsSource
+			if by == "" {
+				by = c.Gates[name].Source
+			}
+			return fmt.Errorf("%s: unusable setting(s):\ngates.%s.needs forms a cycle: %s", by, name, strings.Join(append(slices.Clone(path[i:]), name), " -> "))
 		}
 		state[name] = visiting
 		path = append(path, name)
@@ -266,7 +276,7 @@ func (c *Config) checkNeeds() error {
 	}
 	for _, name := range slices.Sorted(maps.Keys(c.Gates)) {
 		if err := visit(name); err != nil {
-			return fmt.Errorf("%s: unusable setting(s):\n%w", c.Files[len(c.Files)-1], err)
+			return err
 		}
 	}
 	return nil
@@ -386,7 +396,7 @@ func mergeGate(name string, merged Gate, g FileGate, path string) (Gate, []strin
 		merged.Serial, merged.HasSerial = *g.Serial, true
 	}
 	if g.Needs != nil {
-		merged.Needs = slices.Clone(g.Needs)
+		merged.Needs, merged.needsSource = slices.Clone(g.Needs), path
 	}
 	if g.Timeout != nil {
 		d, err := ParseTimeout(*g.Timeout)
