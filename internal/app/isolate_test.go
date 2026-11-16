@@ -2,6 +2,7 @@ package app
 
 import (
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -45,6 +46,9 @@ func TestIsolatedGateSeesNoPersonalHOMEOrGitConfig(t *testing.T) {
 	got := strings.TrimSpace(strings.SplitN(out, "\n", 1)[0])
 	isolated := strings.TrimPrefix(got, "home=")
 	qt.Check(t, qt.Not(qt.Equals(isolated, home)), qt.Commentf("the gate read this machine's HOME"))
+	// On disk under the user cache, as a runner's /home/runner is, never in a temp or runtime directory.
+	qt.Check(t, qt.IsTrue(strings.HasPrefix(isolated, filepath.Join(home, ".cache", "gate", "homes")+"/")),
+		qt.Commentf("the isolated HOME %s is not under the user cache", isolated))
 	qt.Check(t, qt.StringContains(out, "name=\n"), qt.Commentf("the gate read the global git identity: %q", out))
 	qt.Check(t, qt.StringContains(out, "marker=hidden"), qt.Commentf("the gate read a file from the real HOME: %q", out))
 	qt.Check(t, qt.StringContains(out, "xdg=unset unset unset unset"), qt.Commentf("an XDG directory survived: %q", out))
@@ -105,7 +109,7 @@ run = 'echo "clean=$HOME"'
 	stdout, stderr, code := runGateTest(t, "-C", root, "--isolate", "--stream")
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("gate = %d, stderr = %q", code, stderr))
 	qt.Check(t, qt.StringContains(stdout, "own="+home), qt.Commentf("isolate = false did not keep the machine's HOME: %q", stdout))
-	qt.Check(t, qt.Not(qt.StringContains(stdout, "clean="+home)), qt.Commentf("the run's isolation did not reach the gate that did not opt out: %q", stdout))
+	qt.Check(t, qt.Not(qt.StringContains(stdout, "clean="+home+"\n")), qt.Commentf("the run's isolation did not reach the gate that did not opt out: %q", stdout))
 }
 
 // The shapes measured from the real programs: git runs the hook, and lefthook

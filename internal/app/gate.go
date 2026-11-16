@@ -1035,6 +1035,19 @@ var stopGrace = 5 * time.Second
 
 // runOne runs a single gate, sending every byte it writes to a log file and
 // keeping only a bounded summary in memory.
+// isolatedHomeBase is where a throwaway HOME is made: on disk, as a runner's
+// /home/runner is, and outside the temp and runtime directories that tests of
+// sandboxing code refuse a HOME or workdir in. The temp dir is the fallback.
+func isolatedHomeBase() string {
+	if cache, err := os.UserCacheDir(); err == nil {
+		base := filepath.Join(cache, "gate", "homes")
+		if os.MkdirAll(base, 0o700) == nil {
+			return base
+		}
+	}
+	return cmp.Or(childTempDir(), os.TempDir())
+}
+
 func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 	res := gateResult{spec: spec, logPath: opts.logPath, ran: true}
 
@@ -1044,9 +1057,7 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 	isolated := isolateAware(opts, spec)
 	home := ""
 	if isolated {
-		// childTempDir, not os.TempDir: on unix that is a tmpfs, and a
-		// gate's HOME collects whatever a tool caches in it.
-		dir, err := os.MkdirTemp(cmp.Or(childTempDir(), os.TempDir()), "gate-home-")
+		dir, err := os.MkdirTemp(isolatedHomeBase(), "gate-home-")
 		if err != nil {
 			res.fatalErr = fmt.Errorf("cannot create an isolated HOME: %w", err)
 			return res
