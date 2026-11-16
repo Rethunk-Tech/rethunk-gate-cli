@@ -177,7 +177,7 @@ func TestHashChangedRejectsEscapingPaths(t *testing.T) {
 		{path: "/etc/passwd", ok: false},
 		{path: ".", ok: false},
 	} {
-		_, ok := hashChanged([]string{c.path}, func([]byte, ...string) ([]byte, bool) {
+		_, ok := hashChanged("", []string{c.path}, func([]byte, ...string) ([]byte, bool) {
 			return nil, true
 		})
 		qt.Check(t, qt.Equals(ok, c.ok), qt.Commentf("path %q", c.path))
@@ -258,7 +258,7 @@ func gitShim(t *testing.T, subcommand string) func() int {
 func TestHashChangedSendsNewlinePathsThroughArgv(t *testing.T) {
 	t.Parallel()
 	var calls [][]string
-	_, ok := hashChanged([]string{"new\nline", "plain"}, func(_ []byte, args ...string) ([]byte, bool) {
+	_, ok := hashChanged("", []string{"new\nline", "plain"}, func(_ []byte, args ...string) ([]byte, bool) {
 		calls = append(calls, args)
 		return []byte("x"), true
 	})

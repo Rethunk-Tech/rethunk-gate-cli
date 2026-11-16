@@ -17,6 +17,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Schema is bumped on any change a reader must know about. See
@@ -106,17 +107,27 @@ func ReadTree(ctx context.Context, root string) State {
 		return State{}
 	}
 	paths, submodules := readPaths(worktree, untracked)
-	blobs, ok := hashChanged(paths, git)
+	// hash-object opens each path; a FIFO, socket, or device blocks forever
+	// waiting for a peer. Bound the remaining git reads so one missed type
+	// cannot stall a bare `gate` or `gate record`.
+	parent := ctx
+	hctx, hcancel := context.WithTimeout(ctx, 30*time.Second)
+	ctx = hctx
+	blobs, ok := hashChanged(root, paths, git)
 	if !ok {
+		hcancel()
 		return State{}
 	}
 	// skip-worktree and assume-unchanged keep git diff-files quiet, so a
 	// local edit of either would otherwise hash as a clean tree.
 	verbose, ok := git(nil, "ls-files", "-v", "-z")
 	if !ok {
+		hcancel()
 		return State{}
 	}
-	hidden, hiddenDirty, ok := hashIndexFlags(verbose, git)
+	hidden, hiddenDirty, ok := hashIndexFlags(root, verbose, git)
+	hcancel()
+	ctx = parent
 	if !ok {
 		return State{}
 	}
@@ -183,8 +194,10 @@ func gitEnv(attrSource string) []string {
 // statusHash is the hex SHA-256 of four outputs concatenated, in order: raw
 // index-against-HEAD `git diff-index`, raw worktree-against-index
 // `git diff-files`, raw `git ls-files --others`, and `git hash-object`
-// (never -w) for the content of every changed and untracked file and of
-// each skip-worktree or assume-unchanged path that differs from the index.
+// (never -w) for the content of every changed and untracked regular file
+// (FIFOs, sockets, and devices are skipped: hash-object would block
+// opening them) and of each skip-worktree or assume-unchanged path that
+// differs from the index.
 // A clean tree is four empty outputs, which is the SHA-256 of no bytes.
 func statusHash(staged, worktree, untracked, blobs []byte) string {
 	sum := sha256.New()
@@ -244,8 +257,8 @@ func stagedIDs(out []byte) map[string]string {
 
 // hashIndexFlags hashes skip-worktree and assume-unchanged paths whose
 // worktree bytes differ from the index, which diff-files will not name.
-func hashIndexFlags(verbose []byte, git gitRead) (blobs []byte, dirty, ok bool) {
-	flagged := indexFlags(verbose)
+func hashIndexFlags(root string, verbose []byte, git gitRead) (blobs []byte, dirty, ok bool) {
+	flagged := skipNonRegular(root, indexFlags(verbose))
 	if len(flagged) == 0 {
 		return nil, false, true
 	}
@@ -253,7 +266,7 @@ func hashIndexFlags(verbose []byte, git gitRead) (blobs []byte, dirty, ok bool) 
 	if !ok {
 		return nil, false, false
 	}
-	hashes, ok := hashChanged(flagged, git)
+	hashes, ok := hashChanged(root, flagged, git)
 	if !ok {
 		return nil, false, false
 	}
@@ -324,7 +337,7 @@ func readPaths(worktree, untracked []byte) (paths, submodules []string) {
 // between one git spawn and one per fifty files on a tree with a large
 // unignored build directory. A path carrying a newline cannot be one line of
 // that list and is hashed from argv instead.
-func hashChanged(paths []string, git gitRead) ([]byte, bool) {
+func hashChanged(root string, paths []string, git gitRead) ([]byte, bool) {
 	if len(paths) == 0 {
 		return nil, true
 	}
@@ -334,11 +347,17 @@ func hashChanged(paths []string, git gitRead) ([]byte, bool) {
 		if !worktreePath(p) {
 			return nil, false
 		}
+		if fi, err := os.Lstat(filepath.Join(root, filepath.FromSlash(p))); err == nil && !fi.Mode().IsRegular() {
+			continue
+		}
 		if strings.ContainsRune(p, '\n') {
 			argv = append(argv, p)
 			continue
 		}
 		stdin = append(append(stdin, p...), '\n')
+	}
+	if len(stdin) == 0 && len(argv) == 0 {
+		return nil, true
 	}
 	var buf bytes.Buffer
 	if len(stdin) > 0 {
@@ -361,6 +380,17 @@ func hashChanged(paths []string, git gitRead) ([]byte, bool) {
 // worktreePath is a path that stays inside the repository. hash-object reads
 // the named file, so an absolute path or a `..` component would hash
 // something git was not asked to track.
+func skipNonRegular(root string, paths []string) []string {
+	var kept []string
+	for _, p := range paths {
+		if fi, err := os.Lstat(filepath.Join(root, filepath.FromSlash(p))); err == nil && !fi.Mode().IsRegular() {
+			continue
+		}
+		kept = append(kept, p)
+	}
+	return kept
+}
+
 func worktreePath(p string) bool {
 	if p == "" || strings.ContainsRune(p, 0) || filepath.IsAbs(p) {
 		return false
