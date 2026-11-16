@@ -219,5 +219,6 @@ func isolatedEnv(env []string, home string) []string {
 		"PNPM_CONFIG_STORE_DIR="+pick("PNPM_CONFIG_STORE_DIR", dir(xdgData, "pnpm/store")),
 		"BUN_INSTALL_CACHE_DIR="+pick("BUN_INSTALL_CACHE_DIR", dir(callerHome, ".bun/install/cache")),
 		"UV_CACHE_DIR="+pick("UV_CACHE_DIR", dir(xdgCache, "uv")),
+		"GOLANGCI_LINT_CACHE="+pick("GOLANGCI_LINT_CACHE", dir(xdgCache, "golangci-lint")),
 	)
 }
