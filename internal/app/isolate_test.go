@@ -2,6 +2,7 @@ package app
 
 import (
 	"os/exec"
+	"slices"
 	"strings"
 	"testing"
 
@@ -157,4 +158,15 @@ func TestIsolateAwareFollowsTheRunUnlessTheGateSaidSo(t *testing.T) {
 	qt.Check(t, qt.IsFalse(isolateAware(off, gateSpec{})))
 	qt.Check(t, qt.IsFalse(isolateAware(on, gateSpec{isolate: false, hasIsolate: true})))
 	qt.Check(t, qt.IsTrue(isolateAware(off, gateSpec{isolate: true, hasIsolate: true})))
+}
+
+func TestIsolatedEnvKeepsPlaywrightBrowsers(t *testing.T) {
+	env := isolatedEnv([]string{"HOME=/home/u", "XDG_CACHE_HOME=/c"}, "/tmp/fresh")
+	if !slices.Contains(env, "PLAYWRIGHT_BROWSERS_PATH=/c/ms-playwright") {
+		t.Fatalf("browsers not kept under the caller's cache: %v", env)
+	}
+	env = isolatedEnv([]string{"HOME=/home/u", "PLAYWRIGHT_BROWSERS_PATH=/opt/pw"}, "/tmp/fresh")
+	if !slices.Contains(env, "PLAYWRIGHT_BROWSERS_PATH=/opt/pw") {
+		t.Fatalf("an explicit browsers path was not kept: %v", env)
+	}
 }

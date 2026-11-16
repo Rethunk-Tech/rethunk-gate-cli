@@ -220,5 +220,6 @@ func isolatedEnv(env []string, home string) []string {
 		"BUN_INSTALL_CACHE_DIR="+pick("BUN_INSTALL_CACHE_DIR", dir(callerHome, ".bun/install/cache")),
 		"UV_CACHE_DIR="+pick("UV_CACHE_DIR", dir(xdgCache, "uv")),
 		"GOLANGCI_LINT_CACHE="+pick("GOLANGCI_LINT_CACHE", dir(xdgCache, "golangci-lint")),
+		"PLAYWRIGHT_BROWSERS_PATH="+pick("PLAYWRIGHT_BROWSERS_PATH", dir(xdgCache, "ms-playwright")),
 	)
 }

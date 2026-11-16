@@ -176,7 +176,7 @@ the point: an always-isolated gate is always cold.
 
 The toolchain caches stay, resolved from the real `HOME` before it is swapped
 and passed explicitly: `GOPATH`, `GOMODCACHE`, `GOCACHE`, `npm_config_cache`,
-`PNPM_CONFIG_STORE_DIR`, `BUN_INSTALL_CACHE_DIR`, `UV_CACHE_DIR`, `GOLANGCI_LINT_CACHE`. `PATH` is
+`PNPM_CONFIG_STORE_DIR`, `BUN_INSTALL_CACHE_DIR`, `UV_CACHE_DIR`, `GOLANGCI_LINT_CACHE`, `PLAYWRIGHT_BROWSERS_PATH`. `PATH` is
 passed through. So an isolated run is what CI would see, at local speed.
 
 ```toml
