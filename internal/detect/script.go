@@ -136,13 +136,7 @@ func (r *scriptReader) file(path string, depth int) {
 }
 
 func (r *scriptReader) line(raw string, depth int) {
-	var line []string
-	for t := range strings.FieldsSeq(raw) {
-		if strings.HasPrefix(t, "#") {
-			break
-		}
-		line = append(line, shellWord(t))
-	}
+	line := shellFields(raw)
 	if len(line) == 0 {
 		return
 	}
@@ -185,4 +179,64 @@ func scriptFile(root *os.Root, word string) (string, bool) {
 // a trailing statement separator are not part of the command.
 func shellWord(t string) string {
 	return strings.Trim(t, `"';`)
+}
+
+// shellFields splits one command line into the words the shell would pass it.
+// Quoting is removed and what it groups stays one word, so a phrase quoted
+// whole -- `echo "running go test ./..."` -- can never be read as a command;
+// a backslash escapes the byte after it, and `#` at a word start begins a
+// comment.
+func shellFields(raw string) []string {
+	var words []string
+	var cur strings.Builder
+	inWord := false
+	var quote byte
+	end := func() {
+		if inWord {
+			words = append(words, cur.String())
+		}
+		cur.Reset()
+		inWord = false
+	}
+	for i := 0; i < len(raw); i++ {
+		c := raw[i]
+		switch {
+		case quote == '\'':
+			if c == '\'' {
+				quote = 0
+			} else {
+				cur.WriteByte(c)
+			}
+		case quote == '"':
+			switch c {
+			case '"':
+				quote = 0
+			case '\\':
+				if i+1 < len(raw) {
+					i++
+					cur.WriteByte(raw[i])
+				}
+			default:
+				cur.WriteByte(c)
+			}
+		case c == '\'' || c == '"':
+			quote, inWord = c, true
+		case c == '\\':
+			if i+1 < len(raw) {
+				i++
+				cur.WriteByte(raw[i])
+				inWord = true
+			}
+		case c == '#' && !inWord:
+			end()
+			return words
+		case c == ' ' || c == '\t' || c == '\r' || c == ';':
+			end()
+		default:
+			cur.WriteByte(c)
+			inWord = true
+		}
+	}
+	end()
+	return words
 }

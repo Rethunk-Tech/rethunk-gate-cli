@@ -89,7 +89,7 @@ func TestScriptReadersLeaveNonChainScriptsWhole(t *testing.T) {
 	lines, ok := ScriptLines(dir, Step{Text: "scripts/gate.sh"})
 	qt.Assert(t, qt.IsTrue(ok))
 	qt.Check(t, qt.DeepEquals(lines, [][]string{
-		{"bun", "run", "quoted"}, {"echo", "a", "&&", "b"}, {"bun", "run", "piped"},
+		{"bun", "run", "quoted"}, {"echo", "a && b"}, {"bun", "run", "piped"},
 	}))
 
 	viaShell, ok := ScriptLines(dir, Step{Text: "CI=1 sh scripts/gate.sh"})
@@ -98,6 +98,24 @@ func TestScriptReadersLeaveNonChainScriptsWhole(t *testing.T) {
 
 	run := [][]string{{"tsc", "tee", "out"}, {"vitest", "run"}}
 	qt.Check(t, qt.IsFalse(Covered(dir, Step{Key: "run piped"}, run)))
+}
+
+// A phrase the script quotes is one argument, never a command: an `echo`
+// printing the command a project runs does not mean the script runs it, or
+// dedupe would drop the real gate as already covered.
+func TestQuotedScriptTextIsNotACommand(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	testutil.Write(t, dir, "scripts/verify.sh", "#!/bin/sh\necho \"go test -race ./...\"\necho 'bun run lint'\nmake check\n")
+
+	lines, ok := ScriptLines(dir, Step{Text: "scripts/verify.sh"})
+	qt.Assert(t, qt.IsTrue(ok))
+	qt.Check(t, qt.DeepEquals(lines, [][]string{
+		{"echo", "go test -race ./..."}, {"echo", "bun run lint"}, {"make", "check"},
+	}))
+	for _, key := range []string{"go test ./...", "run lint"} {
+		qt.Check(t, qt.IsFalse(Covered(dir, Step{Key: key}, lines)), qt.Commentf("%s", key))
+	}
 }
 
 // Covered is true when the lines run the step, or every && part of a package
