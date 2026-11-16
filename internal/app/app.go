@@ -498,6 +498,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		}
 	}
 
+	st.opts.root = project.Root
 	st.prepareGates(&project, roles)
 	if err := checkNeedsOrder(opts.gates, opts.serial); err != nil {
 		fmt.Fprintf(stderr, "gate: %v\n", err)
@@ -555,6 +556,9 @@ func (st *runState) lockAndSkip(ctx context.Context, dir string, project detect.
 // CI gaps the gates leave.
 func (st *runState) prepareGates(project *detect.Project, roles []string) {
 	opts := &st.opts
+	if opts.root == "" {
+		opts.root = project.Root
+	}
 	// The flag is the most local statement of intent, so it beats a gate's own
 	// key; a gate that names none takes the default.
 	for i := range opts.gates {
