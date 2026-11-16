@@ -149,6 +149,7 @@ func toResult(res gateResult) result {
 		rec.Error = res.fatalErr.Error()
 		if code == int(Success) {
 			code = int(Fatal)
+			rec.Status = "error"
 		}
 	}
 	if !res.skipped {
