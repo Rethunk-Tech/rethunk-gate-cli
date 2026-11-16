@@ -173,14 +173,50 @@ func embedsGenerated(root string) bool {
 
 // ciRunsToolchain reports whether the project's workflows run chain's tools,
 // so a toolchain a package script wrapper already hides behind (a `gate`
-// script that CI calls) is not run again on gate's own say-so. A project
-// without workflows has nothing to contradict.
+// script that CI calls) is not run again on gate's own say-so. A step that
+// names only a wrapper -- `make ci`, `bun run ci` -- runs whatever the target
+// or script holds, so that text is read too. A project without workflows has
+// nothing to contradict.
 func ciRunsToolchain(root, chain string) bool {
 	files, _ := filepath.Glob(filepath.Join(root, ".github", "workflows", "*.y*ml"))
 	if len(files) == 0 || !slices.ContainsFunc(ciTools, func(t ciTool) bool { return t.toolchain == chain }) {
 		return true
 	}
-	return slices.ContainsFunc(ciInvocations(root), func(step ciInvocation) bool {
-		return step.chain == chain
+	pkg, _ := readPackageJSON(filepath.Join(root, "package.json"))
+	found := false
+	eachCIRunLine(root, func(_ string, _ int, line string) {
+		found = found || ciRunsChain(root, pkg, line, chain, 0)
 	})
+	return found
+}
+
+// ciRunsChain reports whether one shell line invokes chain's tools, directly
+// or through the make target or package script it names. Files are read,
+// never run.
+func ciRunsChain(root string, pkg packageJSON, command, chain string, depth int) bool {
+	if slices.ContainsFunc(invocationsIn(command, "", 0), func(inv ciInvocation) bool { return inv.chain == chain }) {
+		return true
+	}
+	if depth >= scriptDepth {
+		return false
+	}
+	if m := makeInvocation.FindStringSubmatch(command); m != nil {
+		for recipe := range strings.SplitSeq(makeRecipes(root, m[1]), "\n") {
+			if ciRunsChain(root, pkg, recipe, chain, depth+1) {
+				return true
+			}
+		}
+	}
+	for _, seg := range shellSeparators.Split(command, -1) {
+		c, ok := parseRun(strings.TrimSpace(seg))
+		if !ok {
+			continue
+		}
+		name := c.scriptName()
+		body, isScript := pkg.Scripts[name]
+		if name != "" && isScript && ciRunsChain(root, pkg, body, chain, depth+1) {
+			return true
+		}
+	}
+	return false
 }

@@ -86,9 +86,19 @@ var shellSeparators = regexp.MustCompile(`&&|\|\||;|\|`)
 // ciSteps reads the `run:` steps of every workflow under root, textually, like
 // every other manifest read here, and returns the known tools they invoke.
 func ciInvocations(root string) []ciInvocation {
+	var steps []ciInvocation
+	eachCIRunLine(root, func(file string, number int, line string) {
+		steps = append(steps, invocationsIn(line, file, number)...)
+	})
+	return steps
+}
+
+// eachCIRunLine calls visit with every line of shell a workflow's `run:` step
+// holds, and where it sits. A block scalar yields its body lines; a one-line
+// step yields its command.
+func eachCIRunLine(root string, visit func(file string, number int, line string)) {
 	files, _ := filepath.Glob(filepath.Join(root, ".github", "workflows", "*.y*ml"))
 	slices.Sort(files)
-	var steps []ciInvocation
 	for _, file := range files {
 		rel, _ := filepath.Rel(root, file)
 		rel = filepath.ToSlash(rel)
@@ -113,15 +123,14 @@ func ciInvocations(root string) []ciInvocation {
 					if strings.TrimSpace(lines[j]) != "" && indent(lines[j]) <= keyIndent {
 						break
 					}
-					steps = append(steps, invocationsIn(lines[j], rel, j+1)...)
+					visit(rel, j+1, lines[j])
 					i = j
 				}
 				continue
 			}
-			steps = append(steps, invocationsIn(unquote(body), rel, i+1)...)
+			visit(rel, i+1, unquote(body))
 		}
 	}
-	return steps
 }
 
 // stepsIn returns the known tools one line of shell invokes.

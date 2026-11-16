@@ -243,6 +243,30 @@ func TestCIRunsToolchainReadsRunCommands(t *testing.T) {
 	}
 }
 
+// A CI step that names only a wrapper runs whatever the wrapper holds: a `make
+// ci` target, or a `ci` package script, that reaches `go test` is CI running
+// go, so the go convention gates are not discarded.
+func TestCIRunsToolchainFollowsAWrapper(t *testing.T) {
+	t.Parallel()
+	cases := []struct{ name, manifest, run string }{
+		{"make target", "Makefile", "      - run: make ci\n"},
+		{"package script", "package.json", "      - run: bun run ci\n"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			root := t.TempDir()
+			if c.manifest == "Makefile" {
+				testutil.Write(t, root, "Makefile", "ci:\n\tgo test ./...\n")
+			} else {
+				testutil.Write(t, root, "package.json", `{"scripts":{"ci":"go test ./..."}}`)
+			}
+			testutil.Write(t, root, ".github/workflows/ci.yml", c.run)
+			qt.Check(t, qt.IsTrue(ciRunsToolchain(root, "go")))
+		})
+	}
+}
+
 // knip run from a package script is that script's, so declaring it as a
 // devDependency does not run it twice.
 func TestKnipAlreadyRunByAScriptIsNotAddedAgain(t *testing.T) {
