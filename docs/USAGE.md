@@ -37,7 +37,8 @@ each gate's directory (gitignored, so the tree hash misses them), and these
 environment variables: `GOFLAGS`,
 `CGO_ENABLED`, `GOOS`, `GOARCH`, `GOEXPERIMENT`, `GOTOOLCHAIN`, `NODE_ENV`,
 `NODE_OPTIONS`, `RUSTFLAGS`, `CC`, `CXX`, `CARGO_*`, plus any `env` a gate
-declares in `.gate.toml`. A change to any of them runs the gates.
+declares in `.gate.toml`, and the limit each gate runs under (`--timeout`, a
+`.gate.toml` `timeout`, or `off`). A change to any of them runs the gates.
 
 `--list` shows the decision and runs nothing. `--json` is the same listing for
 a program: `"schema": 1`, then each gate's `name`, resolved `argv`, `display`,

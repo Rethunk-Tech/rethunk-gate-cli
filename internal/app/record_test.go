@@ -777,6 +777,20 @@ func TestUnchangedTreeSkip(t *testing.T) {
 	qt.Check(t, qt.Equals(markerHits(t, marker, "ran"), 1), qt.Commentf("a fresh pass ran again"))
 }
 
+// A stricter limit is a different run: a pass stored under the default 1m
+// says nothing about what a 1s limit would have done.
+func TestUnchangedTreeRunsWhenTheTimeoutDiffers(t *testing.T) {
+	root, marker := unchangedSkipRepo(t)
+	_, stderr, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Assert(t, qt.Equals(markerHits(t, marker, "ran"), 1))
+
+	stdout, stderr, code := runGateTest(t, "-C", root, "--timeout", "1s")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.Not(qt.StringContains(stdout, "unchanged since")), qt.Commentf("stdout = %q", stdout))
+	qt.Check(t, qt.Equals(markerHits(t, marker, "ran"), 2), qt.Commentf("a different --timeout was skipped"))
+}
+
 func TestUnchangedTreeRunsWhenEdited(t *testing.T) {
 	root, marker := unchangedSkipRepo(t)
 	_, stderr, code := runGateTest(t, "-C", root)

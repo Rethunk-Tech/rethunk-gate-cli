@@ -65,9 +65,9 @@ type record struct {
 	Finished time.Time `json:"finished"`
 	Exit     int       `json:"exit"`
 
-	// Fingerprint hashes each gate's argv, dir, env and allow-failure, so a changed command
-	// (in an ignored .gate.toml or the user config) is not mistaken for the
-	// same run.
+	// Fingerprint hashes each gate's argv, dir, env, timeout and
+	// allow-failure, so a changed command (in an ignored .gate.toml or the
+	// user config) or a different limit is not mistaken for the same run.
 	Fingerprint string `json:"fingerprint,omitempty"`
 
 	// LoadWaitMs is how long the run waited for the machine to quiet down
@@ -429,18 +429,27 @@ func buildEnv() map[string]string {
 
 // gatesFingerprint hashes everything that decides what each gate runs, and
 // what it runs with: the toolchain versions, each gate's own binary, the
-// .env files it loads, and the build-affecting environment.
+// .env files it loads, the build-affecting environment, and the limit the run
+// holds each gate to.
 func gatesFingerprint(ctx context.Context, gates []gateSpec) string {
 	h := sha256.New()
 	enc := json.NewEncoder(h)
 	for _, g := range gates {
+		// A limit derived from the gate's own history follows the machine's
+		// load, not anything the caller asked for, so it is left out: hashing
+		// it would stop a fresh pass ever standing in for a new run.
+		timeout := ""
+		if !g.derivedTimeout {
+			timeout = describeTimeout(g.timeout)
+		}
 		// Marshalling a map sorts its keys, so the hash is stable.
 		_ = enc.Encode(struct {
 			Argv         []string          `json:"argv"`
 			Dir          string            `json:"dir"`
 			Env          map[string]string `json:"env"`
 			AllowFailure bool              `json:"allow_failure"`
-		}{g.argv, g.dir, g.env, g.allowFailure})
+			Timeout      string            `json:"timeout,omitempty"`
+		}{g.argv, g.dir, g.env, g.allowFailure, timeout})
 	}
 	_ = enc.Encode(toolchainVersions(ctx, gates))
 	_ = enc.Encode(gateBinaries(gates))
