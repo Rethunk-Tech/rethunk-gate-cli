@@ -157,6 +157,37 @@ gate waits (polled each second, at most 2m per run) and prints one
 `gate: waited T for load (L/N)` line to stderr. `GATE_MAX_LOAD=<load>` sets the
 ceiling absolutely. `--no-load-wait` or `GATE_NO_LOAD_WAIT=1` skips it. Linux only: no `/proc/loadavg`, no wait.
 
+### Isolation: `--isolate`
+
+A push that passes locally and fails in CI is usually the machine, not the
+code: tests that read the global git identity, a signing file, `~/.cache`, or
+an `XDG` directory see a developer's setup here and a bare runner there.
+`--isolate` runs every gate with a throwaway `HOME` (a fresh temp directory,
+removed after the gate), `GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_NOSYSTEM=1`,
+and the `XDG_CONFIG_HOME` / `XDG_CACHE_HOME` / `XDG_DATA_HOME` /
+`XDG_STATE_HOME` variables unset.
+
+It is on by itself inside a git pre-push hook. There is no hook-name variable
+to read: git exports the same `GIT_*` variables to every hook, and lefthook
+exports none, so gate walks its process ancestry and recognises the hook by the
+`git push` or `lefthook run pre-push` above it. `--no-isolate` overrides that,
+and `--isolate` asks for it anywhere else. Ordinary runs are untouched, which is
+the point: an always-isolated gate is always cold.
+
+The toolchain caches stay, resolved from the real `HOME` before it is swapped
+and passed explicitly: `GOPATH`, `GOMODCACHE`, `GOCACHE`, `npm_config_cache`,
+`PNPM_CONFIG_STORE_DIR`, `BUN_INSTALL_CACHE_DIR`, `UV_CACHE_DIR`. `PATH` is
+passed through. So an isolated run is what CI would see, at local speed.
+
+```toml
+[gates.sign]
+run = "codesign ..."
+isolate = false
+```
+
+`isolate = false` is a gate's own opt-out, for one that genuinely needs this
+machine. Absent, the run's answer stands; `--isolate` does not override it.
+
 ### Budget and `--profile`
 
 `--profile` prints wall vs summed gate time, then slowest first. Output only.
@@ -362,7 +393,7 @@ allow-failure = true
 MDBOOK_VERSION = "0.4"
 ```
 
-Gate keys: `run`, `serial`, `needs`, `timeout`, `dir`, `env`, `allow-failure`, `e2e`.
+Gate keys: `run`, `serial`, `needs`, `timeout`, `dir`, `env`, `allow-failure`, `e2e`, `isolate`.
 Outside: `budget`, `jobs`, `fail-fast`, `trusted-orgs` ([`--trust`](#--trust)), `[detect] exclude`, `[lock] scope` ([`Concurrent runs`](#concurrent-runs)). `run` is a shell string (`sh` / `cmd`).
 `timeout` is the same grammar as `--timeout` (`5m`, `90s`, `1m30s`, `0`).
 `jobs` is an integer >= 1 (no cap when absent, unless the 1-minute loadavg

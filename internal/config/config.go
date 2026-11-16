@@ -86,6 +86,13 @@ type Gate struct {
 	E2E    bool
 	HasE2E bool
 
+	// Isolate settles whether this gate runs in the throwaway environment a
+	// pre-push hook asks for. HasIsolate distinguishes "not set", which
+	// takes the run's answer, from a gate that must read this machine:
+	// a signing step, or a test of the developer's own config.
+	Isolate    bool
+	HasIsolate bool
+
 	// Source is the file this gate's settings came from, so --list can name
 	// it. A gate that loses its source silently undoes the point of --list.
 	Source string
@@ -171,6 +178,7 @@ type FileGate struct {
 	Dir          *string           `toml:"dir"`
 	AllowFailure *bool             `toml:"allow-failure"`
 	E2E          *bool             `toml:"e2e"`
+	Isolate      *bool             `toml:"isolate"`
 }
 
 // reservedEnv names variables a gate must not set. The runner appends a
@@ -415,6 +423,9 @@ func mergeGate(name string, merged Gate, g FileGate, path string) (Gate, []strin
 	}
 	if g.E2E != nil {
 		merged.E2E, merged.HasE2E = *g.E2E, true
+	}
+	if g.Isolate != nil {
+		merged.Isolate, merged.HasIsolate = *g.Isolate, true
 	}
 	return merged, unusable
 }

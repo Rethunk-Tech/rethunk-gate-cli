@@ -104,6 +104,10 @@ Flags:
   --no-load-wait  run gates without first waiting (up to 2m, one "waiting for
                 load" line) for the 1-minute loadavg to fall to the CPU count
                 (also GATE_NO_LOAD_WAIT=1)
+  --isolate     give every gate a throwaway HOME, no global git config, and no
+                XDG directories, as CI has; on by itself inside a pre-push hook
+                (also .gate.toml: isolate = false for one gate)
+  --no-isolate  never isolate, even inside a pre-push hook
   --timeout D   kill a gate that runs longer than D (default 1m, 0 disables;
                 .gate.toml can set it per gate, and this beats that)
   --tail N      trailing lines to quote on failure (default 40)
@@ -180,6 +184,8 @@ type runState struct {
 	refuseFix   bool
 	forceStream bool
 	noStream    bool
+	isolate     bool
+	noIsolate   bool
 }
 
 // durationFlag adapts a duration setter to flag.Func.
@@ -208,6 +214,8 @@ func (st *runState) defineFlags(flags *flag.FlagSet) {
 	flags.BoolVar(&opts.profile, "profile", false, "")
 	flags.BoolVar(&opts.forceCache, "force-cache", false, "")
 	flags.BoolVar(&opts.noLoadWait, "no-load-wait", false, "")
+	flags.BoolVar(&st.isolate, "isolate", false, "")
+	flags.BoolVar(&st.noIsolate, "no-isolate", false, "")
 	flags.BoolVar(&opts.failed, "failed", false, "")
 	flags.BoolVar(&opts.e2e, "e2e", false, "")
 	flags.BoolVar(&opts.force, "force", false, "")
@@ -273,6 +281,9 @@ func (st *runState) parseFlags(args []string, stdout, stderr io.Writer) (rest []
 			st.failFastSet = true
 		}
 	})
+	// The hook is read only when neither flag spoke: a run that asked for a
+	// shape gets it, and every other run stays as warm as the caller's shell.
+	st.opts.isolate = resolveIsolate(st.isolate, st.noIsolate, inPrePushHook())
 	return flags.Args(), Success, true
 }
 
@@ -951,6 +962,9 @@ func applyDirAndAllow(spec *gateSpec, name string, c config.Gate, root string) e
 	}
 	if c.HasAllowFailure {
 		spec.allowFailure = c.AllowFailure
+	}
+	if c.HasIsolate {
+		spec.isolate, spec.hasIsolate = c.Isolate, true
 	}
 	return nil
 }

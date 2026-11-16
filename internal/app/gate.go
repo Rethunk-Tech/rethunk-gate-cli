@@ -158,7 +158,13 @@ type options struct {
 	trust bool
 	// noLoadWait skips the wait for a quiet machine before each gate.
 	noLoadWait bool
-	gates      []gateSpec
+
+	// isolate gives every gate a throwaway HOME and no global git config,
+	// so a push catches what CI rejects instead of passing on what this
+	// machine happens to provide. Set by --isolate, or by the pre-push hook
+	// this run is inside. --no-isolate is the escape hatch. See isolate.go.
+	isolate bool
+	gates   []gateSpec
 
 	// e2e asks for the e2e gates a default run skips. skipE2E is the
 	// resolved answer -- a gate named with `run` is never skipped -- and
@@ -270,6 +276,12 @@ type gateSpec struct {
 
 	// e2e marks a browser end-to-end suite, which a default run skips.
 	e2e bool
+
+	// isolate overrides the run's isolation for this gate where the file
+	// said so. hasIsolate is what makes a deliberate `isolate = false`
+	// differ from a gate that never mentioned it.
+	isolate    bool
+	hasIsolate bool
 }
 
 // short is display with the command's directory removed, for the one-line
@@ -1026,6 +1038,23 @@ var stopGrace = 5 * time.Second
 func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 	res := gateResult{spec: spec, logPath: opts.logPath, ran: true}
 
+	// The throwaway HOME is made once per gate rather than once per run, so a
+	// gate that writes into its HOME cannot reach the next one. Made before
+	// the log so a failure here leaves no empty log file behind.
+	isolated := isolateAware(opts, spec)
+	home := ""
+	if isolated {
+		// childTempDir, not os.TempDir: on unix that is a tmpfs, and a
+		// gate's HOME collects whatever a tool caches in it.
+		dir, err := os.MkdirTemp(cmp.Or(childTempDir(), os.TempDir()), "gate-home-")
+		if err != nil {
+			res.fatalErr = fmt.Errorf("cannot create an isolated HOME: %w", err)
+			return res
+		}
+		home = dir
+		defer func() { _ = os.RemoveAll(home) }()
+	}
+
 	logFile, err := openLog(&res, spec)
 	if err != nil {
 		res.fatalErr = err
@@ -1075,6 +1104,9 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 	}
 	cmd.Env = append(cmd.Env, activeRootsVar+"="+activeRootsValue(spec.root, spec.dir),
 		activeRunVar+"="+strconv.Itoa(os.Getpid())+" "+res.logPath)
+	if isolated {
+		cmd.Env = isolatedEnv(cmd.Env, home)
+	}
 	cmd.Stdin = nil
 	// One writer for both streams, so interleaving in the log matches what a
 	// terminal would have shown. Splitting them would reorder the very lines

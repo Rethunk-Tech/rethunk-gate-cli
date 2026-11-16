@@ -211,6 +211,22 @@ func TestAllowFailureIsSingleSpelling(t *testing.T) {
 		qt.Commentf("error = %v", err))
 }
 
+// `isolate = false` opts one gate out of the run's isolation, so a deliberate
+// false must be distinguishable from a key nobody wrote.
+func TestIsolateFalseIsDistinguishableFromUnset(t *testing.T) {
+	home := isolate(t)
+	testutil.Write(t, home, "gate/config.toml", "[gates.test]\nisolate = true\n")
+
+	root := t.TempDir()
+	testutil.Write(t, root, ProjectFile, "[gates.test]\nisolate = false\n")
+
+	cfg, err := Load(root)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsTrue(cfg.Gates["test"].HasIsolate))
+	qt.Check(t, qt.IsFalse(cfg.Gates["test"].Isolate))
+	qt.Check(t, qt.IsFalse(cfg.Gates["lint"].HasIsolate))
+}
+
 // The runner appends a gate's env after its own, so GATE_ACTIVE_ROOTS would
 // displace the recursion guard rather than the command's environment -- and
 // re-open the detection loop that guard exists to close.

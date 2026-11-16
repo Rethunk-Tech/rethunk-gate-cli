@@ -293,6 +293,11 @@ func merge(keep, lose gateSpec) gateSpec {
 	if !keep.hasTimeout && lose.hasTimeout {
 		keep.timeout, keep.hasTimeout = lose.timeout, true
 	}
+	// An isolation answer is a statement about the command, not a
+	// strictness, so a merged gate takes the only one either side made.
+	if !keep.hasIsolate && lose.hasIsolate {
+		keep.isolate, keep.hasIsolate = lose.isolate, true
+	}
 	for k, v := range lose.env {
 		if _, set := keep.env[k]; !set {
 			if keep.env == nil {

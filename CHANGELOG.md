@@ -6,6 +6,10 @@ Notable changes to `gate`. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `--isolate`: every gate runs with a throwaway `HOME`, `GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_NOSYSTEM=1`, and the `XDG_*_HOME` variables unset, so a push catches what CI rejects instead of passing on what this machine provides. Toolchain caches (`GOPATH`, `GOMODCACHE`, `GOCACHE`, npm/pnpm/bun/uv) are resolved from the real `HOME` first and passed through. On by itself inside a git pre-push hook, recognised from the process ancestry -- git and lefthook export no hook name. `--no-isolate` overrides it; `isolate = false` opts one gate out. See USAGE.md, Isolation.
+
 ## [0.8.0] - 2026-11-13
 
 ### Added
