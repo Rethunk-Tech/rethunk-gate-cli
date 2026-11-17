@@ -266,13 +266,6 @@ func hasNamedGate(proj detect.Project, cfg config.Config, name string) bool {
 	return ok && g.Run != ""
 }
 
-func commandMentions(argv []string, run, needle string) bool {
-	if slices.ContainsFunc(argv, func(a string) bool { return strings.Contains(a, needle) }) {
-		return true
-	}
-	return strings.Contains(run, needle)
-}
-
 // checkPythonAudit flags a pyproject without a vuln gate. uv.lock already
 // supplies that gate, so the local finding stays quiet there; CI is the
 // remaining half.
@@ -338,7 +331,7 @@ func hasBunAudit(proj detect.Project, cfg config.Config) bool {
 		return true
 	}
 	if slices.ContainsFunc(proj.Gates, func(g detect.Gate) bool {
-		return commandMentions(g.Argv, "", "audit-bun")
+		return slices.ContainsFunc(g.Argv, func(a string) bool { return strings.Contains(a, "audit-bun") })
 	}) {
 		return true
 	}
@@ -350,14 +343,10 @@ func hasBunAudit(proj detect.Project, cfg config.Config) bool {
 	return false
 }
 
-func hasBunLock(root string) bool {
-	return detect.IsBunWorkspace(root)
-}
-
 // checkBunAudit needs a bun lockfile, not a package.json: packageRunner
 // defaults to bun without one, and that is not this gap.
 func checkBunAudit(root string, proj detect.Project, cfg config.Config, add func(Finding)) {
-	if !hasBunLock(root) {
+	if !detect.IsBunWorkspace(root) {
 		return
 	}
 	if hasBunAudit(proj, cfg) {
