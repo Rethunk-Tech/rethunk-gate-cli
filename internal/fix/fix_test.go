@@ -489,3 +489,347 @@ func TestDependabotNpmInBunClearsThroughDoctor(t *testing.T) {
 	_, still := findingNamed(findings, "dependabot-npm-in-bun")
 	qt.Check(t, qt.IsFalse(still), qt.Commentf("doctor still reports dependabot-npm-in-bun: %v", findings))
 }
+
+func TestAllAppliesEachFindingThenStopsOnWriteError(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	good := filepath.Join(dir, "ci.yml")
+	testutil.Write(t, dir, "ci.yml", strings.Join([]string{
+		"jobs:",
+		"  a:",
+		"    steps:",
+		"      - uses: Rethunk-Tech/gh-actions/setup-go@v1.14",
+		"      - uses: Rethunk-Tech/gh-actions/setup-python@v1.16",
+	}, "\n")+"\n")
+
+	out, err := All([]doctor.Finding{
+		{Check: "ci-govulncheck-off", Path: good, Fix: `set run-govulncheck: "true" on the setup-go step`},
+		{Check: "ci-python-audit-off", Path: good, Fix: `set run-audit: "true" on the setup-python step`},
+	}, true)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Assert(t, qt.Equals(len(out), 2))
+	qt.Check(t, qt.Equals(out[0].Outcome, DryRun))
+	qt.Check(t, qt.Equals(out[1].Outcome, DryRun))
+	before, err := os.ReadFile(filepath.Clean(good))
+	qt.Assert(t, qt.IsNil(err))
+
+	out, err = All([]doctor.Finding{
+		{Check: "ci-govulncheck-off", Path: good, Fix: `set run-govulncheck: "true" on the setup-go step`},
+		{Check: "ci-python-audit-off", Path: good, Fix: `set run-audit: "true" on the setup-python step`},
+	}, false)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Assert(t, qt.Equals(len(out), 2))
+	qt.Check(t, qt.Equals(out[0].Outcome, Applied))
+	qt.Check(t, qt.Equals(out[1].Outcome, Applied))
+	written, err := os.ReadFile(filepath.Clean(good))
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.Not(qt.Equals(string(written), string(before))))
+
+	target := filepath.Join(t.TempDir(), "ci.yml")
+	qt.Assert(t, qt.IsNil(os.WriteFile(target, []byte(
+		"jobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-python@v1.16\n",
+	), 0o600)))
+	link := filepath.Join(dir, "link.yml")
+	qt.Assert(t, qt.IsNil(os.Symlink(target, link)))
+	applied, err := os.ReadFile(filepath.Clean(good))
+	qt.Assert(t, qt.IsNil(err))
+
+	out, err = All([]doctor.Finding{
+		{Check: "ci-govulncheck-off", Path: good, Fix: `set run-govulncheck: "true" on the setup-go step`},
+		{Check: "ci-python-audit-off", Path: link, Fix: `set run-audit: "true" on the setup-python step`},
+		{Check: "ci-python-audit-off", Path: good, Fix: `set run-audit: "true" on the setup-python step`},
+	}, false)
+	qt.Assert(t, qt.IsNotNil(err))
+	qt.Check(t, qt.StringContains(err.Error(), "symlink"))
+	qt.Assert(t, qt.Equals(len(out), 1))
+	qt.Check(t, qt.Equals(out[0].Outcome, Skipped))
+	after, err := os.ReadFile(filepath.Clean(good))
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.Equals(string(after), string(applied)))
+}
+
+func TestApplySkipsUnprovableWorkflowEdits(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, check, what, fix, file, body, want string
+		emptyPath                                bool
+		missing                                  bool
+	}{
+		{name: "no path", check: "ci-govulncheck-off", emptyPath: true, want: "finding names no path"},
+		{name: "missing file", check: "ci-govulncheck-off", missing: true, want: "file named by the finding is missing"},
+		{
+			name: "action missing", check: "ci-govulncheck-off",
+			body: "jobs:\n  a:\n    steps:\n      - run: true\n",
+			want: "gh-actions/setup-go step not found",
+		},
+		{
+			name: "uses line has a tab", check: "ci-govulncheck-off",
+			body: "jobs:\n  a:\n    steps:\n\t- uses: Rethunk-Tech/gh-actions/setup-go@v1.14\n",
+			want: "gh-actions/setup-go step is not a mechanical edit",
+		},
+		{
+			name: "action mentioned without uses", check: "ci-govulncheck-off",
+			body: "jobs:\n  a:\n    steps:\n      - name: Rethunk-Tech/gh-actions/setup-go\n",
+			want: "gh-actions/setup-go step is not a mechanical edit",
+		},
+		{
+			name: "input already set", check: "ci-govulncheck-off",
+			body: "jobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-go@v1.14\n        with:\n\n          run-govulncheck: \"true\"\n",
+			want: "already in the named post-state",
+		},
+		{
+			name: "npx missing", check: "npx-in-bun-workspace",
+			body: "jobs:\n  a:\n    steps:\n      - run: true\n",
+			want: "named npx invocation not found",
+		},
+		{
+			name: "npx in a json array", check: "npx-in-bun-workspace",
+			file: "package.json", body: `["npx foo"]` + "\n",
+			want: "named npx invocation not found",
+		},
+		{
+			name: "npx only in description prose", check: "npx-in-bun-workspace",
+			file: "package.json", body: `{"description":"npx foo","scripts":{"x":"true"}}` + "\n",
+			want: "named npx invocation not found",
+		},
+		{
+			// JSON \u0020 decodes to a space the quoted splice cannot find.
+			name: "npx json escape mismatch", check: "npx-in-bun-workspace",
+			file: "package.json", body: `{"scripts":{"typecheck":"npx foo\u0020bar"}}` + "\n",
+			want: "named npx invocation not found",
+		},
+		{
+			name: "corepack missing", check: "corepack-with-setup-bun",
+			body: "jobs:\n  a:\n    steps:\n      - run: true\n",
+			want: "corepack enable step not found",
+		},
+		{
+			name: "corepack not a list step", check: "corepack-with-setup-bun",
+			body: "run: corepack enable\n",
+			want: "corepack enable is not a step that can be dropped",
+		},
+		{
+			name: "pin names no ref", check: "actions-floating-ref",
+			body: "jobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-go@main\n",
+			what: "not a named ref", fix: "please pin it",
+			want: "finding does not name the ref to pin",
+		},
+		{
+			name: "pin ref missing", check: "actions-floating-ref",
+			body: "jobs:\n  a:\n    steps:\n      - uses: actions/checkout@v4\n",
+			what: "shared action pinned to a moving ref (main)", fix: "pin to v1.14",
+			want: "named shared-action ref not found",
+		},
+		{
+			name: "pin ref is a prefix", check: "actions-floating-ref",
+			body: "jobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-go@mainline\n",
+			what: "shared action pinned to a moving ref (main)", fix: "pin to v1.14",
+			want: "named shared-action ref not found",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			file := tc.file
+			if file == "" {
+				file = "ci.yml"
+			}
+			path := filepath.Join(dir, file)
+			switch {
+			case tc.emptyPath:
+				path = ""
+			case tc.missing:
+				path = filepath.Join(dir, "missing.yml")
+			default:
+				testutil.Write(t, dir, file, tc.body)
+			}
+			r, err := Apply(doctor.Finding{Check: tc.check, Path: path, What: tc.what, Fix: tc.fix}, false)
+			qt.Assert(t, qt.IsNil(err))
+			qt.Check(t, qt.Equals(r.Outcome, Skipped))
+			qt.Check(t, qt.Equals(r.Reason, tc.want))
+		})
+	}
+}
+
+func TestApplySkipsUnprovableSerialToml(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, toml, want string
+	}{
+		{"invalid", "[[[\n", "existing .gate.toml is not a mechanical edit"},
+		{"serial line with comment", "[gates.build]\nserial = false # later\n", "could not set serial without guessing at TOML"},
+		{"already set", "[gates.build]\nserial = true\n\n[gates.typecheck]\nserial = true\n", "already in the named post-state"},
+		{"dotted without serial", "gates.build.timeout = \"1m\"\n", "could not set serial without guessing at TOML"},
+		{"dotted already set", "gates.build.serial = true\ngates.typecheck.serial = true\n", "already in the named post-state"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			testutil.Write(t, dir, ".gate.toml", tc.toml)
+			r, err := Apply(doctor.Finding{
+				Check: "next-build-typecheck-race",
+				Path:  filepath.Join(dir, "package.json"),
+			}, false)
+			qt.Assert(t, qt.IsNil(err))
+			qt.Check(t, qt.Equals(r.Outcome, Skipped))
+			qt.Check(t, qt.Equals(r.Reason, tc.want))
+		})
+	}
+}
+
+func TestSerialTomlDryRunCreatesNothing(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	pkg := filepath.Join(dir, "package.json")
+	testutil.Write(t, dir, "package.json", `{}`)
+	r, err := Apply(doctor.Finding{Check: "next-build-typecheck-race", Path: pkg}, true)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.Equals(r.Outcome, DryRun))
+	_, err = os.Stat(filepath.Join(dir, ".gate.toml"))
+	qt.Check(t, qt.IsTrue(os.IsNotExist(err)))
+}
+
+func TestApplyReportsAReadError(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	_, err := Apply(doctor.Finding{Check: "ci-govulncheck-off", Path: dir}, false)
+	qt.Assert(t, qt.IsNotNil(err))
+	qt.Check(t, qt.StringContains(err.Error(), "ci-govulncheck-off"))
+
+	qt.Assert(t, qt.IsNil(os.Mkdir(filepath.Join(dir, ".gate.toml"), 0o750)))
+	_, err = Apply(doctor.Finding{
+		Check: "next-build-typecheck-race",
+		Path:  filepath.Join(dir, "package.json"),
+	}, false)
+	qt.Assert(t, qt.IsNotNil(err))
+	qt.Check(t, qt.StringContains(err.Error(), "next-build-typecheck-race"))
+}
+
+func TestSerialTomlWriteFailsWhenTheDirectoryIsMissing(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	_, err := Apply(doctor.Finding{
+		Check: "next-build-typecheck-race",
+		Path:  filepath.Join(dir, "missing", "package.json"),
+	}, false)
+	qt.Assert(t, qt.IsNotNil(err))
+	qt.Check(t, qt.StringContains(err.Error(), "next-build-typecheck-race"))
+}
+
+func TestApplyEnablesClippyAndBunAudit(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		check, needle, yaml string
+	}{
+		{
+			check:  "ci-clippy-off",
+			needle: `run-clippy: "true"`,
+			yaml:   "jobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-rust@v1.16\n",
+		},
+		{
+			check:  "ci-bun-audit-off",
+			needle: `run-audit: "true"`,
+			yaml:   "jobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-bun@v1.16\n",
+		},
+	} {
+		t.Run(tc.check, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			path := filepath.Join(dir, "ci.yml")
+			testutil.Write(t, dir, "ci.yml", tc.yaml)
+			r, err := Apply(doctor.Finding{Check: tc.check, Path: path}, false)
+			qt.Assert(t, qt.IsNil(err))
+			qt.Assert(t, qt.Equals(r.Outcome, Applied), qt.Commentf("reason = %q", r.Reason))
+			body, err := os.ReadFile(filepath.Clean(path))
+			qt.Assert(t, qt.IsNil(err))
+			qt.Check(t, qt.StringContains(string(body), tc.needle), qt.Commentf("body = %q", body))
+		})
+	}
+}
+
+func TestDropCorepackWalksToTheDash(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		yaml []string
+	}{
+		{
+			name: "run nested under a named step",
+			yaml: []string{
+				"jobs:",
+				"  a:",
+				"    steps:",
+				"      - name: pack",
+				"        run: corepack enable",
+				"      - uses: Rethunk-Tech/gh-actions/setup-bun@v1.16",
+			},
+		},
+		{
+			name: "bare dash",
+			yaml: []string{
+				"jobs:",
+				"  a:",
+				"    steps:",
+				"      -",
+				"        run: corepack enable",
+				"    env:",
+				"      X: 1",
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			path := filepath.Join(dir, "ci.yml")
+			testutil.Write(t, dir, "ci.yml", strings.Join(tc.yaml, "\n")+"\n")
+			r, err := Apply(doctor.Finding{Check: "corepack-with-setup-bun", Path: path}, false)
+			qt.Assert(t, qt.IsNil(err))
+			qt.Assert(t, qt.Equals(r.Outcome, Applied), qt.Commentf("reason = %q", r.Reason))
+			body, err := os.ReadFile(filepath.Clean(path))
+			qt.Assert(t, qt.IsNil(err))
+			qt.Check(t, qt.Not(qt.StringContains(string(body), "corepack enable")), qt.Commentf("body = %q", body))
+		})
+	}
+}
+
+func TestPinKeepsACommentThatIsNotOnlyTheOldTag(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	const sha = "e04e0afa3e00c59e33030fdbc7df29c15000357b"
+	path := filepath.Join(dir, "ci.yml")
+	testutil.Write(t, dir, "ci.yml",
+		"jobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-go@"+sha+" # v1.7 keep\n")
+
+	r, err := Apply(doctor.Finding{
+		Check: "actions-stale-ref",
+		Path:  path,
+		What:  "shared action pinned to " + sha,
+		Fix:   "bump to v1.14 or newer",
+	}, false)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Assert(t, qt.Equals(r.Outcome, Applied))
+
+	body, err := os.ReadFile(filepath.Clean(path))
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.StringContains(string(body), "@v1.14 # v1.7 keep"))
+	qt.Check(t, qt.Not(qt.StringContains(string(body), sha)))
+}
+
+func TestApplyPreservesExistingMode(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ci.yml")
+	qt.Assert(t, qt.IsNil(os.WriteFile(path, []byte(
+		"jobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-go@v1.14\n",
+	), 0o600)))
+	r, err := Apply(doctor.Finding{
+		Check: "ci-govulncheck-off",
+		Path:  path,
+		Fix:   `set run-govulncheck: "true" on the setup-go step`,
+	}, false)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Assert(t, qt.Equals(r.Outcome, Applied))
+	info, err := os.Stat(path)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.Equals(info.Mode().Perm(), os.FileMode(0o600)))
+}
