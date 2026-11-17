@@ -234,12 +234,13 @@ not parsed; the env vars reach a nested tool.
    exists); `biome` / `tsc --noEmit` where `tsconfig.json` exists
    (`tsc -b --noEmit` when it names project references — without `-b` a
    solution-style file exits 0 having checked nothing); `actionlint`;
-   `shellcheck` over the project's `.sh` files. Absent actionlint / shellcheck
+   `markdownlint-cli2` where a `.markdownlint-cli2.*` config exists and no
+   package script already runs it; `shellcheck` over the project's `.sh` files. Absent actionlint / shellcheck
    / clippy / cargo-audit is a note naming the install, never a lesser gate.
 
 No Rust typecheck gate: `cargo build` already type-checks.
 
-Roles: `build`, `format`, `typecheck`, `lint`, `knip`, `workflows`, `shell`,
+Roles: `build`, `format`, `typecheck`, `lint`, `knip`, `workflows`, `markdown`, `shell`,
 `test`, `vuln`. Aggregates `ci`, `check`, `verify`, `validate` (that
 precedence) are not roles. `all` is a build target, never an aggregate.
 
@@ -247,7 +248,7 @@ precedence) are not roles. `all` is a build target, never an aggregate.
   `lint`, `test`, `vuln`).
 - **Run**, appended, if none were.
 
-A note says which. `knip`, `workflows`, `shell` are not aggregated.
+A note says which. `knip`, `workflows`, `markdown`, `shell` are not aggregated.
 
 ### Leaving a directory out
 

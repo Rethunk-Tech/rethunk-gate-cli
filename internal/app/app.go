@@ -62,7 +62,7 @@ runs one by name.
 Commands:
   <command>     run that command as a gate
   run NAME...   run the named gates: build, format, typecheck, lint, knip,
-                workflows, shell, test, vuln, and any others .gate.toml declares
+                workflows, markdown, shell, test, vuln, and any others .gate.toml declares
   doctor        report what is cheap to fix here (read-only)
   fix           apply doctor findings that name a closed mechanical remedy
   record        print the last result record, and whether it is still true

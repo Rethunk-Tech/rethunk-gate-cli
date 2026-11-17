@@ -252,6 +252,7 @@ func conventionGates(ctx context.Context, root string, proj *Project) ([]Gate, [
 		func() ([]Gate, []Skip) { return pythonConventionGates(root, proj) },
 		func() ([]Gate, []Skip) { return nodeConventionGates(root, proj) },
 		func() ([]Gate, []Skip) { return workflowConventionGates(root, proj) },
+		func() ([]Gate, []Skip) { return markdownConventionGates(root, proj) },
 		func() ([]Gate, []Skip) { return shellConventionGates(ctx, root, proj) },
 	} {
 		g, sk := ladder()
@@ -510,6 +511,28 @@ func workflowConventionGates(root string, proj *Project) (gates []Gate, skipped 
 		}
 	}
 	return gates, skipped
+}
+
+// markdownConventionGates runs markdownlint-cli2 where its config file exists.
+// The config carries the globs CI relies on, so no arguments are passed. A
+// package script that already runs the tool is that project's own gate.
+func markdownConventionGates(root string, proj *Project) (gates []Gate, skipped []Skip) {
+	configs, _ := filepath.Glob(filepath.Join(root, ".markdownlint-cli2.*"))
+	if len(configs) == 0 {
+		return nil, nil
+	}
+	if pkg, ok := readPackageJSON(filepath.Join(root, "package.json")); ok {
+		for _, script := range pkg.Scripts {
+			if strings.Contains(script, "markdownlint-cli2") {
+				return nil, nil
+			}
+		}
+	}
+	bin := resolve(root, proj, "markdownlint-cli2")
+	if bin == "" {
+		return nil, []Skip{{"markdown", "markdownlint-cli2 not installed; skipping the markdown gate (bun add -g markdownlint-cli2)"}}
+	}
+	return []Gate{{Name: "markdown", Argv: []string{bin}, Source: "convention: .markdownlint-cli2 config"}}, nil
 }
 
 func shellConventionGates(ctx context.Context, root string, proj *Project) (gates []Gate, skipped []Skip) {

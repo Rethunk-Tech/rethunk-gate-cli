@@ -1873,7 +1873,7 @@ func TestHelpNamesExactlyTheRolesRunAccepts(t *testing.T) {
 	t.Parallel()
 
 	roles := helpRoles(gateHelp)
-	qt.Assert(t, qt.DeepEquals(roles, []string{"build", "format", "typecheck", "lint", "knip", "workflows", "shell", "test", "vuln"}))
+	qt.Assert(t, qt.DeepEquals(roles, []string{"build", "format", "typecheck", "lint", "knip", "workflows", "markdown", "shell", "test", "vuln"}))
 	for _, role := range roles {
 		qt.Check(t, qt.IsTrue(detect.IsRole(role)),
 			qt.Commentf("the help offers %q, which is not a gate role", role))

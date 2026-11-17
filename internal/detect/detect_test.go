@@ -1341,3 +1341,47 @@ func TestCIScriptStepsDoNotExpandPipelines(t *testing.T) {
 	qt.Check(t, qt.IsFalse(slices.ContainsFunc(proj.Gates, func(g Gate) bool { return g.Name == "extra" })),
 		qt.Commentf("gates = %v", proj.Gates))
 }
+
+// A markdownlint-cli2 config is the project saying CI lints its markdown; the
+// config carries the globs, so the gate passes none.
+func TestMarkdownGateFollowsTheConfig(t *testing.T) {
+	for _, c := range []struct {
+		name    string
+		files   map[string]string
+		tool    bool
+		want    bool
+		wantNot string
+	}{
+		{name: "config and tool", files: map[string]string{".markdownlint-cli2.yaml": "{}\n"}, tool: true, want: true},
+		{name: "jsonc config", files: map[string]string{".markdownlint-cli2.jsonc": "{}\n"}, tool: true, want: true},
+		{name: "no config", files: map[string]string{"README.md": "# x\n"}, tool: true},
+		{name: "script already runs it", files: map[string]string{
+			".markdownlint-cli2.yaml": "{}\n",
+			"package.json":            `{"scripts":{"docs":"markdownlint-cli2"}}`,
+		}, tool: true},
+		{name: "tool missing", files: map[string]string{".markdownlint-cli2.yaml": "{}\n"}, wantNot: "markdownlint-cli2 not installed"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			for name, body := range c.files {
+				testutil.Write(t, dir, name, body)
+			}
+			bin := filepath.Join(dir, "no-such-bin")
+			if c.tool {
+				testutil.WriteExecutable(t, dir, filepath.Join("bin", "markdownlint-cli2"))
+				bin = filepath.Join(dir, "bin")
+			}
+			t.Setenv("PATH", bin)
+
+			proj := detect(t, dir)
+			got := slices.ContainsFunc(proj.Gates, func(g Gate) bool { return g.Name == "markdown" })
+			qt.Check(t, qt.Equals(got, c.want))
+			if c.want {
+				qt.Check(t, qt.HasLen(gateNamed(t, proj, "markdown").Argv, 1))
+			}
+			if c.wantNot != "" {
+				qt.Check(t, qt.IsTrue(hasNote(proj, c.wantNot)), qt.Commentf("notes = %v", proj.Notes))
+			}
+		})
+	}
+}
