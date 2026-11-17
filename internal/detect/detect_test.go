@@ -1350,10 +1350,11 @@ func TestMarkdownGateFollowsTheConfig(t *testing.T) {
 		files   map[string]string
 		tool    bool
 		want    bool
+		args    int
 		wantNot string
 	}{
-		{name: "config and tool", files: map[string]string{".markdownlint-cli2.yaml": "{}\n"}, tool: true, want: true},
-		{name: "jsonc config", files: map[string]string{".markdownlint-cli2.jsonc": "{}\n"}, tool: true, want: true},
+		{name: "config without globs", files: map[string]string{".markdownlint-cli2.yaml": "{}\n"}, tool: true, want: true, args: 3},
+		{name: "jsonc config with globs", files: map[string]string{".markdownlint-cli2.jsonc": `{"globs": ["docs/**/*.md"]}`}, tool: true, want: true, args: 1},
 		{name: "no config", files: map[string]string{"README.md": "# x\n"}, tool: true},
 		{name: "script already runs it", files: map[string]string{
 			".markdownlint-cli2.yaml": "{}\n",
@@ -1377,7 +1378,7 @@ func TestMarkdownGateFollowsTheConfig(t *testing.T) {
 			got := slices.ContainsFunc(proj.Gates, func(g Gate) bool { return g.Name == "markdown" })
 			qt.Check(t, qt.Equals(got, c.want))
 			if c.want {
-				qt.Check(t, qt.HasLen(gateNamed(t, proj, "markdown").Argv, 1))
+				qt.Check(t, qt.HasLen(gateNamed(t, proj, "markdown").Argv, c.args))
 			}
 			if c.wantNot != "" {
 				qt.Check(t, qt.IsTrue(hasNote(proj, c.wantNot)), qt.Commentf("notes = %v", proj.Notes))

@@ -235,7 +235,8 @@ not parsed; the env vars reach a nested tool.
    (`tsc -b --noEmit` when it names project references — without `-b` a
    solution-style file exits 0 having checked nothing); `actionlint`;
    `markdownlint-cli2` where a `.markdownlint-cli2.*` config exists and no
-   package script already runs it; `shellcheck` over the project's `.sh` files. Absent actionlint / shellcheck
+   package script already runs it (bare when the config sets `globs`, else over
+   `**/*.md`); `shellcheck` over the project's `.sh` files. Absent actionlint / shellcheck
    / clippy / cargo-audit is a note naming the install, never a lesser gate.
 
 No Rust typecheck gate: `cargo build` already type-checks.

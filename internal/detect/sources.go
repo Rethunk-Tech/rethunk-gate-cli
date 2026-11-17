@@ -514,8 +514,10 @@ func workflowConventionGates(root string, proj *Project) (gates []Gate, skipped 
 }
 
 // markdownConventionGates runs markdownlint-cli2 where its config file exists.
-// The config carries the globs CI relies on, so no arguments are passed. A
-// package script that already runs the tool is that project's own gate.
+// A config that sets `globs` is run bare, since command-line globs would widen
+// what it narrows; one without them gets the `**/*.md` CI passes, because the
+// bare tool prints usage and exits 2. A package script that already runs the
+// tool is that project's own gate.
 func markdownConventionGates(root string, proj *Project) (gates []Gate, skipped []Skip) {
 	configs, _ := filepath.Glob(filepath.Join(root, ".markdownlint-cli2.*"))
 	if len(configs) == 0 {
@@ -532,7 +534,13 @@ func markdownConventionGates(root string, proj *Project) (gates []Gate, skipped 
 	if bin == "" {
 		return nil, []Skip{{"markdown", "markdownlint-cli2 not installed; skipping the markdown gate (bun add -g markdownlint-cli2)"}}
 	}
-	return []Gate{{Name: "markdown", Argv: []string{bin}, Source: "convention: .markdownlint-cli2 config"}}, nil
+	argv := []string{bin, "**/*.md", "#node_modules"}
+	for _, c := range configs {
+		if body, err := os.ReadFile(filepath.Clean(c)); err == nil && strings.Contains(string(body), "globs") {
+			argv = argv[:1]
+		}
+	}
+	return []Gate{{Name: "markdown", Argv: argv, Source: "convention: .markdownlint-cli2 config"}}, nil
 }
 
 func shellConventionGates(ctx context.Context, root string, proj *Project) (gates []Gate, skipped []Skip) {
