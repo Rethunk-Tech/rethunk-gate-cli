@@ -22,7 +22,10 @@ func trusted(ctx context.Context, root string, cfg config.Config) bool {
 	if root == "" {
 		return true
 	}
-	if _, err := os.Stat(filepath.Join(root, config.ProjectFile)); err == nil {
+	// A symlink named .gate.toml is not the project carrying that file:
+	// Stat would follow it to any path that already exists.
+	info, err := os.Lstat(filepath.Join(root, config.ProjectFile))
+	if err == nil && info.Mode().IsRegular() {
 		return true
 	}
 	out, err := exec.CommandContext(ctx, "git", "-C", root, "config", "--get", "remote.origin.url").Output() //nolint:gosec // fixed argv, root is detected

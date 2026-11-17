@@ -1,7 +1,9 @@
 package app
 
 import (
+	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 
 	"github.com/go-quicktest/qt"
@@ -72,4 +74,20 @@ func TestOwnGateTomlTrustsAForeignOrigin(t *testing.T) {
 	cfg, err := config.Load(root)
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.IsTrue(trusted(t.Context(), root, cfg)))
+}
+
+func TestSymlinkGateTomlDoesNotTrustAForeignOrigin(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	root := foreignClone(t, "https://github.com/untrusted/repo.git")
+	target := filepath.Join(t.TempDir(), "gate.toml")
+	qt.Assert(t, qt.IsNil(os.WriteFile(target, []byte("[gates.docs]\nrun = \"true\"\n"), 0o600)))
+	qt.Assert(t, qt.IsNil(os.Symlink(target, filepath.Join(root, config.ProjectFile))))
+	cfg, err := config.Load(root)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsFalse(trusted(t.Context(), root, cfg)))
+
+	_, stderr, code := runGateTest(t, "-C", root)
+	qt.Check(t, qt.Equals(code, InvalidUsage))
+	qt.Check(t, qt.StringContains(stderr, "--trust"))
+	qt.Check(t, qt.Not(qt.StringContains(stderr, "install:")))
 }
