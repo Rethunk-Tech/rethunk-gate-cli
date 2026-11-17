@@ -422,3 +422,170 @@ func TestReadTreeFollowsADirtySubmodule(t *testing.T) {
 	testutilWrite(t, repo, "sub/new", "u\n")
 	qt.Check(t, qt.Not(qt.Equals(ReadTree(t.Context(), repo).Status, again.Status)), qt.Commentf("an untracked file inside the submodule did not move the hash"))
 }
+
+func TestRead(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	root := t.TempDir()
+	path, err := Path(Canonical(root))
+	qt.Assert(t, qt.IsNil(err))
+	qt.Assert(t, qt.IsNil(os.MkdirAll(filepath.Dir(path), 0o700)))
+	_, err = Read(root)
+	qt.Assert(t, qt.ErrorIs(err, os.ErrNotExist))
+
+	body := []byte(`{"schema":3,"head":"h"}`)
+	qt.Assert(t, qt.IsNil(os.WriteFile(path, body, 0o600)))
+	got, err := Read(root)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.DeepEquals(got, body))
+}
+
+func TestRecordPathsFailWithoutHome(t *testing.T) {
+	t.Setenv("HOME", "")
+	t.Setenv("XDG_STATE_HOME", "")
+	qt.Assert(t, qt.IsNil(os.Unsetenv("HOME")))
+	qt.Assert(t, qt.IsNil(os.Unsetenv("XDG_STATE_HOME")))
+	root := t.TempDir()
+	_, err := Path(root)
+	qt.Assert(t, qt.IsNotNil(err))
+	_, err = Read(root)
+	qt.Assert(t, qt.IsNotNil(err))
+	_, err = Load(root)
+	qt.Assert(t, qt.IsNotNil(err))
+	qt.Check(t, qt.IsNil(LoadDurations(root)))
+	qt.Assert(t, qt.IsNotNil(AppendDurations(root, map[string]int64{"g": 1})))
+}
+
+func TestLoadDurationsIgnoresUnreadableHistory(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	root := t.TempDir()
+	qt.Check(t, qt.IsNil(LoadDurations(root)))
+	qt.Assert(t, qt.IsNil(AppendDurations(root, nil)))
+	path, err := Path(Canonical(root))
+	qt.Assert(t, qt.IsNil(err))
+	dpath := strings.TrimSuffix(path, ".json") + ".durations.json"
+	qt.Assert(t, qt.IsNil(os.MkdirAll(filepath.Dir(dpath), 0o700)))
+	qt.Assert(t, qt.IsNil(os.WriteFile(dpath, []byte("{"), 0o600)))
+	qt.Check(t, qt.IsNil(LoadDurations(root)))
+}
+
+func TestAppendDurationsReportsUnwritableState(t *testing.T) {
+	blocked := filepath.Join(t.TempDir(), "blocked")
+	qt.Assert(t, qt.IsNil(os.WriteFile(blocked, []byte("x"), 0o600)))
+	t.Setenv("XDG_STATE_HOME", blocked)
+	qt.Assert(t, qt.IsNotNil(AppendDurations(t.TempDir(), map[string]int64{"g": 1})))
+
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
+	root := t.TempDir()
+	path, err := Path(Canonical(root))
+	qt.Assert(t, qt.IsNil(err))
+	dpath := strings.TrimSuffix(path, ".json") + ".durations.json"
+	qt.Assert(t, qt.IsNil(os.MkdirAll(dpath, 0o700)))
+	qt.Assert(t, qt.IsNotNil(AppendDurations(root, map[string]int64{"g": 1})))
+}
+
+func TestReadTreeUnreadable(t *testing.T) {
+	t.Parallel()
+	qt.Check(t, qt.Equals(ReadTree(t.Context(), t.TempDir()), State{}))
+	repo := t.TempDir()
+	gitFixture(t, repo)
+	qt.Check(t, qt.Equals(ReadTree(t.Context(), repo), State{}))
+}
+
+func TestReadTreeUnreadableWhenGitQueryFails(t *testing.T) {
+	for _, tc := range []struct {
+		fail string
+		prep func(*testing.T, string, func(...string) string)
+	}{
+		{fail: "hash-object"},
+		{fail: "--show-toplevel"},
+		{fail: "diff-index"},
+		{fail: "diff-files"},
+		{fail: "--others"},
+		{fail: "--stdin-paths", prep: func(t *testing.T, repo string, _ func(...string) string) {
+			testutilWrite(t, repo, "f", "b\n")
+		}},
+		{fail: "-v"},
+		{fail: "-s", prep: func(_ *testing.T, _ string, git func(...string) string) {
+			git("update-index", "--skip-worktree", "f")
+		}},
+	} {
+		t.Run(tc.fail, func(t *testing.T) {
+			repo := t.TempDir()
+			git := gitFixture(t, repo)
+			testutilWrite(t, repo, "f", "a\n")
+			git("add", ".")
+			git("commit", "--quiet", "-m", "first")
+			if tc.prep != nil {
+				tc.prep(t, repo, git)
+			}
+			gitFailOn(t, tc.fail)
+			qt.Check(t, qt.Equals(ReadTree(t.Context(), repo), State{}))
+		})
+	}
+}
+
+func gitFailOn(t *testing.T, fail string) {
+	t.Helper()
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		t.Skipf("no git to shim: %v", err)
+	}
+	dir := t.TempDir()
+	script := "#!/bin/sh\nfor a in \"$@\"; do [ \"$a\" = '" + fail + "' ] && exit 1; done\nexec " + gitPath + " \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "git"), []byte(script), 0o755); err != nil { //nolint:gosec // fixture must be executable
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+func TestReadPathsSkipsMalformedAndNamesSubmodules(t *testing.T) {
+	t.Parallel()
+	worktree := []byte("\x00:100644 160000 aaa bbb M\x00sub\x00Xbad\x00ignored\x00:100644 100644 a b M\x00nopath")
+	paths, submodules := readPaths(worktree, nil)
+	qt.Assert(t, qt.DeepEquals(submodules, []string{"sub"}))
+	qt.Assert(t, qt.HasLen(paths, 0))
+}
+
+func TestStagedIDsSkipsMalformedRecords(t *testing.T) {
+	t.Parallel()
+	in := []byte("\x00no-space\x00one two\x00one two three\x00aa bb \t\x00100644 abc 0\tpath\x00")
+	qt.Check(t, qt.DeepEquals(stagedIDs(in), map[string]string{"path": "abc"}))
+}
+
+func TestHashIndexFlagsUnreadableWhenGitFails(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutilWrite(t, root, "skip", "x\n")
+	verbose := []byte("S skip\x00")
+	_, _, ok := hashIndexFlags(root, verbose, func([]byte, ...string) ([]byte, bool) {
+		return nil, false
+	})
+	qt.Check(t, qt.IsFalse(ok))
+	_, _, ok = hashIndexFlags(root, verbose, func(_ []byte, args ...string) ([]byte, bool) {
+		if len(args) > 0 && args[0] == "hash-object" {
+			return nil, false
+		}
+		return []byte("100644 abc 0\tskip\x00"), true
+	})
+	qt.Check(t, qt.IsFalse(ok))
+	_, _, ok = hashIndexFlags(root, verbose, func(_ []byte, args ...string) ([]byte, bool) {
+		if len(args) > 0 && args[0] == "hash-object" {
+			return nil, true
+		}
+		return []byte("100644 abc 0\tskip\x00"), true
+	})
+	qt.Check(t, qt.IsFalse(ok))
+}
+
+func TestHashChangedReportsGitFailure(t *testing.T) {
+	t.Parallel()
+	_, ok := hashChanged("", []string{"a"}, func([]byte, ...string) ([]byte, bool) {
+		return nil, false
+	})
+	qt.Check(t, qt.IsFalse(ok))
+	_, ok = hashChanged("", []string{"has\nnl"}, func([]byte, ...string) ([]byte, bool) {
+		return nil, false
+	})
+	qt.Check(t, qt.IsFalse(ok))
+}
