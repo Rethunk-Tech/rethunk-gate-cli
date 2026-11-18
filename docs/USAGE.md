@@ -236,20 +236,21 @@ not parsed; the env vars reach a nested tool.
    solution-style file exits 0 having checked nothing); `actionlint`;
    `markdownlint-cli2` where a `.markdownlint-cli2.*` config exists and no
    package script already runs it (bare when the config sets `globs`, else over
-   `**/*.md`); `shellcheck` over the project's `.sh` files. Absent actionlint / shellcheck
+   `**/*.md`); `shellcheck` over the project's `.sh` files; `canon verify .`
+   when `canon` is on PATH (absent: silent). Absent actionlint / shellcheck
    / clippy / cargo-audit is a note naming the install, never a lesser gate.
 
 No Rust typecheck gate: `cargo build` already type-checks.
 
 Roles: `build`, `format`, `typecheck`, `lint`, `knip`, `workflows`, `markdown`, `shell`,
-`test`, `vuln`. Aggregates `ci`, `check`, `verify`, `validate` (that
+`canon`, `test`, `vuln`. Aggregates `ci`, `check`, `verify`, `validate` (that
 precedence) are not roles. `all` is a build target, never an aggregate.
 
 - **Declined** if any aggregated role was claimed (`build`, `typecheck`,
   `lint`, `test`, `vuln`).
 - **Run**, appended, if none were.
 
-A note says which. `knip`, `workflows`, `markdown`, `shell` are not aggregated.
+A note says which. `knip`, `workflows`, `markdown`, `shell`, `canon` are not aggregated.
 
 ### Leaving a directory out
 
@@ -259,9 +260,10 @@ exclude = ["python-app-broken", ".github/test-fixtures/*-unformatted"]
 ```
 
 `path.Match` against the gate's directory name and its last segment. User +
-project entries join. Only directory-named gates; turn a role off by
-configuring it. `--list` notes each; its frozen install is skipped. Empty or
-unreadable patterns are refused.
+project entries join. Directory-named gates, and the `canon` role; turn other
+roles off by configuring them. `--list` notes each; its frozen install is
+skipped. Empty or unreadable patterns are refused. `exclude = ["canon"]`
+turns the `canon` gate off.
 
 ### CI coverage warnings
 
@@ -363,6 +365,15 @@ Lockfile picks the runner: `bun.lock`/`bun.lockb` → `bun` even beside
 
 Two declarations for one role: higher precedence runs, and says so. A
 convention losing to a declaration is silent.
+
+### The canon gate
+
+`canon verify .` wherever `canon` is on PATH, in every repository. Absent:
+silent, never a note. A declared command that already runs `canon verify`
+(Makefile, package script, or `.gate.toml`) suppresses the convention, so
+Rethunk-Tech/canon does not run the check twice. `[detect] exclude =
+["canon"]` turns it off. `canon verify` exits non-zero on ERROR only; WARN
+lines print but pass.
 
 ### `gate run`
 

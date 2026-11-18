@@ -160,6 +160,7 @@ func TestRunWritesARecordForTheHeadItTested(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	root := t.TempDir()
 	testutil.Write(t, root, "Makefile", "build:\n\ttrue\n\ntest:\n\texit 3\n")
+	testutil.Write(t, root, ".gate.toml", detectNoCanon)
 	head := committedRepo(t, root)
 
 	stdout, _, code := runGateTest(t, "-C", root)
@@ -697,6 +698,7 @@ func TestFailedRerunsOnlyLastFailures(t *testing.T) {
 			t.Setenv("XDG_STATE_HOME", t.TempDir())
 			root := t.TempDir()
 			testutil.Write(t, root, "Makefile", tc.makefile)
+			testutil.Write(t, root, ".gate.toml", detectNoCanon)
 			committedRepo(t, root)
 			if tc.setup != nil {
 				tc.setup(t, root)

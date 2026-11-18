@@ -741,7 +741,9 @@ func TestOnlyOneAggregateIsEverUsed(t *testing.T) {
 	proj := detect(t, dir)
 	var claimed []string
 	for _, g := range proj.Gates {
-		claimed = append(claimed, g.Name)
+		if g.Name != "canon" { // present only where canon is installed
+			claimed = append(claimed, g.Name)
+		}
 	}
 	// Nothing else is declared, so exactly one aggregate runs -- the first
 	// spelling in aggregateNames.
@@ -757,7 +759,9 @@ func TestAllIsNotAnAggregate(t *testing.T) {
 	testutil.Write(t, dir, "Makefile", "all:\n\ttrue\n")
 
 	proj := detect(t, dir)
-	qt.Check(t, qt.Equals(len(proj.Gates), 0), qt.Commentf("gates = %v", proj.Gates))
+	qt.Check(t, qt.IsFalse(slices.ContainsFunc(proj.Gates, func(g Gate) bool {
+		return g.Name != "canon" // present only where canon is installed
+	})), qt.Commentf("gates = %v", proj.Gates))
 	qt.Check(t, qt.IsFalse(hasNote(proj, "all")), qt.Commentf("notes = %v", proj.Notes))
 }
 
@@ -1116,7 +1120,7 @@ jobs:
 	proj := detect(t, root)
 	var names []string
 	for _, g := range proj.Gates {
-		if g.Name != "workflows" { // present only where actionlint is installed
+		if g.Name != "workflows" && g.Name != "canon" { // present only where actionlint / canon is installed
 			names = append(names, g.Name)
 		}
 	}
@@ -1393,4 +1397,51 @@ func TestMarkdownGateFollowsTheConfig(t *testing.T) {
 			}
 		})
 	}
+}
+
+// canon verify is a PATH tool with no project file of its own, so it is
+// inferred in every repository that has the binary, and nowhere that does
+// not -- a skip note on the latter would fire on almost every machine.
+func TestCanonVerifyGateWhenCanonIsOnPath(t *testing.T) {
+	dir := t.TempDir()
+	testutil.Write(t, dir, "README.md", "demo\n")
+	name := "canon"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	bin := testutil.WriteExecutable(t, dir, filepath.Join("bin", name))
+	t.Setenv("PATH", filepath.Join(dir, "bin"))
+
+	g := gateNamed(t, detect(t, dir), "canon")
+	qt.Check(t, qt.DeepEquals(g.Argv, []string{bin, "verify", "."}))
+	qt.Check(t, qt.Equals(g.Source, "convention: canon"))
+}
+
+func TestCanonVerifyGateIsSilentWhenCanonIsAbsent(t *testing.T) {
+	dir := t.TempDir()
+	testutil.Write(t, dir, "README.md", "demo\n")
+	t.Setenv("PATH", filepath.Join(dir, "no-such-bin"))
+
+	proj := detect(t, dir)
+	qt.Check(t, qt.IsFalse(slices.ContainsFunc(proj.Gates, func(g Gate) bool {
+		return g.Name == "canon"
+	})), qt.Commentf("gates = %v", proj.Gates))
+	qt.Check(t, qt.IsFalse(hasNote(proj, "canon")), qt.Commentf("notes = %v", proj.Notes))
+}
+
+// Rethunk-Tech/canon already runs `canon verify` as one of its own gates.
+func TestCanonVerifyGateIsSkippedWhenAMakefileAlreadyRunsIt(t *testing.T) {
+	dir := t.TempDir()
+	testutil.Write(t, dir, "Makefile", "test:\n\tgo test ./...\n\tcanon verify .\n")
+	name := "canon"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	testutil.WriteExecutable(t, dir, filepath.Join("bin", name))
+	t.Setenv("PATH", filepath.Join(dir, "bin"))
+
+	proj := detect(t, dir)
+	qt.Check(t, qt.IsFalse(slices.ContainsFunc(proj.Gates, func(g Gate) bool {
+		return g.Name == "canon"
+	})), qt.Commentf("gates = %v", proj.Gates))
 }

@@ -31,6 +31,27 @@ func plantBin(t *testing.T, dir, name string) string {
 	return testutil.WriteExecutable(t, dir, filepath.Join("node_modules", ".bin", name))
 }
 
+func listedNamed(t *testing.T, gates []listedGate, name string) listedGate {
+	t.Helper()
+	for _, g := range gates {
+		if g.Name == name {
+			return g
+		}
+	}
+	t.Fatalf("no %q gate in %+v", name, gates)
+	return listedGate{}
+}
+
+func namesWithoutCanon(gates []listedGate) []string {
+	var names []string
+	for _, g := range gates {
+		if g.Name != "canon" {
+			names = append(names, g.Name)
+		}
+	}
+	return names
+}
+
 // fakeBun puts a `bun` first on PATH that appends its argv and working
 // directory to the returned file and exits with status. A bun.lock fixture
 // makes gate run a frozen install before any gate, and neither the real bun
@@ -233,7 +254,7 @@ func TestAMultiLineRunKeepsOneTrailerAndOneVerdict(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	root := t.TempDir()
 	testutil.Write(t, root, "Makefile", "help:\n\t@true\n")
-	testutil.Write(t, root, ".gate.toml", "[gates.test]\nrun = \"\"\"\necho one\necho two\nexit 3\n\"\"\"\n")
+	testutil.Write(t, root, ".gate.toml", detectNoCanon+"\n[gates.test]\nrun = \"\"\"\necho one\necho two\nexit 3\n\"\"\"\n")
 
 	_, stderr, code := runGateTest(t, "-C", root)
 	qt.Assert(t, qt.Equals(code, Code(3)), qt.Commentf("stderr = %q", stderr))
@@ -362,7 +383,9 @@ func TestRunReportsNotFoundAndSignalDistinctly(t *testing.T) {
 }
 
 func TestRunUsageWithNoCommandAndNothingDetectable(t *testing.T) {
-	t.Chdir(t.TempDir())
+	root := t.TempDir()
+	testutil.Write(t, root, ".gate.toml", detectNoCanon)
+	t.Chdir(root)
 	_, stderr, code := runGateTest(t)
 	qt.Assert(t, qt.Equals(code, InvalidUsage))
 	qt.Check(t, qt.StringContains(stderr, "no gates detected"))
@@ -437,6 +460,10 @@ func TestRunQuietSuppressesOnlyThePassLine(t *testing.T) {
 	qt.Check(t, qt.StringContains(stderr, "bad"), qt.Commentf("quiet failure stayed silent: %q", stderr))
 }
 
+// detectNoCanon keeps a fixture's gate list exactly what the test named.
+// `canon` on PATH would otherwise add a convention gate in every repository.
+const detectNoCanon = "[detect]\nexclude = [\"canon\"]\n"
+
 // gateProject writes a fixture whose .gate.toml declares the given commands as
 // gates, in declaration order, and returns its root. The manifest is a Makefile
 // with no recognised target, so detection finds the root and contributes
@@ -446,6 +473,7 @@ func gateProject(t *testing.T, commands ...string) string {
 	root := t.TempDir()
 	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
 	var b strings.Builder
+	b.WriteString(detectNoCanon + "\n")
 	for i, command := range commands {
 		fmt.Fprintf(&b, "[gates.g%d]\nrun = %q\n\n", i, command)
 	}
@@ -766,7 +794,7 @@ func TestGatesStoppedByAFailingGroupAreReportedAsSkipped(t *testing.T) {
 	// build first, per gateOrder, and the config is what puts them in one
 	// group -- without it these two would run concurrently.
 	testutil.Write(t, root, "Makefile", "build:\n\texit 5\n\ntest:\n\ttouch "+filepath.Join(root, "test-ran")+"\n")
-	testutil.Write(t, root, ".gate.toml", "[gates.build]\nserial = true\n\n[gates.test]\nserial = true\n")
+	testutil.Write(t, root, ".gate.toml", detectNoCanon+"\n[gates.build]\nserial = true\n\n[gates.test]\nserial = true\n")
 
 	_, stderr, code := runGateTest(t, "-C", root)
 
@@ -874,26 +902,25 @@ func TestJSONListingCarriesWhatListDoes(t *testing.T) {
 	qt.Check(t, qt.Equals(got.Schema, jsonSchema))
 
 	qt.Assert(t, qt.Equals(got.Root, root))
-	var names []string
-	for _, g := range got.Gates {
-		names = append(names, g.Name)
-	}
-	qt.Assert(t, qt.DeepEquals(names, []string{"typecheck", "lint", "e2e"}))
+	qt.Assert(t, qt.DeepEquals(namesWithoutCanon(got.Gates), []string{"typecheck", "lint", "e2e"}))
 
+	typecheck := listedNamed(t, got.Gates, "typecheck")
+	lint := listedNamed(t, got.Gates, "lint")
+	e2e := listedNamed(t, got.Gates, "e2e")
 	// Gates sharing a group run one after another; groups run concurrently.
-	qt.Check(t, qt.Equals(got.Gates[0].Group, got.Gates[1].Group), qt.Commentf("the two serial gates were not grouped together"))
-	qt.Check(t, qt.Not(qt.Equals(got.Gates[2].Group, got.Gates[0].Group)), qt.Commentf("a gate that asked for no order joined the serial group"))
-	qt.Check(t, qt.IsTrue(got.Gates[0].Serial))
-	qt.Check(t, qt.IsTrue(got.Gates[1].Serial))
-	qt.Check(t, qt.IsFalse(got.Gates[2].Serial))
+	qt.Check(t, qt.Equals(typecheck.Group, lint.Group), qt.Commentf("the two serial gates were not grouped together"))
+	qt.Check(t, qt.Not(qt.Equals(e2e.Group, typecheck.Group)), qt.Commentf("a gate that asked for no order joined the serial group"))
+	qt.Check(t, qt.IsTrue(typecheck.Serial))
+	qt.Check(t, qt.IsTrue(lint.Serial))
+	qt.Check(t, qt.IsFalse(e2e.Serial))
 
 	// The RESOLVED path is what execution uses, so it is what a consumer has
 	// to be given.
-	qt.Check(t, qt.DeepEquals(got.Gates[0].Argv, []string{tsc, "--noEmit"}))
+	qt.Check(t, qt.DeepEquals(typecheck.Argv, []string{tsc, "--noEmit"}))
 	// A gate's source survives the config merge, naming both where it was
 	// detected and what changed it.
-	qt.Check(t, qt.StringContains(got.Gates[0].Source, "convention: node"))
-	qt.Check(t, qt.StringContains(got.Gates[0].Source, ".gate.toml"))
+	qt.Check(t, qt.StringContains(typecheck.Source, "convention: node"))
+	qt.Check(t, qt.StringContains(typecheck.Source, ".gate.toml"))
 
 	qt.Check(t, qt.DeepEquals(got.Config, []string{filepath.Join(root, ".gate.toml")}))
 	// A note is the record of a gate deliberately not created.
@@ -1630,7 +1657,7 @@ func timeoutProject(t *testing.T, body string) string {
 	t.Helper()
 	root := t.TempDir()
 	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
-	testutil.Write(t, root, ".gate.toml", body)
+	testutil.Write(t, root, ".gate.toml", detectNoCanon+"\n"+body)
 	return root
 }
 
@@ -1889,7 +1916,7 @@ func TestHelpNamesExactlyTheRolesRunAccepts(t *testing.T) {
 	t.Parallel()
 
 	roles := helpRoles(gateHelp)
-	qt.Assert(t, qt.DeepEquals(roles, []string{"build", "format", "typecheck", "lint", "knip", "workflows", "markdown", "shell", "test", "vuln"}))
+	qt.Assert(t, qt.DeepEquals(roles, []string{"build", "format", "typecheck", "lint", "knip", "workflows", "markdown", "shell", "canon", "test", "vuln"}))
 	for _, role := range roles {
 		qt.Check(t, qt.IsTrue(detect.IsRole(role)),
 			qt.Commentf("the help offers %q, which is not a gate role", role))
@@ -2000,19 +2027,17 @@ func TestConfigOverridesADetectedGateInsteadOfDuplicatingIt(t *testing.T) {
 	var got listing
 	qt.Assert(t, qt.IsNil(json.Unmarshal([]byte(stdout), &got)), qt.Commentf("stdout is not JSON: %q", stdout))
 
-	var names []string
-	for _, g := range got.Gates {
-		names = append(names, g.Name)
-	}
 	// One ci, and the config-only gate detection could not infer is still added.
-	qt.Assert(t, qt.DeepEquals(names, []string{"ci", "e2e"}), qt.Commentf("listing = %q", stdout))
+	qt.Assert(t, qt.DeepEquals(namesWithoutCanon(got.Gates), []string{"ci", "e2e"}), qt.Commentf("listing = %q", stdout))
 
+	ci := listedNamed(t, got.Gates, "ci")
+	e2e := listedNamed(t, got.Gates, "e2e")
 	// The surviving gate carries config's command and still names where
 	// detection found it, so --list keeps answering why the gate is there.
-	qt.Check(t, qt.Equals(got.Gates[0].Display, "echo config-ci"))
-	qt.Check(t, qt.StringContains(got.Gates[0].Source, "Makefile target ci"))
-	qt.Check(t, qt.StringContains(got.Gates[0].Source, "overridden by"))
-	qt.Check(t, qt.Equals(got.Gates[1].Display, "echo e2e"))
+	qt.Check(t, qt.Equals(ci.Display, "echo config-ci"))
+	qt.Check(t, qt.StringContains(ci.Source, "Makefile target ci"))
+	qt.Check(t, qt.StringContains(ci.Source, "overridden by"))
+	qt.Check(t, qt.Equals(e2e.Display, "echo e2e"))
 }
 
 // A failure stops its group and the gates behind it are reported as skipped
@@ -2080,7 +2105,7 @@ func TestNDJSONReportsEveryGate(t *testing.T) {
 	testutil.Write(t, root, "Makefile", "build:\n\texit 5\n\ntest:\n\ttrue\n")
 	// Serial, so the failing build stops test and leaves a skipped gate to
 	// report -- the outcome with no verdict of its own.
-	testutil.Write(t, root, ".gate.toml", "[gates.build]\nserial = true\n\n[gates.test]\nserial = true\n")
+	testutil.Write(t, root, ".gate.toml", detectNoCanon+"\n[gates.build]\nserial = true\n\n[gates.test]\nserial = true\n")
 
 	stdout, stderr, code := runGateTest(t, "-C", root, "--ndjson")
 	// make reports 2 for a failed recipe, whatever the recipe itself exited.
@@ -2119,6 +2144,7 @@ func TestNDJSONKeepsStdoutMachineOnly(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	testutil.Write(t, root, "Makefile", "test:\n\ttrue\n")
+	testutil.Write(t, root, ".gate.toml", detectNoCanon)
 
 	stdout, stderr, code := runGateTest(t, "-C", root, "--ndjson")
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
@@ -2541,6 +2567,65 @@ func TestRunShellStillReachesTheConventionGate(t *testing.T) {
 	qt.Check(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
 }
 
+// A project that already runs `canon verify` under a name of its own must
+// not get the convention beside it. Same shape as the shellcheck rule, and
+// the reason Rethunk-Tech/canon would otherwise run the check twice.
+func TestADeclaredCanonVerifyOutranksTheConvention(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	plantBin(t, root, "canon")
+	testutil.Write(t, root, "package.json", `{"name":"app"}`)
+	testutil.Write(t, root, ".gate.toml", "[gates.docs]\nrun = \"canon verify .\"\n")
+
+	stdout, stderr, code := runGateTest(t, "-C", root, "--json")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+
+	var got listing
+	qt.Assert(t, qt.IsNil(json.Unmarshal([]byte(stdout), &got)), qt.Commentf("stdout = %q", stdout))
+	var names []string
+	for _, g := range got.Gates {
+		names = append(names, g.Name)
+	}
+	qt.Check(t, qt.IsTrue(slices.Contains(names, "docs")), qt.Commentf("gates = %v", names))
+	qt.Check(t, qt.IsFalse(slices.Contains(names, "canon")),
+		qt.Commentf("the convention ran beside the project's own declaration: %v", names))
+	qt.Check(t, qt.Equals(stderr, ""), qt.Commentf("stderr = %q", stderr))
+}
+
+func TestDetectExcludeTurnsTheCanonGateOff(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	plantBin(t, root, "canon")
+	testutil.Write(t, root, "package.json", `{"name":"app"}`)
+	testutil.Write(t, root, ".gate.toml", "[detect]\nexclude = [\"canon\"]\n")
+
+	stdout, stderr, code := runGateTest(t, "-C", root, "--list")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.IsFalse(strings.Contains(stdout, "  canon ")), qt.Commentf("listing = %q", stdout))
+	qt.Check(t, qt.StringContains(stdout, "canon, but detect.exclude in .gate.toml leaves it out"))
+}
+
+func TestTheConventionCanonGateRunsWhenCanonIsPresent(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	canon := plantBin(t, root, "canon")
+	testutil.Write(t, root, "package.json", `{"name":"app"}`)
+
+	stdout, stderr, code := runGateTest(t, "-C", root, "--json")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+
+	var got listing
+	qt.Assert(t, qt.IsNil(json.Unmarshal([]byte(stdout), &got)), qt.Commentf("stdout = %q", stdout))
+	var found listedGate
+	for _, g := range got.Gates {
+		if g.Name == "canon" {
+			found = g
+		}
+	}
+	qt.Assert(t, qt.Equals(found.Name, "canon"), qt.Commentf("gates = %+v", got.Gates))
+	qt.Check(t, qt.DeepEquals(found.Argv, []string{canon, "verify", "."}))
+}
+
 // A project with no shellcheck of its own still gets the convention.
 func TestTheConventionShellGateSurvivesUnrelatedConfig(t *testing.T) {
 	t.Parallel()
@@ -2798,7 +2883,7 @@ func TestAllowedFailureNDJSONKeepsTheWordAndMarksIt(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
-	testutil.Write(t, root, ".gate.toml", "[gates.docs]\nrun = \"exit 3\"\nallow-failure = true\n")
+	testutil.Write(t, root, ".gate.toml", detectNoCanon+"\n[gates.docs]\nrun = \"exit 3\"\nallow-failure = true\n")
 
 	stdout, stderr, code := runGateTest(t, "-C", root, "--ndjson")
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("an allowed failure failed the run: %q", stderr))
@@ -2834,8 +2919,7 @@ func TestListingShowsConfiguredEnvDirAndAllowFailure(t *testing.T) {
 	qt.Assert(t, qt.Equals(code, Success))
 	var got listing
 	qt.Assert(t, qt.IsNil(json.Unmarshal([]byte(jsonOut), &got)), qt.Commentf("stdout is not JSON: %q", jsonOut))
-	qt.Assert(t, qt.Equals(len(got.Gates), 1), qt.Commentf("gates = %+v", got.Gates))
-	gate := got.Gates[0]
+	gate := listedNamed(t, got.Gates, "e2e")
 	qt.Check(t, qt.Equals(gate.Dir, filepath.Join(root, "sub")))
 	qt.Check(t, qt.DeepEquals(gate.Env, map[string]string{"A": "", "B": ""}))
 	qt.Check(t, qt.IsTrue(gate.AllowFailure))
@@ -2981,6 +3065,7 @@ func TestProfileLeavesTheNDJSONStreamAlone(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	testutil.Write(t, root, "Makefile", "test:\n\ttrue\n")
+	testutil.Write(t, root, ".gate.toml", detectNoCanon)
 
 	stdout, stderr, code := runGateTest(t, "-C", root, "--ndjson", "--profile")
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
@@ -3057,6 +3142,7 @@ func TestNDJSONCarriesTheCacheLabel(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	testutil.Write(t, root, "Makefile", "test:\n\tprintf 'Cached:    3 cached, 3 total\\n'\n")
+	testutil.Write(t, root, ".gate.toml", detectNoCanon)
 
 	stdout, stderr, code := runGateTest(t, "-C", root, "--ndjson")
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
@@ -3076,7 +3162,7 @@ func TestNDJSONCarriesConfiguredDirAndTimeout(t *testing.T) {
 	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
 	qt.Assert(t, qt.IsNil(os.MkdirAll(filepath.Join(root, "sub"), 0o750)))
 	testutil.Write(t, root, ".gate.toml",
-		"[gates.docs]\nrun = \"true\"\ndir = \"sub\"\ntimeout = \"5m\"\n\n"+
+		detectNoCanon+"\n[gates.docs]\nrun = \"true\"\ndir = \"sub\"\ntimeout = \"5m\"\n\n"+
 			"[gates.other]\nrun = \"echo other\"\n\n"+
 			"[gates.unbounded]\nrun = \"echo unbounded\"\ntimeout = \"0\"\n")
 
@@ -3482,9 +3568,10 @@ func TestListingsMarkE2EGatesSkippedByDefault(t *testing.T) {
 	jsonOut, _, _ := runGateTest(t, "-C", root, "--json")
 	var got listing
 	qt.Assert(t, qt.IsNil(json.Unmarshal([]byte(jsonOut), &got)))
-	qt.Assert(t, qt.HasLen(got.Gates, 2))
-	qt.Check(t, qt.IsFalse(got.Gates[0].E2E || got.Gates[0].Skipped), qt.Commentf("json = %s", jsonOut))
-	qt.Check(t, qt.IsTrue(got.Gates[1].E2E && got.Gates[1].Skipped), qt.Commentf("json = %s", jsonOut))
+	test := listedNamed(t, got.Gates, "test")
+	e2e := listedNamed(t, got.Gates, "e2e")
+	qt.Check(t, qt.IsFalse(test.E2E || test.Skipped), qt.Commentf("json = %s", jsonOut))
+	qt.Check(t, qt.IsTrue(e2e.E2E && e2e.Skipped), qt.Commentf("json = %s", jsonOut))
 	qt.Check(t, qt.Not(qt.StringContains(jsonOut, `"skipped": false`)))
 
 	jsonOut, _, _ = runGateTest(t, "-C", root, "--e2e", "--json")

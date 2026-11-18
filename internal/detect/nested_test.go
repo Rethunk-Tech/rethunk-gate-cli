@@ -54,7 +54,9 @@ func TestNestedDiscoverySkipsInstalledVendoredAndFixtureTrees(t *testing.T) {
 	for _, dir := range []string{"node_modules/x", "vendor/y", "testdata/z", ".venv/w", ".cache/v", "src/vendor/u"} {
 		testutil.Write(t, root, dir+"/go.mod", "module m\n")
 	}
-	qt.Check(t, qt.HasLen(detect(t, root).Gates, 0))
+	qt.Check(t, qt.IsFalse(slices.ContainsFunc(detect(t, root).Gates, func(g Gate) bool {
+		return g.Name != "canon" // present only where canon is installed
+	})))
 }
 
 // Discovery asks git, so a manifest under an ignored directory is not a

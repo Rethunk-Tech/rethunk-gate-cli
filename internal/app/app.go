@@ -63,7 +63,7 @@ runs one by name.
 Commands:
   <command>     run that command as a gate
   run NAME...   run the named gates: build, format, typecheck, lint, knip,
-                workflows, markdown, shell, test, vuln, and any others .gate.toml declares
+                workflows, markdown, shell, canon, test, vuln, and any others .gate.toml declares
   quick         format, lint and typecheck, files changed vs HEAD
                 (--all for the whole project; skips test, build, knip, vuln, e2e)
   doctor        report what is cheap to fix here (read-only)
@@ -176,6 +176,18 @@ func declaresShellcheck(g gateSpec) bool {
 // against one a project declared under that name itself.
 func isConventionShellGate(g gateSpec) bool {
 	return g.role == "shell" && strings.HasPrefix(g.source, "convention:")
+}
+
+// declaresCanonVerify reports whether the project itself declares a gate that
+// runs `canon verify`, under any name but the convention's own. Same reason
+// as declaresShellcheck: Rethunk-Tech/canon already runs it, and a second
+// copy would be the same check twice.
+func declaresCanonVerify(g gateSpec) bool {
+	return g.role != "canon" && strings.Contains(gateCommand(g), "canon verify")
+}
+
+func isConventionCanonGate(g gateSpec) bool {
+	return g.role == "canon" && strings.HasPrefix(g.source, "convention:")
 }
 
 // runState is what gate's own flags set and the rest of Run still reads.
@@ -839,6 +851,9 @@ func (st *runState) buildGates(ctx context.Context, proj detect.Project, cfg con
 	if len(roles) == 0 && slices.ContainsFunc(opts.gates, declaresShellcheck) {
 		opts.gates = slices.DeleteFunc(opts.gates, isConventionShellGate)
 	}
+	if len(roles) == 0 && slices.ContainsFunc(opts.gates, declaresCanonVerify) {
+		opts.gates = slices.DeleteFunc(opts.gates, isConventionCanonGate)
+	}
 	st.applyConfig(cfg, roles)
 
 	// Never fall through to a program of that name. The caller is least
@@ -922,10 +937,13 @@ func missingRoles(roles []string, gates []gateSpec) []string {
 
 // leftOutNote says why a detected gate is not run, or returns "".
 func leftOutNote(cfg config.Config, root string, g detect.Gate) string {
-	// Only a gate named for a directory can be excluded: a role is
-	// removed by configuring it, not by detect.exclude.
-	if g.Dir != "" && cfg.Excluded(g.Name) {
-		return "CI runs " + g.Name + "/, but detect.exclude in .gate.toml leaves it out"
+	// Directory-named gates, and the canon role: everything else is a
+	// role, turned off by configuring it rather than by detect.exclude.
+	if cfg.Excluded(g.Name) && (g.Dir != "" || g.Name == "canon") {
+		if g.Dir != "" {
+			return "CI runs " + g.Name + "/, but detect.exclude in .gate.toml leaves it out"
+		}
+		return "canon, but detect.exclude in .gate.toml leaves it out"
 	}
 	if by := configEnters(cfg, root, g); by != "" {
 		return "CI runs " + g.Name + "/, and " + by + " already enters it; not gated twice"

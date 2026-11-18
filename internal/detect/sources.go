@@ -254,6 +254,7 @@ func conventionGates(ctx context.Context, root string, proj *Project) ([]Gate, [
 		func() ([]Gate, []Skip) { return workflowConventionGates(root, proj) },
 		func() ([]Gate, []Skip) { return markdownConventionGates(root, proj) },
 		func() ([]Gate, []Skip) { return shellConventionGates(ctx, root, proj) },
+		func() ([]Gate, []Skip) { return canonConventionGates(root, proj) },
 	} {
 		g, sk := ladder()
 		gates, skipped = append(gates, g...), append(skipped, sk...)
@@ -562,6 +563,45 @@ func shellConventionGates(ctx context.Context, root string, proj *Project) (gate
 		}
 	}
 	return gates, skipped
+}
+
+// canonConventionGates runs `canon verify .` wherever the binary is on PATH.
+// Absent is silence, not a note: unlike actionlint or govulncheck, most
+// machines will not have this tool, and a skip note on every one of them
+// would be noise nobody acts on.
+//
+// A project that already runs `canon verify` under a name of its own
+// (Rethunk-Tech/canon does) must not get a second copy. Detection never
+// reads .gate.toml; that half is the merge in app.
+func canonConventionGates(root string, proj *Project) ([]Gate, []Skip) {
+	if projectDeclaresCanonVerify(root) {
+		return nil, nil
+	}
+	if bin := resolve(root, proj, "canon"); bin != "" {
+		return []Gate{{
+			Name:   "canon",
+			Argv:   []string{bin, "verify", "."},
+			Source: "convention: canon",
+		}}, nil
+	}
+	return nil, nil
+}
+
+func projectDeclaresCanonVerify(root string) bool {
+	if name, ok := makefileName(root); ok {
+		data, err := os.ReadFile(filepath.Clean(filepath.Join(root, name)))
+		if err == nil && strings.Contains(string(data), "canon verify") {
+			return true
+		}
+	}
+	if pkg, ok := readPackageJSON(filepath.Join(root, "package.json")); ok {
+		for _, script := range pkg.Scripts {
+			if strings.Contains(script, "canon verify") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // dotnetTarget is the solution or single project `dotnet build` and
