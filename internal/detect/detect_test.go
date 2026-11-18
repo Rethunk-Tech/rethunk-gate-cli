@@ -1369,7 +1369,15 @@ func TestMarkdownGateFollowsTheConfig(t *testing.T) {
 			}
 			bin := filepath.Join(dir, "no-such-bin")
 			if c.tool {
-				testutil.WriteExecutable(t, dir, filepath.Join("bin", "markdownlint-cli2"))
+				// LookPath answers by extension on Windows, so an
+				// extensionless fixture names no command there and the gate
+				// reports the tool missing; the clippy and golangci-lint
+				// fixtures carry the suffix for the same reason.
+				name := "markdownlint-cli2"
+				if runtime.GOOS == "windows" {
+					name += ".exe"
+				}
+				testutil.WriteExecutable(t, dir, filepath.Join("bin", name))
 				bin = filepath.Join(dir, "bin")
 			}
 			t.Setenv("PATH", bin)
