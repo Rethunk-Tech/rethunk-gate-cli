@@ -15,6 +15,12 @@ reports the verdict. The wrapped command's exit status passes through unchanged.
 A pipe through `tail` can invert a gate's verdict. `gate` keeps the status
 authoritative and the log complete.
 
+## Highlights
+
+- Runs a project's gates, captures every byte they write to a log, and reports the verdict.
+- The wrapped command's exit status passes through unchanged.
+- Keeps that status authoritative and the log complete when a pipe through `tail` would invert the verdict.
+
 ## Quick start
 
 ```bash
