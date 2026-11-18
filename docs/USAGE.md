@@ -396,7 +396,7 @@ MDBOOK_VERSION = "0.4"
 ```
 
 Gate keys: `run`, `serial`, `needs`, `timeout`, `dir`, `env`, `allow-failure`, `e2e`, `isolate`.
-Outside: `budget`, `jobs`, `fail-fast`, `trusted-orgs` ([`--trust`](#--trust)), `[detect] exclude`, `[lock] scope` ([`Concurrent runs`](#concurrent-runs)). `run` is a shell string (`sh` / `cmd`).
+Outside: `budget`, `jobs`, `fail-fast`, `trusted-orgs` ([`--trust`](#--trust)), `[detect] exclude`, `[lock] scope` ([`Concurrent runs`](#concurrent-runs)), `[limits] memory` ([Memory cap](#memory-cap)). `run` is a shell string (`sh` / `cmd`).
 `timeout` is the same grammar as `--timeout` (`5m`, `90s`, `1m30s`, `0`).
 `jobs` is an integer >= 1 (no cap when absent, unless the 1-minute loadavg
 exceeds nproc, then nproc/2). `fail-fast` is a bool
@@ -556,6 +556,24 @@ Gates run with `GORACE=atexit_sleep_ms=0` unless `GORACE` is already set, so a r
 
 `--timeout` is every gate; `.gate.toml` `timeout` is one. Absent inherits;
 `timeout = "0"` removes the limit. `--timeout 0` disables for the run.
+
+## Memory cap
+
+Each gate runs under a memory ceiling so callers do not wrap `gate` in
+`systemd-run --user --scope -p MemoryMax=24G`. Default 24G, swap 0.
+`.gate.toml` `[limits] memory = "16G"` is the repo; `--mem SIZE` is the run
+(flag wins). `--mem 0` and `memory = "0"` disable it.
+
+On Linux with a user systemd, the command is
+
+`systemd-run --user --scope -q --collect -p MemoryMax=<SIZE> -p MemorySwapMax=0 --`
+followed by the gate's argv. Display, logs and exit codes are the command's.
+Where `systemd-run --user` is missing (CI, macOS, containers) the command
+runs unwrapped and the run prints one `gate: memory cap <SIZE> unused:
+systemd-run --user is unavailable` line; that is not a failure.
+
+A command the cap kills (exit 137 and the scope's Result is `oom-kill`) is
+reported `killed: memory cap <SIZE>`, not `FAIL exit 137`.
 
 ## Concurrent runs
 

@@ -110,6 +110,9 @@ Flags:
   --no-isolate  never isolate, even inside a pre-push hook
   --timeout D   kill a gate that runs longer than D (default 1m, 0 disables;
                 .gate.toml can set it per gate, and this beats that)
+  --mem SIZE    cap each gate at SIZE (default 24G, swap 0, 0 disables;
+                .gate.toml: [limits] memory = "16G"; unused where
+                systemd-run --user is not available)
   --tail N      trailing lines to quote on failure (default 40)
   --log PATH    write this one file instead of the default location
                 (refused when several gates run; set TMPDIR for those)
@@ -180,6 +183,7 @@ type runState struct {
 	budgetSet   bool
 	jobsSet     bool
 	failFastSet bool
+	memSet      bool
 	showVersion bool
 	refuseFix   bool
 	forceStream bool
@@ -239,6 +243,14 @@ func (st *runState) defineFlags(flags *flag.FlagSet) {
 	})
 	flags.Func("timeout", "", durationFlag(func(d time.Duration) { st.timeout, st.timeoutSet = d, true }))
 	flags.Func("budget", "", durationFlag(func(d time.Duration) { st.budget, st.budgetSet = d, true }))
+	flags.Func("mem", "", func(value string) error {
+		s, err := config.ParseMemory(value)
+		if err != nil {
+			return err
+		}
+		opts.memory, st.memSet = s, true
+		return nil
+	})
 	setJobs := func(value string) error {
 		n, err := strconv.Atoi(value)
 		if err != nil || n < 1 {
@@ -437,7 +449,7 @@ func (st *runState) splitRun(args []string, explicit bool, stderr io.Writer) (co
 
 // Run parses gate's own arguments and runs the gates that follow them.
 func Run(ctx context.Context, version string, args []string, stdout, stderr io.Writer) Code {
-	st := runState{opts: options{tail: defaultTail}, timeout: defaultTimeout, budget: defaultBudget}
+	st := runState{opts: options{tail: defaultTail, memory: defaultMemory}, timeout: defaultTimeout, budget: defaultBudget}
 
 	dir, args, ok := parseChdir(args, stderr)
 	if !ok {
@@ -861,6 +873,9 @@ func (st *runState) applyConfig(cfg config.Config, roles []string) {
 	}
 	if cfg.HasFailFast && !st.failFastSet {
 		opts.failFast = cfg.FailFast
+	}
+	if cfg.HasMemory && !st.memSet {
+		opts.memory = cfg.Memory
 	}
 }
 

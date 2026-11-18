@@ -61,6 +61,9 @@ func runSuite(m *testing.M) int {
 	// runs it there, and an ancestor walk would then isolate every gate a
 	// test starts. A test that wants isolation asks for --isolate.
 	inPrePushHook = func() bool { return false }
+	// systemd-run --user --scope around every fixture would make signal
+	// tests depend on a user bus. Production wrapping stays on.
+	applyMemoryWrap = false
 	// Parallel tests running in the package directory would otherwise all
 	// queue on one workspace lock; listing this checkout as an enclosing
 	// gate's root skips it, as it is when the suite runs under gate. The lock

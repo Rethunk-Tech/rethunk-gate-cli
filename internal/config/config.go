@@ -143,6 +143,12 @@ type Config struct {
 	// install and gate without --trust. Lowercase.
 	TrustedOrgs    []string
 	HasTrustedOrgs bool
+
+	// Memory is the systemd MemoryMax each gate runs under. Empty means
+	// the app default; "0" disables. HasMemory distinguishes "not set"
+	// from a deliberate 0, the same way timeout does.
+	Memory    string
+	HasMemory bool
 }
 
 // DefaultTrustedOrgs are the origins a repo without a .gate.toml is trusted from.
@@ -171,6 +177,9 @@ type File struct {
 	Lock struct {
 		Scope *string `toml:"scope"`
 	} `toml:"lock"`
+	Limits struct {
+		Memory *string `toml:"memory"`
+	} `toml:"limits"`
 	Gates map[string]FileGate `toml:"gates"`
 }
 
@@ -202,6 +211,34 @@ func ParseTimeout(value string) (time.Duration, error) {
 		return 0, fmt.Errorf("wants a duration like 90s or 5m, got %q", value)
 	}
 	return d, nil
+}
+
+// ParseMemory reads a memory ceiling wherever one is written -- the --mem
+// flag and [limits] memory both come through here, so `24G`, `16G` and a
+// disabling `0` mean the same thing in either place. The string is kept as
+// systemd MemoryMax wants it.
+func ParseMemory(value string) (string, error) {
+	if value == "0" {
+		return "0", nil
+	}
+	if value == "" || value[0] < '1' || value[0] > '9' {
+		return "", fmt.Errorf("wants a size like 24G or 0, got %q", value)
+	}
+	i := 1
+	for i < len(value) && value[i] >= '0' && value[i] <= '9' {
+		i++
+	}
+	if i < len(value) {
+		switch value[i:] {
+		case "K", "M", "G", "T", "P", "E",
+			"k", "m", "g", "t", "p", "e",
+			"KiB", "MiB", "GiB", "TiB", "PiB", "EiB",
+			"KB", "MB", "GB", "TB", "PB", "EB":
+		default:
+			return "", fmt.Errorf("wants a size like 24G or 0, got %q", value)
+		}
+	}
+	return value, nil
 }
 
 // Load reads the user-level config, then the project's, layering the nearer
@@ -365,6 +402,15 @@ func (c *Config) mergeSettings(f File) (unusable []string) {
 
 	if f.FailFast != nil {
 		c.FailFast, c.HasFailFast = *f.FailFast, true
+	}
+
+	if f.Limits.Memory != nil {
+		s, err := ParseMemory(*f.Limits.Memory)
+		if err != nil {
+			unusable = append(unusable, fmt.Sprintf("limits.memory %v", err))
+		} else {
+			c.Memory, c.HasMemory = s, true
+		}
 	}
 
 	if f.Trusted != nil {

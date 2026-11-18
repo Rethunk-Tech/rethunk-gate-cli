@@ -40,6 +40,8 @@ Breaking one of these is silent.
 | A log close error is reported, not deferred away | Losing the log silently is the failure nobody would notice |
 | An interrupted gate still reaches `writeTrailer` and `Close` | An unfinished file gate opened is left empty |
 | An interrupt reports the signal that reached *gate* | The child dies of the signal gate sent it |
+| A memory-capped command is `systemd-run --user --scope … --` plus the original argv; display and the log still name the command | The wrapper is how the cap is applied, not a second verdict |
+| Where systemd-run --user is missing, the command runs unwrapped and the run says so once | A missing wrapper is not a failure |
 | `--ndjson` under a mutex, from the finishing gate's own goroutine | Concurrent gates would interleave into an unparseable line |
 
 ## Interrupts

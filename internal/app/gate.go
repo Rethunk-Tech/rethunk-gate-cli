@@ -200,6 +200,10 @@ type options struct {
 	// are the same statement; the flag wins when both are present.
 	failFast bool
 
+	// memory is the systemd MemoryMax each gate runs under. Empty or "0"
+	// means no wrap. The default is 24G; --mem and [limits] memory override.
+	memory string
+
 	// root is the detected project root, empty for a command the caller
 	// named, which has no project to keep a result record for. partial says
 	// the caller named a subset of its gates.
@@ -367,6 +371,11 @@ type gateResult struct {
 	// ends at the last byte that arrived.
 	logCut bool
 	note   string
+
+	// oom is a SIGKILL the memory cap caused (exit 137 and the scope's
+	// Result is oom-kill). The verdict names the cap instead of a bare 137.
+	oom    bool
+	memory string
 }
 
 // gateOutcome is what happened to one gate.
@@ -450,6 +459,7 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 	if opts.tempDir != "" {
 		defer func() { _ = os.RemoveAll(opts.tempDir) }()
 	}
+	announceMemoryCap(stderr, opts)
 	results := make([]gateResult, len(opts.gates))
 	if opts.stream {
 		opts.streamOut = &lockedWriter{w: stdout}
@@ -1010,6 +1020,13 @@ func reportRan(res gateResult, opts options, quote func(io.Writer, *lineTracker)
 	if res.excused() {
 		allowed = " (allowed)"
 	}
+	if res.oom {
+		fmt.Fprintf(stderr, "gate: FAIL%s %s  %s  %s\n",
+			allowed, "killed: memory cap "+res.memory, res.spec.short(), res.elapsed.Round(time.Millisecond))
+		quote(stderr, res.tracker)
+		fmt.Fprintf(stderr, "gate: full log  %s\n", res.logPath)
+		return
+	}
 	fmt.Fprintf(stderr, "gate: FAIL%s exit %d  %s  %s\n",
 		allowed, int(res.code), res.spec.short(), res.elapsed.Round(time.Millisecond))
 	quote(stderr, res.tracker)
@@ -1098,7 +1115,8 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 		defer cancel()
 	}
 
-	cmd := exec.CommandContext(runCtx, spec.argv[0], spec.argv[1:]...) //nolint:gosec // gate intentionally runs the configured command
+	argv, memUnit := wrapMemoryArgv(opts.memory, spec.argv)
+	cmd := exec.CommandContext(runCtx, argv[0], argv[1:]...) //nolint:gosec // gate intentionally runs the configured command
 	// Stop the whole process group, not just the child: a test runner that
 	// spawned workers would otherwise leave them behind holding a port.
 	setProcessGroup(cmd)
@@ -1202,6 +1220,12 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 		res.logCut = true
 	default:
 		res.code = resolveCode(runErr)
+	}
+	if memUnit != "" && int(res.code) == 137 {
+		if label := memoryKillLabel(int(res.code), readScopeResult(runCtx, memUnit), opts.memory); label != "" {
+			res.oom = true
+			res.memory = opts.memory
+		}
 	}
 
 	// A log that records output but not outcome answers the wrong question
@@ -1375,6 +1399,9 @@ func writeTrailer(w io.Writer, res gateResult, danglingLine bool) error {
 	// The same precedence the reported verdict uses, read from the same
 	// place, so the log cannot name one thing and the exit status another.
 	word := fmt.Sprintf("exit %d", int(res.code))
+	if res.oom {
+		word = "killed: memory cap " + res.memory
+	}
 	switch res.outcome() {
 	case outcomeInterrupted:
 		word = "interrupted"

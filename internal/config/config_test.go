@@ -483,3 +483,30 @@ func TestLoadRefusesAnUnreadableFileAndSkipsAnUnlocatableUserPath(t *testing.T) 
 	qt.Assert(t, qt.IsNotNil(err))
 	qt.Check(t, qt.StringContains(err.Error(), ProjectFile))
 }
+
+// [limits] memory is the per-repo ceiling; a nearer file replaces it whole,
+// including a deliberate 0, and a value systemd would not take refuses the file.
+func TestLimitsMemory(t *testing.T) {
+	home := isolate(t)
+	testutil.Write(t, home, "gate/config.toml", "[limits]\nmemory = \"32G\"\n")
+	root := t.TempDir()
+	testutil.Write(t, root, ProjectFile, "[limits]\nmemory = \"16G\"\n")
+
+	cfg, err := Load(root)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsTrue(cfg.HasMemory))
+	qt.Check(t, qt.Equals(cfg.Memory, "16G"))
+
+	off := t.TempDir()
+	testutil.Write(t, off, ProjectFile, "[limits]\nmemory = \"0\"\n")
+	cfg, err = Load(off)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsTrue(cfg.HasMemory))
+	qt.Check(t, qt.Equals(cfg.Memory, "0"))
+
+	bad := t.TempDir()
+	testutil.Write(t, bad, ProjectFile, "[limits]\nmemory = \"soon\"\n")
+	_, err = Load(bad)
+	qt.Assert(t, qt.IsNotNil(err))
+	qt.Check(t, qt.StringContains(err.Error(), "limits.memory"))
+}

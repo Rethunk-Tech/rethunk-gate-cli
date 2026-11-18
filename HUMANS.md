@@ -82,6 +82,10 @@ passing run over 10s prints one line naming the slowest gates.
 `gate doctor` reports what is cheap to fix here; `gate fix` applies the
 mechanical ones. `gate record` prints the last result for this tree.
 
+Each gate is capped at 24G (swap 0) via `systemd-run --user --scope` when
+that exists; `--mem SIZE` or `.gate.toml` `[limits] memory` changes it,
+`--mem 0` turns it off. An OOM is `killed: memory cap <SIZE>`.
+
 ## Environment
 
 | Variable | What |
