@@ -1048,8 +1048,8 @@ func TestDoctorRendersFindingsAndNeverFailsTheBuild(t *testing.T) {
 }
 
 // --json doctor answers the same question the text form does, so it must not
-// fail where the text form succeeds. It used to re-enter the run to collect
-// its warnings array, and inside a project gate that re-entry is refused as
+// fail where the text form succeeds. Collecting the warnings array must not
+// re-enter the run: inside a project gate that re-entry is refused as
 // recursion -- a refusal the warnings array has no business turning into a
 // fatal status.
 func TestDoctorJSONSucceedsInsideAProjectGate(t *testing.T) {
