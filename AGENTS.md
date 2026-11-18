@@ -132,7 +132,14 @@ Git read runs beside the gates; a write failure is stderr only.
 
 Logs: `$TMPDIR` or `/var/tmp` — never `/tmp` on unix (`logDir` is
 build-tagged). `run` strings: `sh -c` vs `cmd /c`. 0600 in 0700. Sweep own
-directory >14 days, at most once a day. `--log` paths are never swept.
+directory >7 days. `--log` paths are never swept.
+
+Temp: one `/var/tmp/gate-run-<pid>-<random>` per run (parent: `GATE_TMPDIR`),
+named `TMPDIR`/`GOTMPDIR` for every child and removed when the run ends.
+`GOCACHE` stays shared. A run sweeps first: `gate-run-*` with a dead pid past
+an hour, loose `go-build*` past a day, its own logs past 7 days — one stderr
+line with the counts, silence under `--quiet`. A SIGKILLed run's directory is
+what the next run's sweep is for.
 
 ## Gate budget
 

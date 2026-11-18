@@ -43,7 +43,7 @@ func TestConcurrentRunsSerializeAndShareTheResult(t *testing.T) {
 	var wg sync.WaitGroup
 	var firstCode Code
 	wg.Go(func() { _, _, firstCode = runGateTest(t, "-C", root) })
-	waitFor(t, marker, 2*time.Second)
+	waitFor(t, marker)
 	go func() {
 		time.Sleep(50 * time.Millisecond)
 		_ = os.WriteFile(release, []byte("x"), 0o600)

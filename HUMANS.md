@@ -87,6 +87,6 @@ mechanical ones. `gate record` prints the last result for this tree.
 | Variable | What |
 | --- | --- |
 | `TMPDIR` | Default logs go under `$TMPDIR/gate/` (`/var/tmp/gate/` if unset). On Windows, `TMP`/`TEMP`. |
-| `GATE_TMPDIR` | On unix, `TMPDIR` and `GOTMPDIR` every gate runs with (default `/var/tmp`), so Go's test cache does not miss across callers. |
+| `GATE_TMPDIR` | Parent of each run's private `TMPDIR`/`GOTMPDIR` (default `/var/tmp`), removed with the run. `GOCACHE` stays shared, so Go builds stay warm. |
 | `XDG_CONFIG_HOME` | User config: `$XDG_CONFIG_HOME/gate/config.toml`, else `~/.config/gate/config.toml`. |
 | `XDG_STATE_HOME` | Result records: `$XDG_STATE_HOME/gate/results/`, else `~/.local/state/gate/results/`. |

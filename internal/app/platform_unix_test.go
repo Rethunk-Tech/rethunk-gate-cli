@@ -7,19 +7,31 @@ import (
 	"testing"
 )
 
-func TestPinTempDirDefaultsToVarTmp(t *testing.T) {
-	t.Setenv("GATE_TMPDIR", "")
-	env := pinTempDir([]string{"TMPDIR=/caller"})
-	if env[len(env)-2] != "TMPDIR=/var/tmp" || env[len(env)-1] != "GOTMPDIR=/var/tmp" {
-		t.Fatalf("pinned env tail = %q, want TMPDIR and GOTMPDIR set to /var/tmp", env[len(env)-2:])
+func TestPinTempDirUsesTheRunsOwnDirectory(t *testing.T) {
+	dir := t.TempDir()
+	env := pinTempDir(dir, []string{"TMPDIR=/caller"})
+	if !slices.Equal(env, []string{"TMPDIR=/caller", "TMPDIR=" + dir, "GOTMPDIR=" + dir}) {
+		t.Fatalf("pinTempDir = %q", env)
 	}
 }
 
-func TestPinTempDirHonoursGateTmpdir(t *testing.T) {
+func TestPinTempDirIsANoOpWithoutADirectory(t *testing.T) {
+	env := pinTempDir("", []string{"TMPDIR=/caller"})
+	if !slices.Equal(env, []string{"TMPDIR=/caller"}) {
+		t.Fatalf("pinTempDir = %q", env)
+	}
+}
+
+// childTempDir still names the base the per-run directory is made under, and
+// GATE_TMPDIR still chooses it.
+func TestChildTempDirHonoursGateTmpdir(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("GATE_TMPDIR", dir)
-	env := pinTempDir(nil)
-	if !slices.Equal(env, []string{"TMPDIR=" + dir, "GOTMPDIR=" + dir}) {
-		t.Fatalf("pinTempDir = %q", env)
+	if got := childTempDir(); got != dir {
+		t.Fatalf("childTempDir = %q, want %q", got, dir)
+	}
+	t.Setenv("GATE_TMPDIR", "")
+	if got := childTempDir(); got != "/var/tmp" {
+		t.Fatalf("childTempDir = %q, want /var/tmp", got)
 	}
 }

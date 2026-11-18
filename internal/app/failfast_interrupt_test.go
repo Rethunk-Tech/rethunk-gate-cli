@@ -30,7 +30,7 @@ func TestUserInterruptBeatsAFailFastFailure(t *testing.T) {
 	go func() {
 		done <- Run(ctx, "v0.0.0-test", []string{"-C", root, "--timeout", "0", "--fail-fast"}, &out, &errBuf)
 	}()
-	waitFor(t, failed, 2*time.Second)
+	waitFor(t, failed)
 	time.Sleep(20 * time.Millisecond)
 	cancel()
 

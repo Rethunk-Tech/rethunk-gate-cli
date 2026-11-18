@@ -66,15 +66,31 @@ func exists(path string) bool {
 	return err == nil
 }
 
-func waitFor(t *testing.T, path string, d time.Duration) {
+// waitFor polls until path appears. Two seconds is long enough for a gate to
+// have started a child and short enough that a hung one fails the test rather
+// than the run.
+func waitFor(t *testing.T, path string) {
 	t.Helper()
-	deadline := time.Now().Add(d)
+	deadline := time.Now().Add(2 * time.Second)
 	for !exists(path) {
 		if time.Now().After(deadline) {
 			t.Fatalf("%s never appeared", path)
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
+}
+
+// withoutSweepLine drops the one housekeeping line every run prints, so a
+// test can still assert that a passing run said nothing else on stderr.
+func withoutSweepLine(stderr string) string {
+	var rest []string
+	for line := range strings.SplitSeq(stderr, "\n") {
+		if line == "" || strings.HasPrefix(line, "gate: removed ") {
+			continue
+		}
+		rest = append(rest, line)
+	}
+	return strings.Join(rest, "\n")
 }
 
 // runGateTest drives Run directly with buffers.
@@ -138,8 +154,8 @@ func TestRunPassEmitsOneLineAndKeepsOutputOffStdout(t *testing.T) {
 
 	stdout, stderr, code := runGateTest(t, "--log", log, "sh", "-c", "echo hello; echo world")
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("gate = %d, stderr = %q", code, stderr))
-	if stderr != "" {
-		t.Errorf("passing gate wrote stderr = %q, want empty", stderr)
+	if rest := withoutSweepLine(stderr); rest != "" {
+		t.Errorf("passing gate wrote stderr = %q, want only the housekeeping line", rest)
 	}
 	if got := strings.Count(stdout, "\n"); got != 1 {
 		t.Errorf("passing verdict = %q, want exactly one line", stdout)
@@ -1176,7 +1192,7 @@ func TestAnInterruptedGateIsStoppedNotFailedAndKeepsItsLog(t *testing.T) {
 		}, &out, &errBuf)
 	}()
 
-	waitFor(t, started, 2*time.Second)
+	waitFor(t, started)
 	cancel()
 
 	code := <-done
@@ -2147,10 +2163,15 @@ func TestNDJSONRefusesTheFlagsThatRunNothing(t *testing.T) {
 
 // Logs are the only state gate leaves, and nothing else removes them: one
 // operator's directory measured 811 files in two days.
+//
+// Ages are written as 8 and 6 days rather than derived from pruneAge: the
+// retention itself is the claim, so a constant moved back to 14 days has to
+// fail here rather than move the test with it.
 func TestPruneRemovesOldLogsAndKeepsRecentOnes(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	old := filepath.Join(dir, "old.log")
+	stale := filepath.Join(dir, "stale.log")
 	recent := filepath.Join(dir, "recent.log")
 	other := filepath.Join(dir, "notes.txt")
 	for _, path := range []string{old, recent, other} {
@@ -2158,26 +2179,40 @@ func TestPruneRemovesOldLogsAndKeepsRecentOnes(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	if err := os.WriteFile(stale, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	eightDays := time.Now().Add(-8 * 24 * time.Hour)
 	aged := time.Now().Add(-pruneAge - time.Hour)
 	for _, path := range []string{old, other} {
 		if err := os.Chtimes(path, aged, aged); err != nil {
 			t.Fatal(err)
 		}
 	}
+	if err := os.Chtimes(stale, eightDays, eightDays); err != nil {
+		t.Fatal(err)
+	}
 
-	pruneLogs(dir)
+	qt.Check(t, qt.Equals(pruneLogs(dir), 2), qt.Commentf("the count the info line reports"))
 	qt.Check(t, qt.IsFalse(exists(old)), qt.Commentf("a log past %s survived", pruneAge))
+	qt.Check(t, qt.IsFalse(exists(stale)), qt.Commentf("a log 8 days old survived a 7-day retention"))
 	qt.Check(t, qt.IsTrue(exists(recent)), qt.Commentf("a log inside %s was removed", pruneAge))
 	// Only gate's own logs. Anything else in the directory is someone else's.
 	qt.Check(t, qt.IsTrue(exists(other)), qt.Commentf("a file that is not a log was removed"))
+}
 
-	// A second sweep the same day is skipped, which is what keeps the cost one
-	// stat rather than one per log.
-	if err := os.Chtimes(recent, aged, aged); err != nil {
-		t.Fatal(err)
-	}
-	pruneLogs(dir)
-	qt.Check(t, qt.IsTrue(exists(recent)), qt.Commentf("the stamp did not stop a second sweep"))
+// The sweep is a prune by age, not by name: a log that is merely old enough
+// goes, and one that is not yet does not, whatever else sits beside it.
+func TestPruneKeepsALogOneDayInsideTheRetention(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	keep := filepath.Join(dir, "keep.log")
+	qt.Assert(t, qt.IsNil(os.WriteFile(keep, []byte("x"), 0o600)))
+	sixDays := time.Now().Add(-6 * 24 * time.Hour)
+	qt.Assert(t, qt.IsNil(os.Chtimes(keep, sixDays, sixDays)))
+
+	qt.Check(t, qt.Equals(pruneLogs(dir), 0), qt.Commentf("count for a directory with nothing to remove"))
+	qt.Check(t, qt.IsTrue(exists(keep)))
 }
 
 // A planted $TMPDIR/gate symlink is not chmod'd, written, or pruned through.

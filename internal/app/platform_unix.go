@@ -3,6 +3,7 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -24,16 +25,24 @@ func logDir() string {
 	return filepath.Join(base, "gate")
 }
 
-// childTempDir is the TMPDIR and GOTMPDIR every gate runs with. Go's test
-// cache keys a result on the environment variables the test read, and
-// t.TempDir reads TMPDIR, so a caller whose TMPDIR differs from the last run's
-// misses the cache for every package that makes a temp dir. Pinning it makes a
-// warm run warm whoever starts it. GATE_TMPDIR chooses another location.
+// childTempDir is where a run makes the directory its children share, so every
+// gate's TMPDIR and GOTMPDIR is one path this run owns and can delete whole.
+// It is also where the startup sweep looks for what killed runs left behind.
+//
+// The Go build cache is GOCACHE and is not touched: it stays shared, so a warm
+// build stays warm. GATE_TMPDIR chooses another base.
 func childTempDir() string {
 	if dir := os.Getenv("GATE_TMPDIR"); dir != "" {
 		return dir
 	}
 	return "/var/tmp"
+}
+
+// pidAlive reports whether pid names a process that still exists. EPERM means
+// it exists and belongs to someone else, which is still alive.
+func pidAlive(pid int) bool {
+	err := syscall.Kill(pid, 0)
+	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
 // shellArgv wraps a config `run` string for the platform's shell. It is one

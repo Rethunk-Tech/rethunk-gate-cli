@@ -591,8 +591,7 @@ signal ends `gate`. Interrupted, not failed; exit 128+the signal that reached
 ## Logs
 
 `$TMPDIR/gate/`, or `/var/tmp/gate/` if unset; Windows `TMP`/`TEMP`. Not
-`/tmp` (tmpfs). Every gate gets `TMPDIR`/`GOTMPDIR` = `/var/tmp` (or
-`GATE_TMPDIR`): Go's test cache keys on env, and `t.TempDir` reads `TMPDIR`.
+`/tmp` (tmpfs).
 
 Filename is command plus a random suffix. **0600 in a 0700 directory**.
 `--log PATH` is one file; several gates refuse it. That parent is the
@@ -602,9 +601,28 @@ When any step failed, the report ends with one line per failure,
 `gate: failed: <name> -> <full log path>`, after the summary, so
 `tail -3` names what failed and where.
 
-`--version` names timeout, budget, log directory, retention. Own-directory
-logs older than **14 days** are swept at most once a day. `--log` paths are
-never swept.
+`--version` names timeout, budget, log directory, retention.
+
+## Temporary files
+
+One directory per run, `/var/tmp/gate-run-<pid>-<random>` (`GATE_TMPDIR`
+moves the parent), and every gate runs with `TMPDIR` and `GOTMPDIR` pointing
+at it. Whatever a step leaves there — a `go-build` work tree, a test's fixture
+directory — goes with it when the run ends, however it ends: pass, fail,
+Ctrl-C, or a step's own timeout. `GOCACHE` is untouched, so the Go build cache
+stays shared and warm.
+
+A run killed outright (`SIGKILL`) cannot remove its own directory, so each run
+sweeps first, and prints one line:
+
+```text
+gate: removed 2 dead run dir(s), 1 go-build dir(s), 3 log(s) older than 7 days
+```
+
+`gate-run-*` goes once its pid is gone and it is over an hour old; a
+`go-build*` left loose in that parent goes after a day; logs in gate's own
+directory go after **7 days**. `--quiet` silences the line, not the sweep.
+`--log` paths are never swept.
 
 ## Result record
 

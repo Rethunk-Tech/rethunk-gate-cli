@@ -44,11 +44,15 @@ func activeRoots() []string {
 
 // markRoot returns the child environment with dir added to the active roots.
 // os/exec keeps the last of duplicate keys, so appending is enough.
-// pinTempDir appends the pinned temp directory, when there is one, after the
-// inherited environment so it wins; a gate's own env is appended later still,
-// and activeRootsVar is appended last so neither config nor CI can displace it.
-func pinTempDir(env []string) []string {
-	dir := childTempDir()
+// pinTempDir appends this run's private temp directory, when there is one,
+// after the inherited environment so it wins; a gate's own env is appended
+// later still, and activeRootsVar is appended last so neither config nor CI
+// can displace it.
+//
+// It is per run rather than a fixed path: whatever a killed or timed-out step
+// leaves in it -- go-build trees, fixture directories -- is then this run's to
+// delete in one go. GOCACHE is untouched, so a warm build stays warm.
+func pinTempDir(dir string, env []string) []string {
 	if dir == "" {
 		return env
 	}
@@ -201,6 +205,10 @@ type options struct {
 	// the caller named a subset of its gates.
 	root    string
 	partial bool
+
+	// tempDir is this run's private TMPDIR and GOTMPDIR, empty when no base
+	// was available to make one under. runGates fills it in and removes it.
+	tempDir string
 }
 
 // gateSpec is one command to run. argv is executed directly, without a shell,
@@ -434,6 +442,14 @@ func (r gateResult) excused() bool {
 // clock" would not be. A gate the project marked allow-failure never moves
 // the aggregate, whatever its own verdict was.
 func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code {
+	// One temp directory per run, removed on the way out however the run
+	// ends. A step that is killed cannot clean up after itself, so the
+	// directory its children were pointed at is the only place their
+	// leftovers land -- and this run knows where that is.
+	opts.tempDir = prepareTempDirs(stderr, opts.quiet)
+	if opts.tempDir != "" {
+		defer func() { _ = os.RemoveAll(opts.tempDir) }()
+	}
 	results := make([]gateResult, len(opts.gates))
 	if opts.stream {
 		opts.streamOut = &lockedWriter{w: stdout}
@@ -1103,7 +1119,7 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 	// invariant.
 	cmd.WaitDelay = stopGrace
 	cmd.Dir = spec.dir
-	cmd.Env = childPWD(quickRaceExit(pinTempDir(markRoot(spec.root, spec.dir))), spec.dir)
+	cmd.Env = childPWD(quickRaceExit(pinTempDir(opts.tempDir, markRoot(spec.root, spec.dir))), spec.dir)
 	// Appended after the process environment, so the gate wins over an
 	// inherited value the way a prefix on the command line would. os/exec
 	// keeps the last of duplicate keys, which is what makes appending an
@@ -1264,7 +1280,6 @@ func openLog(res *gateResult, spec gateSpec) (*os.File, error) {
 	if err := prepareLogDir(dir); err != nil {
 		return nil, fmt.Errorf("cannot create log directory: %w", err)
 	}
-	pruneOnce.Do(func() { pruneLogs(dir) })
 	// CreateTemp settles the collision two gates with the same slug would
 	// otherwise have, and creates 0600 by definition.
 	f, err := os.CreateTemp(dir, slug(spec.argv)+"-*.log")
@@ -1280,22 +1295,8 @@ func openLog(res *gateResult, spec gateSpec) (*os.File, error) {
 // does not grow without bound: one operator's logs measured 811 files in two
 // days, and nothing else removes them. Linux clears /var/tmp at 30 days, but
 // the Windows and macOS temporary directories gate also writes to do not.
-const pruneAge = 14 * 24 * time.Hour
+const pruneAge = 7 * 24 * time.Hour
 
-// pruneStamp records the last sweep. With it the cost is one stat per run;
-// without it, a stat per log on a directory that only grows.
-const pruneStamp = ".last-prune"
-
-// pruneOnce bounds the sweep to once per process. A run with six gates opens
-// six logs, and the directory does not change underneath itself in between.
-// It sits here rather than inside pruneLogs so the sweep itself stays a plain
-// function a test can call twice.
-var pruneOnce sync.Once
-
-// pruneLogs removes gate's own logs once they are older than pruneAge.
-//
-// Only ever gate's own directory. A directory --log named is the caller's,
-// and gate does not delete files it did not place there.
 func prepareLogDir(dir string) error {
 	if err := mkdirLogDir(dir); err != nil {
 		return err
@@ -1330,25 +1331,19 @@ func mkdirLogDir(dir string) error {
 	return nil
 }
 
-func pruneLogs(dir string) {
+// pruneLogs removes gate's own logs once they are older than pruneAge, and
+// returns how many it removed.
+//
+// Only ever gate's own directory. A directory --log named is the caller's,
+// and gate does not delete files it did not place there.
+func pruneLogs(dir string) (removed int) {
 	info, err := os.Lstat(dir)
 	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
-		return
-	}
-	stamp := filepath.Join(dir, pruneStamp)
-	if info, err := os.Stat(stamp); err == nil && time.Since(info.ModTime()) < 24*time.Hour {
-		return
-	}
-	// Stamped before the sweep, not after. A sweep that cannot finish --
-	// interrupted, or a directory too large for the time a gate has --
-	// still moves the schedule forward instead of being retried in full
-	// on every run from then on.
-	if f, err := os.Create(filepath.Clean(stamp)); err == nil {
-		_ = f.Close()
+		return 0
 	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return
+		return 0
 	}
 	cutoff := time.Now().Add(-pruneAge)
 	for _, e := range entries {
@@ -1361,8 +1356,11 @@ func pruneLogs(dir string) {
 		}
 		// A removal that fails is not worth a word: housekeeping must never
 		// fail a run that passed, and the next sweep tries again.
-		_ = os.Remove(filepath.Join(dir, e.Name()))
+		if os.Remove(filepath.Join(dir, e.Name())) == nil {
+			removed++
+		}
 	}
+	return removed
 }
 
 // trailerPrefix marks gate's own line in a log. Distinctive enough that a

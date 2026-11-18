@@ -17,9 +17,18 @@ func logDir() string {
 }
 
 // childTempDir is empty off unix: TMP and TEMP already name a per-user
-// directory there, so there is no caller-dependent value to pin.
+// directory there, so there is no caller-dependent value to pin. GATE_TMPDIR
+// still names a base when set, and each run's directory under it is still
+// removed when the run ends.
 func childTempDir() string {
 	return os.Getenv("GATE_TMPDIR")
+}
+
+// pidAlive cannot be answered here; probing a pid is a unix notion. True is
+// the safe direction: the sweep then attributes no directory to a dead run,
+// and a killed run's leftovers stay until they are cleared by hand.
+func pidAlive(int) bool {
+	return true
 }
 
 // shellArgv wraps a config `run` string for the platform's shell. cmd.exe

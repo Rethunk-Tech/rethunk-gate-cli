@@ -72,6 +72,10 @@ func runSuite(m *testing.M) int {
 		"XDG_STATE_HOME":  filepath.Join(dir, "state"),
 		"XDG_CONFIG_HOME": filepath.Join(dir, "config"),
 		"TMPDIR":          filepath.Join(dir, "tmp"),
+		// GATE_TMPDIR is where each run makes the temp dir its children
+		// share, and what the startup sweep reads. Pointed at the scratch
+		// tree so a suite never sweeps the operator's real /var/tmp.
+		"GATE_TMPDIR": filepath.Join(dir, "tmp"),
 	} {
 		if err := os.MkdirAll(v, 0o700); err != nil {
 			panic(err)

@@ -79,5 +79,5 @@ func TestVersionNamesLogRetention(t *testing.T) {
 	t.Parallel()
 	var out bytes.Buffer
 	writeVersion(&out, "v1.2.3", time.Minute, defaultBudget)
-	qt.Check(t, qt.StringContains(out.String(), "kept 14 days"), qt.Commentf("version = %q", out.String()))
+	qt.Check(t, qt.StringContains(out.String(), "kept 7 days"), qt.Commentf("version = %q", out.String()))
 }
