@@ -1,0 +1,2 @@
+[deviations]
+patterns-release-00001 = "jobs cross-build, sign, attest, and attach gate binaries; canon's stub release jobs cannot publish those artefacts"
