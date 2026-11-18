@@ -61,6 +61,10 @@ linters:
     rules:
       - path: _test\.go
         linters: [gocognit]
+      # G703 names a path an attacker controls; in a test it is the fixture's own path under t.TempDir().
+      - path: _test\.go
+        linters: [gosec]
+        text: G703
     generated: lax
   settings:
     # canon go-golangci-lint-00008
