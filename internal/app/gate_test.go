@@ -2340,7 +2340,7 @@ func TestAllowedTimeoutStillPrintsRemedyAndStaysGreen(t *testing.T) {
 
 	root := t.TempDir()
 	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
-	testutil.Write(t, root, ".gate.toml", "[gates.a]\nrun = \"sleep 10\"\nallow-failure = true\n")
+	testutil.Write(t, root, ".gate.toml", detectNoCanon+"[gates.a]\nrun = \"sleep 10\"\nallow-failure = true\n")
 
 	_, stderr, code := runGateTest(t, "-C", root, "--timeout", "50ms")
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("an allowed timeout failed the run: %q", stderr))
