@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -395,4 +396,90 @@ func TestLockScope(t *testing.T) {
 	testutil.Write(t, root, ProjectFile, "[lock]\nscope = \"galaxy\"\n")
 	_, err = Load(root)
 	qt.Check(t, qt.ErrorMatches(err, `(?s).*lock\.scope wants.*`))
+}
+
+// jobs, fail-fast, trusted-orgs and lock.scope are the run-wide keys a nearer
+// file replaces whole, including a deliberate false or empty list: merging
+// would leave a user-level default the project turned off.
+func TestRunWideSettingsReplacePerKeyIncludingADeliberateOff(t *testing.T) {
+	home := isolate(t)
+	testutil.Write(t, home, "gate/config.toml",
+		"jobs = 4\nfail-fast = true\ntrusted-orgs = [\"Acme\"]\n\n[lock]\nscope = \"repo\"\n")
+
+	root := t.TempDir()
+	testutil.Write(t, root, ProjectFile,
+		"jobs = 2\nfail-fast = false\ntrusted-orgs = []\n\n[lock]\nscope = \"worktree\"\n")
+
+	cfg, err := Load(root)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsTrue(cfg.HasJobs))
+	qt.Check(t, qt.Equals(cfg.Jobs, 2))
+	qt.Check(t, qt.IsTrue(cfg.HasFailFast))
+	qt.Check(t, qt.IsFalse(cfg.FailFast))
+	qt.Check(t, qt.IsTrue(cfg.HasTrustedOrgs))
+	qt.Check(t, qt.HasLen(cfg.TrustedOrgs, 0))
+	qt.Check(t, qt.Equals(cfg.LockScope, "worktree"))
+
+	mixed := t.TempDir()
+	testutil.Write(t, mixed, ProjectFile, "trusted-orgs = [\"GitHub\", \"Azure\"]\n")
+	cfg, err = Load(mixed)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.DeepEquals(cfg.TrustedOrgs, []string{"github", "azure"}))
+
+	bad := t.TempDir()
+	testutil.Write(t, bad, ProjectFile, "jobs = 0\n")
+	_, err = Load(bad)
+	qt.Assert(t, qt.IsNotNil(err))
+	qt.Check(t, qt.StringContains(err.Error(), "jobs wants an integer >= 1"))
+}
+
+// needs names detection will supply are not a cycle: checkNeeds only walks
+// gates this file declared. A self-need is, and two gates sharing a third
+// are not — that is a DAG, and treating an already-walked node as a cycle
+// would refuse a legitimate fan-in.
+func TestNeedsOfAnUnconfiguredNameIsNotACycle(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	testutil.Write(t, root, ProjectFile, `
+[gates.lint]
+needs = ["fmt"]
+
+[gates.test]
+needs = ["fmt"]
+
+[gates.build]
+needs = ["test", "coverage"]
+`)
+	cfg, err := Load(root)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.DeepEquals(cfg.Gates["build"].Needs, []string{"test", "coverage"}))
+
+	loop := t.TempDir()
+	testutil.Write(t, loop, ProjectFile, "[gates.self]\nneeds = [\"self\"]\n")
+	_, err = Load(loop)
+	qt.Assert(t, qt.IsNotNil(err))
+	qt.Check(t, qt.StringContains(err.Error(), "gates.self.needs forms a cycle"))
+}
+
+// A path that exists but cannot be read is the silent-fallback failure Load
+// exists not to hide. A user path that cannot be located is skipped, not
+// joined onto the working directory.
+func TestLoadRefusesAnUnreadableFileAndSkipsAnUnlocatableUserPath(t *testing.T) {
+	t.Setenv("HOME", "")
+	t.Setenv("XDG_CONFIG_HOME", "relative")
+	cwd := t.TempDir()
+	t.Chdir(cwd)
+	testutil.Write(t, cwd, "relative/gate/config.toml", "[gates.test]\nrun = \"from-relative\"\n")
+	testutil.Write(t, cwd, ".config/gate/config.toml", "[gates.test]\nrun = \"from-home\"\n")
+
+	cfg, err := Load(t.TempDir())
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.Equals(cfg.Gates["test"].Run, ""))
+	qt.Check(t, qt.HasLen(cfg.Files, 0))
+
+	root := t.TempDir()
+	qt.Assert(t, qt.IsNil(os.Mkdir(filepath.Join(root, ProjectFile), 0o700)))
+	_, err = Load(root)
+	qt.Assert(t, qt.IsNotNil(err))
+	qt.Check(t, qt.StringContains(err.Error(), ProjectFile))
 }

@@ -116,6 +116,21 @@ run = 'echo "clean=$HOME"'
 	qt.Check(t, qt.Not(qt.StringContains(stdout, "clean="+home+"\n")), qt.Commentf("the run's isolation did not reach the gate that did not opt out: %q", stdout))
 }
 
+// The walker reads this process from /proc, not a fixture: a fake cmdline
+// would not catch a parse that depends on the kernel's NUL-separated argv
+// and the parenthesised comm in stat.
+func TestProcessWalkerReadsThisTestFromProc(t *testing.T) {
+	t.Parallel()
+	argv, ppid, ok := procArgv(os.Getpid())
+	qt.Assert(t, qt.IsTrue(ok))
+	qt.Assert(t, qt.IsTrue(len(argv) > 0))
+	qt.Check(t, qt.IsTrue(ppid >= 1))
+	qt.Check(t, qt.IsFalse(matchPrePushHook(argv)))
+	_ = walkForPrePushHook()
+	_, _, ok = procArgv(-1)
+	qt.Check(t, qt.IsFalse(ok))
+}
+
 // The shapes measured from the real programs: git runs the hook, and lefthook
 // runs the hook's jobs, and neither exports a hook name in the environment.
 func TestPrePushHookIsRecognisedFromItsAncestry(t *testing.T) {

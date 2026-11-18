@@ -38,6 +38,32 @@ func TestUserInterruptBeatsAFailFastFailure(t *testing.T) {
 	qt.Check(t, qt.Equals(code, Interrupted), qt.Commentf("stderr = %q", errBuf.String()))
 }
 
+// Fail-fast interrupts the others for a command's own non-allowed failure.
+// A skip, an interrupt, a gate that never started, and an allowed failure
+// are not that: treating them as a trigger would cancel a run that still
+// has no verdict of its own, or one the project asked to keep going.
+func TestFailFastTriggerIsACommandsOwnNonAllowedFailure(t *testing.T) {
+	t.Parallel()
+	failed := gateResult{started: true, code: Code(1)}
+	allowedFail := gateResult{started: true, code: Code(1), spec: gateSpec{allowFailure: true}}
+	timedOut := gateResult{started: true, timedOut: true, code: TimedOut}
+	allowedTimeout := gateResult{started: true, timedOut: true, code: TimedOut, spec: gateSpec{allowFailure: true}}
+	notFound := gateResult{started: true, notFound: true, spec: gateSpec{allowFailure: true}}
+
+	qt.Check(t, qt.IsFalse(failFastTrigger(nil)))
+	qt.Check(t, qt.IsFalse(failFastTrigger([]gateResult{{}, {skipped: true}, {started: true, interrupted: true}, {started: true}})))
+	qt.Check(t, qt.IsTrue(failFastTrigger([]gateResult{failed})))
+	qt.Check(t, qt.IsFalse(failFastTrigger([]gateResult{allowedFail, allowedTimeout})))
+	qt.Check(t, qt.IsTrue(failFastTrigger([]gateResult{allowedFail, timedOut})))
+	qt.Check(t, qt.IsFalse(failFastTrigger([]gateResult{notFound})))
+
+	qt.Check(t, qt.IsFalse(gateResult{spec: gateSpec{allowFailure: true}, skipped: true}.excused()))
+	qt.Check(t, qt.IsFalse(gateResult{spec: gateSpec{allowFailure: true}, started: true, interrupted: true}.excused()))
+	qt.Check(t, qt.IsFalse(gateResult{spec: gateSpec{allowFailure: true}}.excused()))
+	qt.Check(t, qt.IsTrue(allowedFail.excused()))
+	qt.Check(t, qt.IsFalse(gateResult{started: true, spec: gateSpec{allowFailure: true}}.excused()))
+}
+
 // An interrupt that lands while no gate is running leaves the rest skipped
 // with nothing marked interrupted; the run is still not a pass.
 func TestInterruptBetweenGatesIsNotAPass(t *testing.T) {

@@ -62,7 +62,7 @@ func fakeTool(t *testing.T, name string, status int) string {
 // exists reports whether a path is present. Almost every fixture here proves
 // a gate ran, or did not, by whether it created a marker file.
 func exists(path string) bool {
-	_, err := os.Stat(path)
+	_, err := os.Stat(filepath.Clean(path))
 	return err == nil
 }
 
