@@ -204,6 +204,11 @@ type options struct {
 	// means no wrap. The default is 24G; --mem and [limits] memory override.
 	memory string
 
+	// quick is `gate quick`: format, lint, typecheck, files changed vs HEAD.
+	// quickAll drops the path scoping.
+	quick    bool
+	quickAll bool
+
 	// root is the detected project root, empty for a command the caller
 	// named, which has no project to keep a result record for. partial says
 	// the caller named a subset of its gates.

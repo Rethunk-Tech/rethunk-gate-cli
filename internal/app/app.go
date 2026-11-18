@@ -47,6 +47,7 @@ const (
 
 const gateHelp = `usage: gate [-C <path>] [flags] [<command> [args...]]
        gate [-C <path>] [flags] run <name>...
+       gate [-C <path>] [flags] quick [--all]
        gate [-C <path>] [--json] doctor
        gate [-C <path>] [--json] fix [--dry-run]
        gate [-C <path>] [--json] record
@@ -63,6 +64,8 @@ Commands:
   <command>     run that command as a gate
   run NAME...   run the named gates: build, format, typecheck, lint, knip,
                 workflows, markdown, shell, test, vuln, and any others .gate.toml declares
+  quick         format, lint and typecheck, files changed vs HEAD
+                (--all for the whole project; skips test, build, knip, vuln, e2e)
   doctor        report what is cheap to fix here (read-only)
   fix           apply doctor findings that name a closed mechanical remedy
   record        print the last result record, and whether it is still true
@@ -128,10 +131,11 @@ The first non-flag argument begins the command, and everything after it --
 including its own flags -- belongs to the command. 'gate test' runs the
 program, not the gate; 'gate run test' runs the gate. Use -- when the
 command's first token would otherwise look like a flag to gate, or when you
-mean a program named run, doctor, fix, or record: 'gate -- run x' runs a program called
+mean a program named run, doctor, fix, record, or quick: 'gate -- run x' runs a program called
 run.
 
-Run 'gate doctor --help' for what doctor checks, 'gate fix --help' for apply.
+Run 'gate doctor --help' for what doctor checks, 'gate fix --help' for apply,
+'gate quick --help' for the fast post-edit run.
 Full reference: docs/USAGE.md
 `
 
@@ -417,6 +421,9 @@ func (st *runState) runVerb(ctx context.Context, dir string, args []string, stdo
 	case word == "record" && len(args) == 2 && (args[1] == "-h" || args[1] == "--help"):
 		fmt.Fprint(stdout, recordHelp)
 		return Success, true
+	case word == "quick" && len(args) == 2 && (args[1] == "-h" || args[1] == "--help"):
+		fmt.Fprint(stdout, quickHelp)
+		return Success, true
 	}
 	return Success, false
 }
@@ -428,6 +435,21 @@ func (st *runState) runVerb(ctx context.Context, dir string, args []string, stdo
 // See AGENTS.md, The words gate claims.
 func (st *runState) splitRun(args []string, explicit bool, stderr io.Writer) (command, roles []string, code Code, ok bool) {
 	command = args
+	if !explicit && len(command) > 0 && command[0] == "quick" {
+		for _, a := range command[1:] {
+			switch a {
+			case "--all":
+				st.opts.quickAll = true
+			default:
+				fmt.Fprintln(stderr, "gate: quick takes no arguments besides --all; `gate run` names gates")
+				fmt.Fprintln(stderr, "gate: a program named quick is `gate -- quick`")
+				return nil, nil, InvalidUsage, false
+			}
+		}
+		st.opts.quick = true
+		st.opts.serial = true
+		return nil, defaultQuickGates, Success, true
+	}
 	if !explicit && len(command) > 0 && command[0] == "run" {
 		roles, command = command[1:], nil
 		if len(roles) == 0 {
@@ -477,7 +499,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	// `gate --json doctor`. Only the words gate claims are scanned: a
 	// wrapped command keeps its own flags, and `gate -- doctor --json`
 	// still runs a program called doctor.
-	if !explicit && len(args) > 0 && slices.Contains([]string{"doctor", "fix", "record", "run"}, args[0]) {
+	if !explicit && len(args) > 0 && slices.Contains([]string{"doctor", "fix", "record", "run", "quick"}, args[0]) {
 		args = peelJSON(args, &opts.jsonList)
 	}
 
@@ -746,7 +768,14 @@ func (st *runState) detectGates(ctx context.Context, dir string, roles []string,
 		fmt.Fprintf(stderr, "gate: %v\n", err)
 		return project, cfg, InvalidUsage, false
 	}
+	if st.opts.quick {
+		roles = quickRoles(cfg)
+	}
 	project, code, ok = st.buildGates(ctx, proj, cfg, roles, stderr)
+	if ok && st.opts.quick {
+		st.opts.gates = applyQuick(ctx, st.opts.gates, cfg, project.Root, st.opts.quickAll)
+		st.opts.serial = true
+	}
 	return project, cfg, code, ok
 }
 
@@ -819,11 +848,13 @@ func (st *runState) buildGates(ctx context.Context, proj detect.Project, cfg con
 	// Every name asked for has to resolve, not just one of them: running
 	// the subset that happened to match would report a pass for gates that
 	// never ran, which is the one answer this tool must never give.
-	if missing := missingRoles(roles, opts.gates); len(missing) > 0 {
-		fmt.Fprintf(stderr, "gate: no %s gate detected in %s\n", strings.Join(missing, ", "), proj.Root)
-		writeNotes(stderr, project)
-		fmt.Fprintf(stderr, "gate: run `gate --list` for what is here, or `gate -- %s` for a program by that name\n", missing[0])
-		return project, InvalidUsage, false
+	if !opts.quick {
+		if missing := missingRoles(roles, opts.gates); len(missing) > 0 {
+			fmt.Fprintf(stderr, "gate: no %s gate detected in %s\n", strings.Join(missing, ", "), proj.Root)
+			writeNotes(stderr, project)
+			fmt.Fprintf(stderr, "gate: run `gate --list` for what is here, or `gate -- %s` for a program by that name\n", missing[0])
+			return project, InvalidUsage, false
+		}
 	}
 
 	// After the names asked for are checked, so `gate run test test:unit`

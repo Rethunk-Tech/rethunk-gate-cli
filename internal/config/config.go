@@ -149,6 +149,12 @@ type Config struct {
 	// from a deliberate 0, the same way timeout does.
 	Memory    string
 	HasMemory bool
+
+	// Quick names the gates `gate quick` runs, in order. Empty with
+	// HasQuick is a deliberate empty set; unset takes format, lint,
+	// typecheck.
+	Quick    []string
+	HasQuick bool
 }
 
 // DefaultTrustedOrgs are the origins a repo without a .gate.toml is trusted from.
@@ -180,6 +186,9 @@ type File struct {
 	Limits struct {
 		Memory *string `toml:"memory"`
 	} `toml:"limits"`
+	Quick struct {
+		Gates []string `toml:"gates"`
+	} `toml:"quick"`
 	Gates map[string]FileGate `toml:"gates"`
 }
 
@@ -411,6 +420,10 @@ func (c *Config) mergeSettings(f File) (unusable []string) {
 		} else {
 			c.Memory, c.HasMemory = s, true
 		}
+	}
+
+	if f.Quick.Gates != nil {
+		c.Quick, c.HasQuick = slices.Clone(f.Quick.Gates), true
 	}
 
 	if f.Trusted != nil {

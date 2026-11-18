@@ -1914,6 +1914,9 @@ func TestHelpSpellingsAgreeAndDoctorHasItsOwn(t *testing.T) {
 	if !strings.Contains(short, "fix") {
 		t.Error("top-level help does not mention the fix command")
 	}
+	if !strings.Contains(short, "quick") {
+		t.Error("top-level help does not mention the quick command")
+	}
 
 	doctorText, _, code := runGateTest(t, "doctor", "--help")
 	qt.Assert(t, qt.Equals(code, Success))

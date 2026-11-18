@@ -510,3 +510,13 @@ func TestLimitsMemory(t *testing.T) {
 	qt.Assert(t, qt.IsNotNil(err))
 	qt.Check(t, qt.StringContains(err.Error(), "limits.memory"))
 }
+
+func TestQuickGatesFromToml(t *testing.T) {
+	isolate(t)
+	root := t.TempDir()
+	testutil.Write(t, root, ProjectFile, "[quick]\ngates = [\"lint\", \"typecheck\"]\n")
+	cfg, err := Load(root)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsTrue(cfg.HasQuick))
+	qt.Check(t, qt.DeepEquals(cfg.Quick, []string{"lint", "typecheck"}))
+}

@@ -371,6 +371,27 @@ without running anything (`gate -- nosuch` for a program by that name).
 Unmet `needs` of the named gates are pulled in too, transitively, in
 dependency order, and printed (`gate: also running tools`).
 
+### `gate quick`
+
+The fast check after an edit: format (write mode where the formatter has
+one), then lint, then typecheck. Test, build, knip, vuln and e2e stay out.
+Same one-line verdict and log as a normal run. Format, lint and typecheck
+run in that order, format first.
+
+Changed files vs HEAD (staged, unstaged, untracked) are passed to tools that
+take paths: biome, ruff, gofmt, and golangci-lint (`--new-from-rev=HEAD`).
+tsc and go vet stay whole-project. `gate quick --all` drops the scoping.
+No changed files matching a scoped tool skips that gate.
+
+Detection is the project's usual set. `.gate.toml` may name a different list:
+
+```toml
+[quick]
+gates = ["format", "lint", "typecheck"]
+```
+
+A program named `quick` is `gate -- quick`.
+
 ## Configuration
 
 Needed only for a check detection cannot infer, or an order it cannot see.
@@ -396,7 +417,7 @@ MDBOOK_VERSION = "0.4"
 ```
 
 Gate keys: `run`, `serial`, `needs`, `timeout`, `dir`, `env`, `allow-failure`, `e2e`, `isolate`.
-Outside: `budget`, `jobs`, `fail-fast`, `trusted-orgs` ([`--trust`](#--trust)), `[detect] exclude`, `[lock] scope` ([`Concurrent runs`](#concurrent-runs)), `[limits] memory` ([Memory cap](#memory-cap)). `run` is a shell string (`sh` / `cmd`).
+Outside: `budget`, `jobs`, `fail-fast`, `trusted-orgs` ([`--trust`](#--trust)), `[detect] exclude`, `[lock] scope` ([`Concurrent runs`](#concurrent-runs)), `[limits] memory` ([Memory cap](#memory-cap)), `[quick] gates` ([`gate quick`](#gate-quick)). `run` is a shell string (`sh` / `cmd`).
 `timeout` is the same grammar as `--timeout` (`5m`, `90s`, `1m30s`, `0`).
 `jobs` is an integer >= 1 (no cap when absent, unless the 1-minute loadavg
 exceeds nproc, then nproc/2). `fail-fast` is a bool
