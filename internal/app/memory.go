@@ -19,6 +19,12 @@ import (
 // the quoting on that wrapper is what this replaces.
 const defaultMemory = "24G"
 
+// memoryScopeVar marks a child that already runs under a MemoryMax scope.
+// Nested gate (this repo's tests exec a built binary under `gate make test`)
+// must not open a second --user --scope; systemd-run then never starts the
+// command, which is the failure TestSIGHUPStopsTheGatedCommandsGroup sees.
+const memoryScopeVar = "GATE_MEMORY_SCOPE"
+
 // applyMemoryWrap is the production switch for actually prefixing systemd-run.
 // Tests turn it off so `go test` does not exec systemd-run around `true`.
 var applyMemoryWrap = true
@@ -47,7 +53,14 @@ func memoryArgv(size string, available bool, argv []string) []string {
 		"-p", "MemorySwapMax=0",
 		"--",
 	)
-	return append(out, argv...)
+	// systemd ExecStart expands $VAR like a unit file. A command that
+	// contains $$ (a shell's pid) would become a lone $ and never start
+	// the work the SIGHUP tests wait on. Doubling each $ yields the
+	// original bytes after systemd parses them.
+	for _, a := range argv {
+		out = append(out, strings.ReplaceAll(a, "$", "$$"))
+	}
+	return out
 }
 
 func memoryUnusedNote(size string, available bool) string {
@@ -88,7 +101,7 @@ func userSystemdAvailable() bool {
 }
 
 func announceMemoryCap(stderr io.Writer, opts options) {
-	if !applyMemoryWrap || opts.quiet {
+	if !applyMemoryWrap || opts.quiet || os.Getenv(memoryScopeVar) != "" {
 		return
 	}
 	if note := memoryUnusedNote(opts.memory, systemdAvailable()); note != "" {
@@ -97,7 +110,7 @@ func announceMemoryCap(stderr io.Writer, opts options) {
 }
 
 func wrapMemoryArgv(size string, argv []string) (wrapped []string, unit string) {
-	if !applyMemoryWrap || !memoryOn(size) || !systemdAvailable() || len(argv) == 0 {
+	if !applyMemoryWrap || !memoryOn(size) || os.Getenv(memoryScopeVar) != "" || !systemdAvailable() || len(argv) == 0 {
 		return argv, ""
 	}
 	unit = fmt.Sprintf("gate-mem-%d-%d", os.Getpid(), memoryUnitSeq.Add(1))

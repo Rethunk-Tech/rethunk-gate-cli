@@ -1154,6 +1154,9 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 	}
 	cmd.Env = append(cmd.Env, activeRootsVar+"="+activeRootsValue(spec.root, spec.dir),
 		activeRunVar+"="+strconv.Itoa(os.Getpid())+" "+res.logPath)
+	if memUnit != "" {
+		cmd.Env = append(cmd.Env, memoryScopeVar+"="+opts.memory)
+	}
 	if isolated {
 		cmd.Env = isolatedEnv(cmd.Env, home)
 	}

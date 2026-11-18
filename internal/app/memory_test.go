@@ -34,6 +34,9 @@ func TestMemoryArgvDefaultTomlFlagZeroUnavailable(t *testing.T) {
 	qt.Check(t, qt.DeepEquals(memoryArgv("0", true, cmd), cmd))
 	qt.Check(t, qt.DeepEquals(memoryArgv(defaultMemory, false, cmd), cmd))
 	qt.Check(t, qt.DeepEquals(memoryArgv("0", false, cmd), cmd))
+
+	dollars := []string{"sh", "-c", "echo $$"}
+	qt.Check(t, qt.DeepEquals(memoryArgv("24G", true, dollars), append(prefix, "sh", "-c", "echo $$$$")))
 }
 
 func TestMemoryKillLabelFromFakeExitAndScopeResult(t *testing.T) {
@@ -77,6 +80,19 @@ func TestMemoryUnusedNote(t *testing.T) {
 		"memory cap 24G unused: systemd-run --user is unavailable"))
 	qt.Check(t, qt.Equals(memoryUnusedNote("24G", true), ""))
 	qt.Check(t, qt.Equals(memoryUnusedNote("0", false), ""))
+}
+
+func TestNestedGateDoesNotOpenASecondMemoryScope(t *testing.T) {
+	origWrap, origAvail := applyMemoryWrap, systemdAvailable
+	t.Cleanup(func() {
+		applyMemoryWrap, systemdAvailable = origWrap, origAvail
+	})
+	applyMemoryWrap = true
+	systemdAvailable = func() bool { return true }
+	t.Setenv(memoryScopeVar, "24G")
+	got, unit := wrapMemoryArgv("24G", []string{"make", "test"})
+	qt.Check(t, qt.Equals(unit, ""))
+	qt.Check(t, qt.DeepEquals(got, []string{"make", "test"}))
 }
 
 func TestMemFlagOverridesAndZeroDisables(t *testing.T) {
