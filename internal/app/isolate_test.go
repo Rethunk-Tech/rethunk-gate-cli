@@ -193,3 +193,16 @@ func TestIsolatedEnvKeepsPlaywrightBrowsers(t *testing.T) {
 		t.Fatalf("an explicit browsers path was not kept: %v", env)
 	}
 }
+
+func TestIsolatedEnvKeepsRustToolchains(t *testing.T) {
+	env := isolatedEnv([]string{"HOME=/home/u"}, "/tmp/fresh")
+	for _, want := range []string{"RUSTUP_HOME=/home/u/.rustup", "CARGO_HOME=/home/u/.cargo"} {
+		if !slices.Contains(env, want) {
+			t.Fatalf("%s missing: %v", want, env)
+		}
+	}
+	env = isolatedEnv([]string{"HOME=/home/u", "RUSTUP_HOME=/opt/rustup"}, "/tmp/fresh")
+	if !slices.Contains(env, "RUSTUP_HOME=/opt/rustup") {
+		t.Fatalf("an explicit RUSTUP_HOME was not kept: %v", env)
+	}
+}

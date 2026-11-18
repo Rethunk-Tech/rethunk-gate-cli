@@ -198,7 +198,7 @@ func isolatedEnv(env []string, home string) []string {
 	xdgData := pick("XDG_DATA_HOME", dir(callerHome, ".local/share"))
 	gopath := pick("GOPATH", dir(callerHome, "go"))
 
-	out := make([]string, 0, len(env)+12)
+	out := make([]string, 0, len(env)+14)
 	for _, e := range env {
 		// The XDG directories are unset rather than moved: a tool that finds
 		// them keeps reading this machine's config and state, which is the
@@ -221,5 +221,8 @@ func isolatedEnv(env []string, home string) []string {
 		"UV_CACHE_DIR="+pick("UV_CACHE_DIR", dir(xdgCache, "uv")),
 		"GOLANGCI_LINT_CACHE="+pick("GOLANGCI_LINT_CACHE", dir(xdgCache, "golangci-lint")),
 		"PLAYWRIGHT_BROWSERS_PATH="+pick("PLAYWRIGHT_BROWSERS_PATH", dir(xdgCache, "ms-playwright")),
+		// rustup finds its toolchains and default through these; under the fresh HOME it would report none.
+		"RUSTUP_HOME="+pick("RUSTUP_HOME", dir(callerHome, ".rustup")),
+		"CARGO_HOME="+pick("CARGO_HOME", dir(callerHome, ".cargo")),
 	)
 }
