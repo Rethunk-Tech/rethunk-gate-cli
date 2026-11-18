@@ -198,7 +198,7 @@ func isolatedEnv(env []string, home string) []string {
 	xdgData := pick("XDG_DATA_HOME", dir(callerHome, ".local/share"))
 	gopath := pick("GOPATH", dir(callerHome, "go"))
 
-	out := make([]string, 0, len(env)+14)
+	out := make([]string, 0, len(env)+15)
 	for _, e := range env {
 		// The XDG directories are unset rather than moved: a tool that finds
 		// them keeps reading this machine's config and state, which is the
@@ -224,5 +224,7 @@ func isolatedEnv(env []string, home string) []string {
 		// rustup finds its toolchains and default through these; under the fresh HOME it would report none.
 		"RUSTUP_HOME="+pick("RUSTUP_HOME", dir(callerHome, ".rustup")),
 		"CARGO_HOME="+pick("CARGO_HOME", dir(callerHome, ".cargo")),
+		// the CLI stores global tools under $DOTNET_CLI_HOME/.dotnet; under the fresh HOME the list is empty.
+		"DOTNET_CLI_HOME="+pick("DOTNET_CLI_HOME", callerHome),
 	)
 }

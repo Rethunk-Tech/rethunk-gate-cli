@@ -206,3 +206,32 @@ func TestIsolatedEnvKeepsRustToolchains(t *testing.T) {
 		t.Fatalf("an explicit RUSTUP_HOME was not kept: %v", env)
 	}
 }
+
+func TestIsolatedEnvKeepsToolHomes(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		env  []string
+		want string
+	}{
+		{
+			name: "dotnet CLI home from caller HOME",
+			env:  []string{"HOME=/home/u"},
+			want: "DOTNET_CLI_HOME=/home/u",
+		},
+		{
+			name: "dotnet CLI home explicit",
+			env:  []string{"HOME=/home/u", "DOTNET_CLI_HOME=/opt/dotnet-cli"},
+			want: "DOTNET_CLI_HOME=/opt/dotnet-cli",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			env := isolatedEnv(tc.env, "/tmp/fresh")
+			if !slices.Contains(env, tc.want) {
+				t.Fatalf("%s missing: %v", tc.want, env)
+			}
+		})
+	}
+}
