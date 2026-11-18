@@ -118,11 +118,11 @@ func TestAnInterruptedRunsTempDirIsRemoved(t *testing.T) {
 // a run in flight, whatever its age says.
 func TestSweepRemovesADeadRunsTempDirAndKeepsALiveOne(t *testing.T) {
 	base := t.TempDir()
-	dead := filepath.Join(base, runTempPrefix+strconv.Itoa(deadPID(t))+"-orphan")
-	live := filepath.Join(base, runTempPrefix+strconv.Itoa(os.Getpid())+"-running")
+	dead := filepath.Join(base, runTempPrefix+strconv.FormatInt(int64(deadPID(t)), 36)+"-orphan")
+	live := filepath.Join(base, runTempPrefix+strconv.FormatInt(int64(os.Getpid()), 36)+"-running")
 	// A dead pid's directory inside the hour is left alone: another core's
 	// sweep may be looking at a pid that has not been reaped yet.
-	recent := filepath.Join(base, runTempPrefix+strconv.Itoa(deadPID(t))+"-recent")
+	recent := filepath.Join(base, runTempPrefix+strconv.FormatInt(int64(deadPID(t)), 36)+"-recent")
 	staleBuild := filepath.Join(base, goBuildPrefix+"12345")
 	freshBuild := filepath.Join(base, goBuildPrefix+"67890")
 	for _, dir := range []string{dead, live, recent, staleBuild, freshBuild} {

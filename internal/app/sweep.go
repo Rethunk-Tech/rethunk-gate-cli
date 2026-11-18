@@ -11,9 +11,11 @@ import (
 )
 
 // runTempPrefix names the directory a run's children share, followed by the
-// pid that made it: a run killed outright cannot remove its own, so a later
-// run has to tell whose a directory was before deleting it.
-const runTempPrefix = "gate-run-"
+// pid that made it in base 36: a run killed outright cannot remove its own, so
+// a later run has to tell whose a directory was before deleting it. The name
+// is short because tests bind unix sockets under TMPDIR, and Linux caps a
+// socket path at 108 bytes.
+const runTempPrefix = "gr-"
 
 // goBuildPrefix is what the Go tool names a build or test work directory
 // after. It carries no pid, and it is where nearly all of the litter lands.
@@ -33,7 +35,7 @@ const orphanBuildAge = 24 * time.Hour
 // go-build and fixture directories here rather than in the shared directory,
 // and the run removes them all at once when it ends.
 func newRunTempDir(base string) (string, error) {
-	return os.MkdirTemp(base, runTempPrefix+strconv.Itoa(os.Getpid())+"-")
+	return os.MkdirTemp(base, runTempPrefix+strconv.FormatInt(int64(os.Getpid()), 36)+"-")
 }
 
 // sweepOrphans removes what killed runs left behind and reports how many
@@ -121,7 +123,7 @@ func sweepTemp(base string) (runs, builds int) {
 	return runs, builds
 }
 
-// runTempPID reads the pid out of a gate-run-<pid>-<random> name.
+// runTempPID reads the pid out of a gr-<base-36 pid>-<random> name.
 func runTempPID(name string) (int, bool) {
 	rest, ok := strings.CutPrefix(name, runTempPrefix)
 	if !ok {
@@ -131,9 +133,9 @@ func runTempPID(name string) (int, bool) {
 	if !ok {
 		return 0, false
 	}
-	pid, err := strconv.Atoi(num)
+	pid, err := strconv.ParseInt(num, 36, 32)
 	if err != nil || pid <= 0 {
 		return 0, false
 	}
-	return pid, true
+	return int(pid), true
 }
