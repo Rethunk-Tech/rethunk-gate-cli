@@ -192,6 +192,7 @@ func isConventionCanonGate(g gateSpec) bool {
 
 // runState is what gate's own flags set and the rest of Run still reads.
 type runState struct {
+	wholeCI     string // root of the project whose whole CI the named command is
 	opts        options
 	timeout     time.Duration
 	timeoutSet  bool
@@ -536,6 +537,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		return code
 	}
 	if len(command) > 0 {
+		st.wholeCI, _ = detect.WholeCIRoot(dir, command)
 		opts.gates = append(opts.gates, gateSpec{
 			argv:    command,
 			display: strings.Join(command, " "),
@@ -682,6 +684,11 @@ func (st *runState) announceAndCheckLog(dir string, project detect.Project, stde
 func (st *runState) setBudget(project detect.Project, configured config.Config, named bool) {
 	opts := &st.opts
 	opts.root, opts.partial = project.Root, named || opts.failed
+	// A named command that is the project's whole CI is a full pass, so it
+	// keeps the record a bare run does.
+	if st.wholeCI != "" {
+		opts.root, opts.partial = st.wholeCI, false
+	}
 	// A budget is the project's local gate, so a command the caller named
 	// has none.
 	if opts.root == "" {

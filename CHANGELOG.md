@@ -7,6 +7,7 @@ Notable changes to `gate`. The format follows
 ## [Unreleased]
 
 ### Added
+- A named command that is the project's whole CI (`bun run ci`, `npm run check`, `make check`, ...) writes a full (not partial) result record; any other named command still writes none.
 
 - `gate quick`: format (write mode), lint and typecheck after an edit, scoped to files changed vs HEAD; `--all` for the whole project. `.gate.toml` `[quick] gates` names the set. See USAGE.md, `gate quick`.
 - `--mem SIZE` / `.gate.toml` `[limits] memory`: each gate runs under a memory ceiling (default 24G, swap 0) via `systemd-run --user --scope` when a user systemd is there; `--mem 0` disables. Unavailable platforms run unwrapped and say so once. An OOM is `killed: memory cap <SIZE>`, not `FAIL exit 137`. See USAGE.md, Memory cap.

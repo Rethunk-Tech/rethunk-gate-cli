@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/testutil"
@@ -290,5 +291,18 @@ func TestDotnetFormatIsSkippedExactlyWhenBuildIs(t *testing.T) {
 			qt.Assert(t, qt.Equals(ran("format"), tc.dotnet), qt.Commentf("format gate present = %v", ran("format")))
 			qt.Assert(t, qt.Equals(skippedRole("format"), !tc.dotnet), qt.Commentf("skipped = %v", skipped))
 		})
+	}
+}
+
+func TestWholeCIRoot(t *testing.T) {
+	dir := t.TempDir()
+	qt.Assert(t, qt.IsNil(os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"scripts":{"ci":"x","lint":"y"}}`), 0o600)))
+	qt.Assert(t, qt.IsNil(os.WriteFile(filepath.Join(dir, "Makefile"), []byte("check:\n\ttrue\n"), 0o600)))
+	for argv, want := range map[string]bool{
+		"bun run ci": true, "npm run ci": true, "make check": true,
+		"bun run lint": false, "bun run verify": false, "bun run ci --x": false, "make ci": false, "go test": false,
+	} {
+		_, ok := WholeCIRoot(dir, strings.Fields(argv))
+		qt.Check(t, qt.Equals(ok, want), qt.Commentf("%s", argv))
 	}
 }

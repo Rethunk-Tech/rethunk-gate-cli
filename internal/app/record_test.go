@@ -227,6 +227,21 @@ func TestDirectCommandWritesNoRecord(t *testing.T) {
 	qt.Check(t, qt.ErrorIs(err, os.ErrNotExist))
 }
 
+// A named command that is the project's whole CI is a full pass: the record is
+// fresh, not partial.
+func TestNamedWholeCIWritesAFullRecord(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "check:\n\ttrue\n")
+	committedRepo(t, root)
+
+	_, _, code := runGateTest(t, "-C", root, "make", "check")
+	qt.Assert(t, qt.Equals(code, Success))
+	qt.Check(t, qt.IsFalse(readRecord(t, root).Partial))
+	_, _, code = runGateTest(t, "-C", root, "record")
+	qt.Check(t, qt.Equals(code, Success))
+}
+
 // Two dirty trees at one HEAD must not share a hash. A clean tree is the hash
 // of empty status and an empty diff; an untracked file, and a second content
 // for that file, each move it.
