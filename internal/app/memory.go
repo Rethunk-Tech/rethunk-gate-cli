@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -22,14 +23,6 @@ var applyMemoryWrap = !testing.Testing()
 // systemdAvailable reports whether a user systemd can take a --user --scope.
 // Tests replace it.
 var systemdAvailable = userSystemdAvailable
-
-// cgroupCapped reports whether this process's cgroup or any ancestor already
-// has a memory.max, e.g. an outer `systemd-run --scope -p MemoryMax=...`: a cap
-// on an ancestor bounds this process as much as one on its own cgroup.
-var cgroupCapped = func() bool {
-	_, capped := cgroupLimit()
-	return capped
-}
 
 // execReplace swaps the process image; it returns only on failure.
 var execReplace = execProcess
@@ -96,20 +89,46 @@ func userSystemdAvailable() bool {
 	return err == nil && st.Mode()&os.ModeSocket != 0
 }
 
+// memoryNote says why the requested cap will not be the one in force, or ""
+// when it will be (or none was asked for).
+func memoryNote(size string) string {
+	if !memoryOn(size) {
+		return ""
+	}
+	if limit, capped := cgroupLimit(); capped {
+		if want, ok := parseSizeBytes(size); ok && limit > 0 && want != limit {
+			return "memory cap " + size + " not applied: already under a " + formatSize(limit) + " cap"
+		}
+		return ""
+	}
+	if startedByUnit() {
+		return "memory cap " + size + " unused: started by a systemd unit, whose own limits apply"
+	}
+	return memoryUnusedNote(size, systemdAvailable())
+}
+
+// startedByUnit is true for a process systemd spawned. Re-exec'ing would move
+// it out of that unit, so `systemctl stop` and cgroup kills would no longer
+// reach it.
+func startedByUnit() bool {
+	return os.Getenv("INVOCATION_ID") != ""
+}
+
 func announceMemoryCap(stderr io.Writer, opts options) {
-	if !applyMemoryWrap || opts.quiet || cgroupCapped() {
+	if !applyMemoryWrap || opts.quiet {
 		return
 	}
-	if note := memoryUnusedNote(opts.memory, systemdAvailable()); note != "" {
+	if note := memoryNote(opts.memory); note != "" {
 		fmt.Fprintf(stderr, "gate: %s\n", note)
 	}
 }
 
 // shouldScopeRun is whether this process must re-exec itself under a memory
 // scope: wrapping on, cap enabled, not already inside a memory-capped cgroup
-// (gate's own scope included; the child finds it by its memory.max), and a user systemd to open one.
+// (gate's own scope included; the child finds it by its memory.max), not
+// started by a systemd unit, and a user systemd to open one.
 func shouldScopeRun(size string) bool {
-	return applyMemoryWrap && memoryOn(size) &&
+	return applyMemoryWrap && memoryOn(size) && !startedByUnit() &&
 		systemdAvailable() && !cgroupCapped()
 }
 
@@ -155,12 +174,14 @@ func cgroupDir() (string, bool) {
 	return "", false
 }
 
-// cgroupLimit walks from this process's cgroup up to the root and reports
-// whether any level has a memory.max other than "max". Where no level has a
+// cgroupLimit walks from this process's cgroup up to the root and returns the
+// smallest numeric memory.max on the way, with capped true when there is one:
+// a cap on an ancestor bounds this process as much as one on its own cgroup,
+// e.g. an outer `systemd-run --scope -p MemoryMax=...`. Where no level has a
 // memory.max at all (no cgroup v2, no memory controller) a scope could not be
-// told from no scope, so that counts as capped: the re-exec would repeat in
-// every child.
-func cgroupLimit() (limit string, capped bool) {
+// told from no scope, so that counts as capped with limit 0: the re-exec would
+// repeat in every child.
+var cgroupLimit = func() (limit uint64, capped bool) {
 	dir, ok := cgroupDir()
 	seen := false
 	for ; ok && len(dir) > len(cgroupFS); dir = filepath.Dir(dir) {
@@ -169,11 +190,16 @@ func cgroupLimit() (limit string, capped bool) {
 			continue
 		}
 		seen = true
-		if v := strings.TrimSpace(string(data)); v != "max" {
-			return v, true
+		if n, err := strconv.ParseUint(strings.TrimSpace(string(data)), 10, 64); err == nil && (!capped || n < limit) {
+			limit, capped = n, true
 		}
 	}
-	return "", !seen
+	return limit, capped || !seen
+}
+
+func cgroupCapped() bool {
+	_, capped := cgroupLimit()
+	return capped
 }
 
 // ownCgroupFile reads a file of this process's cgroup v2 directory.
@@ -186,17 +212,53 @@ func ownCgroupFile(name string) (string, bool) {
 	return string(data), err == nil
 }
 
-// cgroupOOMKilled reports whether the kernel OOM-killed anything in this
-// process's cgroup.
-func cgroupOOMKilled() bool {
+// cgroupOOMCount is the kernel's oom_kill count for this process's cgroup. It
+// is a lifetime count, so a run compares it with the value it started at.
+func cgroupOOMCount() uint64 {
 	v, ok := ownCgroupFile("memory.events")
 	if !ok {
-		return false
+		return 0
 	}
 	for line := range strings.SplitSeq(v, "\n") {
 		if n, ok := strings.CutPrefix(line, "oom_kill "); ok {
-			return strings.TrimSpace(n) != "0"
+			c, _ := strconv.ParseUint(strings.TrimSpace(n), 10, 64)
+			return c
 		}
 	}
-	return false
+	return 0
+}
+
+var sizeUnits = "KMGTPE"
+
+// parseSizeBytes reads a ParseMemory size as systemd does: 1024-based.
+func parseSizeBytes(size string) (uint64, bool) {
+	mult := uint64(1)
+	if i := strings.IndexByte(sizeUnits, size[len(size)-1]); i >= 0 {
+		mult <<= 10 * (i + 1)
+		size = size[:len(size)-1]
+	}
+	n, err := strconv.ParseUint(size, 10, 64)
+	return n * mult, err == nil
+}
+
+// formatSize is parseSizeBytes inverted, in the largest unit that divides n.
+func formatSize(n uint64) string {
+	unit := ""
+	for i := len(sizeUnits) - 1; i >= 0; i-- {
+		if n != 0 && n%(1<<(10*(i+1))) == 0 {
+			n >>= 10 * (i + 1)
+			unit = string(sizeUnits[i])
+			break
+		}
+	}
+	return strconv.FormatUint(n, 10) + unit
+}
+
+// capInForce names the cap that actually bounds this process, which is the
+// requested size only when no cgroup says otherwise.
+func capInForce(size string) string {
+	if limit, capped := cgroupLimit(); capped && limit > 0 {
+		return formatSize(limit)
+	}
+	return size
 }

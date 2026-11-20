@@ -204,6 +204,10 @@ type options struct {
 	// means no wrap. The default is 24G; --mem and [limits] memory override.
 	memory string
 
+	// oomBase is the cgroup's oom_kill count when the run started: the count
+	// is lifetime, so only a rise is this run's kill.
+	oomBase uint64
+
 	// quick is `gate quick`: format, lint, typecheck, files changed vs HEAD.
 	// quickAll drops the path scoping.
 	quick    bool
@@ -474,6 +478,7 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 	if opts.tempDir != "" {
 		defer func() { _ = os.RemoveAll(opts.tempDir) }()
 	}
+	opts.oomBase = cgroupOOMCount()
 	announceMemoryCap(stderr, opts)
 	results := make([]gateResult, len(opts.gates))
 	if opts.stream {
@@ -1260,9 +1265,9 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 	default:
 		res.code = resolveCode(runErr)
 	}
-	if memoryKillLabel(int(res.code), cgroupOOMKilled(), opts.memory) != "" {
+	if memoryKillLabel(int(res.code), cgroupOOMCount() > opts.oomBase, opts.memory) != "" {
 		res.oom = true
-		res.memory = opts.memory
+		res.memory = capInForce(opts.memory)
 	}
 
 	// A log that records output but not outcome answers the wrong question

@@ -98,9 +98,9 @@ func TestScopeRunDecision(t *testing.T) {
 	bin := t.TempDir()
 	qt.Assert(t, qt.IsNil(os.WriteFile(filepath.Join(bin, "systemd-run"), []byte("#!/bin/sh\n"), 0o755))) //nolint:gosec // LookPath wants an executable stub
 	t.Setenv("PATH", bin)
-	origWrap, origAvail, origCapped, origExec := applyMemoryWrap, systemdAvailable, cgroupCapped, execReplace
+	origWrap, origAvail, origCapped, origExec := applyMemoryWrap, systemdAvailable, cgroupLimit, execReplace
 	t.Cleanup(func() {
-		applyMemoryWrap, systemdAvailable, cgroupCapped, execReplace = origWrap, origAvail, origCapped, origExec
+		applyMemoryWrap, systemdAvailable, cgroupLimit, execReplace = origWrap, origAvail, origCapped, origExec
 	})
 	for _, tc := range []struct {
 		name      string
@@ -119,9 +119,10 @@ func TestScopeRunDecision(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// A marker inherited from a process that left the scope is inert.
 			t.Setenv("GATE_MEMORY_SCOPE", "24G")
+			t.Setenv("INVOCATION_ID", "")
 			applyMemoryWrap = tc.wrap
 			systemdAvailable = func() bool { return tc.systemd }
-			cgroupCapped = func() bool { return tc.capped }
+			cgroupLimit = func() (uint64, bool) { return 0, tc.capped }
 			qt.Check(t, qt.Equals(shouldScopeRun(tc.size), tc.wantWrapp))
 
 			var gotArgv []string
@@ -144,12 +145,13 @@ func TestScopeRunHappensBeforeTempDirs(t *testing.T) {
 	qt.Assert(t, qt.IsNil(os.WriteFile(filepath.Join(bin, "systemd-run"), []byte("#!/bin/sh\n"), 0o755))) //nolint:gosec // LookPath wants an executable stub
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	base := t.TempDir()
+	t.Setenv("INVOCATION_ID", "")
 	t.Setenv("GATE_TMPDIR", base)
-	origWrap, origAvail, origCapped, origExec := applyMemoryWrap, systemdAvailable, cgroupCapped, execReplace
+	origWrap, origAvail, origCapped, origExec := applyMemoryWrap, systemdAvailable, cgroupLimit, execReplace
 	t.Cleanup(func() {
-		applyMemoryWrap, systemdAvailable, cgroupCapped, execReplace = origWrap, origAvail, origCapped, origExec
+		applyMemoryWrap, systemdAvailable, cgroupLimit, execReplace = origWrap, origAvail, origCapped, origExec
 	})
-	applyMemoryWrap, systemdAvailable, cgroupCapped = true, func() bool { return true }, func() bool { return false }
+	applyMemoryWrap, systemdAvailable, cgroupLimit = true, func() bool { return true }, func() (uint64, bool) { return 0, false }
 	var seen []os.DirEntry
 	execed := false
 	execReplace = func(string, []string, []string) error {
@@ -184,4 +186,81 @@ func TestCgroupCappedWalksAncestors(t *testing.T) {
 
 	write(filepath.Dir(leaf), "32212254720")
 	qt.Check(t, qt.IsTrue(cgroupCapped()))
+}
+
+func TestMemoryNoteNamesWhyTheCapIsNotTheRequestedOne(t *testing.T) {
+	origAvail, origLimit := systemdAvailable, cgroupLimit
+	t.Cleanup(func() { systemdAvailable, cgroupLimit = origAvail, origLimit })
+	const g = uint64(1) << 30
+	for _, tc := range []struct {
+		name    string
+		size    string
+		limit   uint64
+		capped  bool
+		unit    string
+		systemd bool
+		want    string
+	}{
+		{"same cap in force", "24G", 24 * g, true, "", true, ""},
+		{"smaller request under a larger cap", "8G", 30 * g, true, "", true, "memory cap 8G not applied: already under a 30G cap"},
+		{"larger request under a smaller cap", "24G", 8 * g, true, "", true, "memory cap 24G not applied: already under a 8G cap"},
+		{"cap of unknown size", "8G", 0, true, "", true, ""},
+		{"started by a unit", "24G", 0, false, "abc", true, "memory cap 24G unused: started by a systemd unit, whose own limits apply"},
+		{"no user systemd", "24G", 0, false, "", false, "memory cap 24G unused: systemd-run --user is unavailable"},
+		{"disabled", "0", 8 * g, true, "", true, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("INVOCATION_ID", tc.unit)
+			systemdAvailable = func() bool { return tc.systemd }
+			cgroupLimit = func() (uint64, bool) { return tc.limit, tc.capped }
+			qt.Check(t, qt.Equals(memoryNote(tc.size), tc.want))
+		})
+	}
+}
+
+func TestScopeRunSkipsAUnitsProcess(t *testing.T) {
+	origWrap, origAvail, origLimit := applyMemoryWrap, systemdAvailable, cgroupLimit
+	t.Cleanup(func() { applyMemoryWrap, systemdAvailable, cgroupLimit = origWrap, origAvail, origLimit })
+	applyMemoryWrap, systemdAvailable, cgroupLimit = true, func() bool { return true }, func() (uint64, bool) { return 0, false }
+	t.Setenv("INVOCATION_ID", "")
+	qt.Check(t, qt.IsTrue(shouldScopeRun("24G")))
+	t.Setenv("INVOCATION_ID", "0123abcd")
+	qt.Check(t, qt.IsFalse(shouldScopeRun("24G")))
+}
+
+func TestSizeRoundTrip(t *testing.T) {
+	t.Parallel()
+	for _, s := range []string{"1", "1024", "512M", "24G", "1T", "3K"} {
+		n, ok := parseSizeBytes(s)
+		qt.Assert(t, qt.IsTrue(ok))
+		qt.Check(t, qt.Equals(formatSize(n), func() string {
+			if s == "1024" {
+				return "1K"
+			}
+			return s
+		}()))
+	}
+}
+
+// oom_kill is a lifetime count: a cgroup that was killed in before this run
+// must not label this run's 137.
+func TestOOMCountIsReadFromMemoryEvents(t *testing.T) {
+	root := t.TempDir()
+	scope := filepath.Join(root, "run.scope")
+	qt.Assert(t, qt.IsNil(os.MkdirAll(scope, 0o750)))
+	proc := filepath.Join(t.TempDir(), "cgroup")
+	qt.Assert(t, qt.IsNil(os.WriteFile(proc, []byte("0::/run.scope\n"), 0o600)))
+	origProc, origFS := procSelfCgroup, cgroupFS
+	t.Cleanup(func() { procSelfCgroup, cgroupFS = origProc, origFS })
+	procSelfCgroup, cgroupFS = proc, root
+
+	events := func(n string) {
+		qt.Assert(t, qt.IsNil(os.WriteFile(filepath.Join(scope, "memory.events"), []byte("low 0\noom 2\noom_kill "+n+"\n"), 0o600)))
+	}
+	events("3")
+	base := cgroupOOMCount()
+	qt.Check(t, qt.Equals(base, uint64(3)))
+	qt.Check(t, qt.IsFalse(cgroupOOMCount() > base), qt.Commentf("an old kill is not this run's"))
+	events("4")
+	qt.Check(t, qt.IsTrue(cgroupOOMCount() > base))
 }

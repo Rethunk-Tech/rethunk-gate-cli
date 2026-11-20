@@ -64,14 +64,14 @@ func TestUserSystemdAvailableRejectsMissingBus(t *testing.T) {
 func TestAnnounceMemoryCapSkipsAndNotes(t *testing.T) {
 	origWrap := applyMemoryWrap
 	origAvail := systemdAvailable
-	origCapped := cgroupCapped
+	origCapped := cgroupLimit
 	t.Cleanup(func() {
 		applyMemoryWrap = origWrap
 		systemdAvailable = origAvail
-		cgroupCapped = origCapped
+		cgroupLimit = origCapped
 	})
 	systemdAvailable = func() bool { return false }
-	cgroupCapped = func() bool { return false }
+	cgroupLimit = func() (uint64, bool) { return 0, false }
 
 	var buf bytes.Buffer
 	applyMemoryWrap = false
