@@ -403,6 +403,19 @@ gates = ["format", "lint", "typecheck"]
 
 A program named `quick` is `gate -- quick`.
 
+### `gate push`
+
+`gate push` is bare `gate` (same flags, `-C` included) followed by `git push`
+of the current branch when every gate passes. Arguments after `--` go to
+`git push`: `gate push -- origin HEAD:main`.
+
+It refuses, with one line and before running any gate, when the working tree
+is dirty or the branch has no upstream. Fast-forward only: `--force*`,
+`--delete`, `--mirror`, `--prune` and `+`/`:` refspecs are refused. A red gate
+prints its normal report and exits with gate's code. A failed push exits 128
+with git's stderr. `--list`, `--json` and `--failed` are refused, since none
+is a full run. A program named `push` is `gate -- push`.
+
 ## Configuration
 
 Needed only for a check detection cannot infer, or an order it cannot see.

@@ -7,6 +7,7 @@ Notable changes to `gate`. The format follows
 ## [Unreleased]
 
 ### Added
+- `gate push [-- <git push args>]`: runs the full gate, then `git push` only when every gate passes. Refuses (one line, no gate run) on a dirty tree, a branch with no upstream, or force/delete/mirror push args. A red gate exits with gate's code and pushes nothing. See USAGE.md, `gate push`.
 - A named command that is the project's whole CI (`bun run ci`, `npm run check`, `make check`, ...) writes a full (not partial) result record; any other named command still writes none.
 
 - `gate quick`: format (write mode), lint and typecheck after an edit, scoped to files changed vs HEAD; `--all` for the whole project. `.gate.toml` `[quick] gates` names the set. See USAGE.md, `gate quick`.
