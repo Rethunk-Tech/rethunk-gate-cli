@@ -492,7 +492,7 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 	}
 	tree := make(chan startState, 1)
 	if opts.root != "" {
-		go func() { tree <- startState{stored.ReadTree(ctx, opts.root), gatesFingerprint(ctx, opts.gates)} }()
+		go func() { tree <- startState{stored.ReadTree(ctx, opts.root), gatesFingerprint(ctx, opts)} }()
 	}
 	sc := groupRun{loads: newLoadWaiter(opts, stderr), opts: opts, results: results, stream: stream, needed: resolveNeeds(opts.gates), done: make([]chan struct{}, len(opts.gates))}
 	for i := range sc.done {

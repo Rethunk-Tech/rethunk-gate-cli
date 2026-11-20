@@ -74,10 +74,10 @@ func TestFingerprintMovesWhenTheGateBinaryIsReplaced(t *testing.T) {
 	t.Setenv("PATH", dir)
 	for _, argv0 := range []string{bin, "lint"} {
 		gates := []gateSpec{{argv: []string{argv0, "run"}}}
-		before := gatesFingerprint(t.Context(), gates)
+		before := gatesFingerprint(t.Context(), options{gates: gates})
 		// Rewriting keeps the executable bit WriteExecutable set.
 		testutil.Write(t, dir, "lint", "#!/bin/sh\n# v2\nexit 0\n")
-		qt.Check(t, qt.Not(qt.Equals(gatesFingerprint(t.Context(), gates), before)), qt.Commentf("argv[0] %s", argv0))
+		qt.Check(t, qt.Not(qt.Equals(gatesFingerprint(t.Context(), options{gates: gates}), before)), qt.Commentf("argv[0] %s", argv0))
 		testutil.Write(t, dir, "lint", "#!/bin/sh\nexit 0\n")
 	}
 }
@@ -120,4 +120,28 @@ func TestUnchangedTreeRunsWhenAnInputChangedDuringTheRun(t *testing.T) {
 	_, stderr, code = runGateTest(t, "-C", root)
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
 	qt.Check(t, qt.Equals(markerHits(t, marker, "ran"), 2), qt.Commentf("an input changed mid-run was skipped"))
+}
+
+// A pass without isolation says nothing about an isolated run, which is what
+// the pre-push hook turns on by itself.
+func TestUnchangedTreeRunsWhenIsolationOrMemoryChanges(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	root := t.TempDir()
+	marker := filepath.Join(root, "ran")
+	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
+	testutil.Write(t, root, ".gate.toml", "[gates.g0]\nrun = \"echo ran >> "+marker+"\"\n")
+	committedRepo(t, root)
+	for i, args := range [][]string{{"--no-isolate"}, {"--isolate"}, {"--isolate", "--mem", "0"}} {
+		_, stderr, code := runGateTest(t, append([]string{"-C", root}, args...)...)
+		qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+		qt.Check(t, qt.Equals(markerHits(t, marker, "ran"), i+1), qt.Commentf("%v was skipped", args))
+	}
+}
+
+func TestSameRunGatesComparesCountAndRoles(t *testing.T) {
+	t.Parallel()
+	stored := []result{{Name: "lint"}, {Name: "test"}}
+	qt.Check(t, qt.IsTrue(sameRunGates([]gateSpec{{role: "lint"}, {role: "test"}}, stored)))
+	qt.Check(t, qt.IsFalse(sameRunGates([]gateSpec{{role: "lint"}}, stored)))
+	qt.Check(t, qt.IsFalse(sameRunGates([]gateSpec{{role: "lint"}, {role: "build"}}, stored)))
 }

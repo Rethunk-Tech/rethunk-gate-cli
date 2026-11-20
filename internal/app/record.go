@@ -277,7 +277,7 @@ func skipUnchanged(ctx context.Context, root string, opts options, stdout io.Wri
 	if age := time.Since(rec.Finished); !fresh || rec.Finished.IsZero() || age < 0 || age >= unchangedAge {
 		return false
 	}
-	if !sameRunGates(opts.gates, rec.Gates) || rec.Fingerprint != gatesFingerprint(ctx, opts.gates) {
+	if !sameRunGates(opts.gates, rec.Gates) || rec.Fingerprint != gatesFingerprint(ctx, opts) {
 		return false
 	}
 	if !opts.quiet {
@@ -431,7 +431,8 @@ func buildEnv() map[string]string {
 // what it runs with: the toolchain versions, each gate's own binary, the
 // .env files it loads, the build-affecting environment, and the limit the run
 // holds each gate to.
-func gatesFingerprint(ctx context.Context, gates []gateSpec) string {
+func gatesFingerprint(ctx context.Context, opts options) string {
+	gates := opts.gates
 	h := sha256.New()
 	enc := json.NewEncoder(h)
 	for _, g := range gates {
@@ -449,12 +450,14 @@ func gatesFingerprint(ctx context.Context, gates []gateSpec) string {
 			Env          map[string]string `json:"env"`
 			AllowFailure bool              `json:"allow_failure"`
 			Timeout      string            `json:"timeout,omitempty"`
-		}{g.argv, g.dir, g.env, g.allowFailure, timeout})
+			Isolated     bool              `json:"isolated"`
+		}{g.argv, g.dir, g.env, g.allowFailure, timeout, isolateAware(opts, g)})
 	}
 	_ = enc.Encode(toolchainVersions(ctx, gates))
 	_ = enc.Encode(gateBinaries(gates))
 	_ = enc.Encode(dotenvFiles(gates))
 	_ = enc.Encode(buildEnv())
+	_ = enc.Encode(opts.memory)
 	return hex.EncodeToString(h.Sum(nil))
 }
 
