@@ -28,11 +28,12 @@ var applyMemoryWrap = !testing.Testing()
 // Tests replace it.
 var systemdAvailable = userSystemdAvailable
 
-// cgroupCapped reports whether this process's own cgroup already has a
-// memory.max, e.g. an outer `systemd-run --scope -p MemoryMax=...`.
+// cgroupCapped reports whether this process's cgroup or any ancestor already
+// has a memory.max, e.g. an outer `systemd-run --scope -p MemoryMax=...`: a cap
+// on an ancestor bounds this process as much as one on its own cgroup.
 var cgroupCapped = func() bool {
-	v, ok := ownCgroupFile("memory.max")
-	return ok && strings.TrimSpace(v) != "max"
+	_, capped := cgroupLimit()
+	return capped
 }
 
 // execReplace swaps the process image; it returns only on failure.
@@ -138,19 +139,48 @@ func scopeRun(size string) {
 	_ = execReplace(path, argv, append(os.Environ(), memoryScopeVar+"="+size))
 }
 
-// ownCgroupFile reads a file of this process's cgroup v2 directory.
-func ownCgroupFile(name string) (string, bool) {
-	b, err := os.ReadFile("/proc/self/cgroup")
+// Where the cgroup v2 tree and this process's path in it are read from;
+// tests point them at fake files.
+var (
+	procSelfCgroup = "/proc/self/cgroup"
+	cgroupFS       = "/sys/fs/cgroup"
+)
+
+// cgroupDir is this process's cgroup v2 directory.
+func cgroupDir() (string, bool) {
+	b, err := os.ReadFile(procSelfCgroup)
 	if err != nil {
 		return "", false
 	}
 	for line := range strings.SplitSeq(string(b), "\n") {
 		if rel, ok := strings.CutPrefix(line, "0::"); ok {
-			data, err := os.ReadFile(filepath.Join("/sys/fs/cgroup", filepath.Clean("/"+rel), name))
-			return string(data), err == nil
+			return filepath.Join(cgroupFS, filepath.Clean("/"+rel)), true
 		}
 	}
 	return "", false
+}
+
+// cgroupLimit walks from this process's cgroup up to the root and reports
+// whether any level has a memory.max other than "max".
+func cgroupLimit() (limit string, capped bool) {
+	dir, ok := cgroupDir()
+	for ; ok && len(dir) > len(cgroupFS); dir = filepath.Dir(dir) {
+		data, err := os.ReadFile(filepath.Clean(filepath.Join(dir, "memory.max")))
+		if v := strings.TrimSpace(string(data)); err == nil && v != "max" {
+			return v, true
+		}
+	}
+	return "", false
+}
+
+// ownCgroupFile reads a file of this process's cgroup v2 directory.
+func ownCgroupFile(name string) (string, bool) {
+	dir, ok := cgroupDir()
+	if !ok {
+		return "", false
+	}
+	data, err := os.ReadFile(filepath.Clean(filepath.Join(dir, name)))
+	return string(data), err == nil
 }
 
 // cgroupOOMKilled reports whether the kernel OOM-killed anything in this

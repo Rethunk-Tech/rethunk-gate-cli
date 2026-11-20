@@ -165,3 +165,25 @@ func TestScopeRunHappensBeforeTempDirs(t *testing.T) {
 	qt.Assert(t, qt.IsTrue(execed))
 	qt.Check(t, qt.HasLen(seen, 0))
 }
+
+// A cap on an ancestor cgroup counts, and "max" at every level does not.
+func TestCgroupCappedWalksAncestors(t *testing.T) {
+	root := t.TempDir()
+	leaf := filepath.Join(root, "app.slice", "run.scope")
+	qt.Assert(t, qt.IsNil(os.MkdirAll(leaf, 0o750)))
+	proc := filepath.Join(t.TempDir(), "cgroup")
+	qt.Assert(t, qt.IsNil(os.WriteFile(proc, []byte("0::/app.slice/run.scope\n"), 0o644))) //nolint:gosec // fake cgroup file
+	origProc, origFS := procSelfCgroup, cgroupFS
+	t.Cleanup(func() { procSelfCgroup, cgroupFS = origProc, origFS })
+	procSelfCgroup, cgroupFS = proc, root
+
+	write := func(dir, v string) {
+		qt.Assert(t, qt.IsNil(os.WriteFile(filepath.Join(dir, "memory.max"), []byte(v+"\n"), 0o644))) //nolint:gosec // fake cgroup file
+	}
+	write(leaf, "max")
+	write(filepath.Dir(leaf), "max")
+	qt.Check(t, qt.IsFalse(cgroupCapped()))
+
+	write(filepath.Dir(leaf), "32212254720")
+	qt.Check(t, qt.IsTrue(cgroupCapped()))
+}
