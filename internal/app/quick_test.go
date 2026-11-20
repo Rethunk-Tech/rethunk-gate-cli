@@ -1,9 +1,12 @@
 package app
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/config"
+	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/testutil"
 	"github.com/go-quicktest/qt"
 )
 
@@ -113,4 +116,43 @@ func TestQuickHelpAndUnknownArg(t *testing.T) {
 	_, stderr, code = runGateTest(t, "quick", "lint")
 	qt.Check(t, qt.Equals(code, InvalidUsage))
 	qt.Check(t, qt.StringContains(stderr, "quick"))
+}
+
+func TestChangedFilesSkipsDeletedAndIsRelativeToTheProject(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, "svc/a.go", "package a\n")
+	testutil.Write(t, root, "svc/b.go", "package a\n")
+	testutil.Write(t, root, "other.go", "package o\n")
+	committedRepo(t, root)
+	testutil.Write(t, root, "svc/a.go", "package a // x\n")
+	testutil.Write(t, root, "svc/c.go", "package a\n")
+	testutil.Write(t, root, "other.go", "package o // x\n")
+	qt.Assert(t, qt.IsNil(os.Remove(filepath.Join(root, "svc", "b.go"))))
+	qt.Check(t, qt.DeepEquals(changedFiles(t.Context(), filepath.Join(root, "svc")), []string{"a.go", "c.go"}))
+	qt.Check(t, qt.HasLen(changedFiles(t.Context(), ""), 0))
+}
+
+func TestQuickWriteModeAndScoping(t *testing.T) {
+	t.Parallel()
+	qt.Check(t, qt.DeepEquals(writeModeArgv([]string{"ruff", "check", "."}), []string{"ruff", "format", "."}))
+	qt.Check(t, qt.DeepEquals(writeModeArgv([]string{"ruff", "format", "--check", "."}), []string{"ruff", "format", "."}))
+	qt.Check(t, qt.DeepEquals(writeModeArgv([]string{"dotnet", "format", "--verify-no-changes"}), []string{"dotnet", "format"}))
+	// A lint-only golangci-lint project formats the whole tree with --all and
+	// only the changed files otherwise.
+	format, ok := formatFromLint([]string{"golangci-lint", "run"})
+	qt.Assert(t, qt.IsTrue(ok))
+	qt.Check(t, qt.DeepEquals(format, []string{"gofmt", "-w", "."}))
+	got := scopeQuick([]gateSpec{{role: "format", argv: format}}, []string{"a.go"}, false)
+	qt.Check(t, qt.DeepEquals(got[0].argv, []string{"gofmt", "-w", "a.go"}))
+}
+
+func TestQuickWithNothingChangedPrintsAndSucceeds(t *testing.T) {
+	root := t.TempDir()
+	testutil.Write(t, root, "go.mod", "module x\n\ngo 1.22\n")
+	testutil.Write(t, root, "a.go", "package a\n")
+	committedRepo(t, root)
+	_, stderr, code := runGateTest(t, "-C", root, "quick")
+	qt.Check(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.StringContains(stderr, "nothing changed"))
 }

@@ -83,7 +83,7 @@ func formatFromLint(argv []string) ([]string, bool) {
 	case argvHas(argv, "biome"), argvHas(argv, "ruff"), argvHas(argv, "gofmt"):
 		return writeModeArgv(argv), true
 	case argvHas(argv, "golangci-lint"):
-		return []string{"gofmt", "-w"}, true
+		return []string{"gofmt", "-w", "."}, true
 	}
 	return nil, false
 }
@@ -143,7 +143,7 @@ func scopeGate(g gateSpec, files []string) (gateSpec, bool) {
 		if len(matched) == 0 {
 			return g, true
 		}
-		g.argv = append(g.argv, matched...)
+		g.argv = replacePathArgs(g.argv, matched)
 	case "golangci":
 		if len(filterExt(files, []string{".go"})) == 0 {
 			return g, true
@@ -258,7 +258,7 @@ func changedFiles(ctx context.Context, root string) []string {
 	}
 	seen := map[string]bool{}
 	var files []string
-	for _, f := range append(git("diff", "--name-only", "HEAD"), git("ls-files", "--others", "--exclude-standard")...) {
+	for _, f := range append(git("diff", "--name-only", "--diff-filter=d", "--relative", "HEAD"), git("ls-files", "--others", "--exclude-standard")...) {
 		if seen[f] {
 			continue
 		}
