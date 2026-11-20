@@ -1,13 +1,13 @@
 package app
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os/exec"
-	"strings"
+
+	stored "github.com/Rethunk-Tech/rethunk-gate-cli/internal/result"
 )
 
 const pushHelp = `usage: gate [-C <path>] [flags] push [-- <rgit land args>...]
@@ -49,17 +49,6 @@ var rgitOnPath = func() bool {
 	return err == nil
 }
 
-// gitStatus returns git status --porcelain for dir.
-func gitStatus(ctx context.Context, dir string) (string, error) {
-	var out, errBuf bytes.Buffer
-	cmd := exec.CommandContext(ctx, "git", "-C", dir, "status", "--porcelain") //nolint:gosec // fixed git verb; dir is the caller's own
-	cmd.Stdout, cmd.Stderr = &out, &errBuf
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("%w: %s", err, strings.TrimSpace(errBuf.String()))
-	}
-	return strings.TrimSpace(out.String()), nil
-}
-
 // runPush is `gate push`. rest is everything after the word; gateArgs is the
 // invocation without it, which Run executes as the ordinary gate.
 func (st *runState) runPush(ctx context.Context, version, dir string, rest, gateArgs []string, stdout, stderr io.Writer) Code {
@@ -83,15 +72,21 @@ func (st *runState) runPush(ctx context.Context, version, dir string, rest, gate
 		fmt.Fprintln(stderr, "gate: push refused: rgit is not on PATH")
 		return Fatal
 	}
-	if status, err := gitStatus(ctx, dir); err != nil {
-		fmt.Fprintf(stderr, "gate: push refused: %v\n", err)
+	before := stored.ReadTree(ctx, dir)
+	switch {
+	case !before.OK:
+		fmt.Fprintln(stderr, "gate: push refused: cannot read the repository state")
 		return Fatal
-	} else if status != "" {
+	case before.Dirty:
 		fmt.Fprintln(stderr, "gate: push refused: the working tree is dirty")
 		return Fatal
 	}
 	if code := Run(ctx, version, gateArgs, stdout, stderr); code != Success {
 		return code
+	}
+	if after := stored.ReadTree(ctx, dir); !after.OK || after.Dirty || after.Head != before.Head {
+		fmt.Fprintln(stderr, "gate: push refused: HEAD moved or the tree changed during the gate, so it passed on something else")
+		return Fatal
 	}
 	return landRun(ctx, dir, landArgs, stdout, stderr)
 }
