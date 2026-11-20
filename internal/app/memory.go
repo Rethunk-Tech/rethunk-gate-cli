@@ -15,11 +15,6 @@ import (
 // [limits] memory says otherwise.
 const defaultMemory = "24G"
 
-// memoryScopeVar marks a process already running inside gate's scope, so a
-// nested gate (this repo's tests exec a built binary under `gate make test`)
-// does not open a second one.
-const memoryScopeVar = "GATE_MEMORY_SCOPE"
-
 // applyMemoryWrap is the production switch for re-exec'ing under systemd-run.
 // A test binary must never replace itself, so it starts off there.
 var applyMemoryWrap = !testing.Testing()
@@ -102,7 +97,7 @@ func userSystemdAvailable() bool {
 }
 
 func announceMemoryCap(stderr io.Writer, opts options) {
-	if !applyMemoryWrap || opts.quiet || os.Getenv(memoryScopeVar) != "" || cgroupCapped() {
+	if !applyMemoryWrap || opts.quiet || cgroupCapped() {
 		return
 	}
 	if note := memoryUnusedNote(opts.memory, systemdAvailable()); note != "" {
@@ -111,10 +106,10 @@ func announceMemoryCap(stderr io.Writer, opts options) {
 }
 
 // shouldScopeRun is whether this process must re-exec itself under a memory
-// scope: wrapping on, cap enabled, not already inside gate's scope or any
-// other memory-capped cgroup, and a user systemd to open one.
+// scope: wrapping on, cap enabled, not already inside a memory-capped cgroup
+// (gate's own scope included; the child finds it by its memory.max), and a user systemd to open one.
 func shouldScopeRun(size string) bool {
-	return applyMemoryWrap && memoryOn(size) && os.Getenv(memoryScopeVar) == "" &&
+	return applyMemoryWrap && memoryOn(size) &&
 		systemdAvailable() && !cgroupCapped()
 }
 
@@ -136,7 +131,7 @@ func scopeRun(size string) {
 		return
 	}
 	argv := memoryArgv(size, true, append([]string{exe}, os.Args[1:]...))
-	_ = execReplace(path, argv, append(os.Environ(), memoryScopeVar+"="+size))
+	_ = execReplace(path, argv, os.Environ())
 }
 
 // Where the cgroup v2 tree and this process's path in it are read from;
@@ -161,16 +156,24 @@ func cgroupDir() (string, bool) {
 }
 
 // cgroupLimit walks from this process's cgroup up to the root and reports
-// whether any level has a memory.max other than "max".
+// whether any level has a memory.max other than "max". Where no level has a
+// memory.max at all (no cgroup v2, no memory controller) a scope could not be
+// told from no scope, so that counts as capped: the re-exec would repeat in
+// every child.
 func cgroupLimit() (limit string, capped bool) {
 	dir, ok := cgroupDir()
+	seen := false
 	for ; ok && len(dir) > len(cgroupFS); dir = filepath.Dir(dir) {
 		data, err := os.ReadFile(filepath.Clean(filepath.Join(dir, "memory.max")))
-		if v := strings.TrimSpace(string(data)); err == nil && v != "max" {
+		if err != nil {
+			continue
+		}
+		seen = true
+		if v := strings.TrimSpace(string(data)); v != "max" {
 			return v, true
 		}
 	}
-	return "", false
+	return "", !seen
 }
 
 // ownCgroupFile reads a file of this process's cgroup v2 directory.

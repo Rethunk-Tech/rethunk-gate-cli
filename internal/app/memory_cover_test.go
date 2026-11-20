@@ -82,11 +82,6 @@ func TestAnnounceMemoryCapSkipsAndNotes(t *testing.T) {
 	announceMemoryCap(&buf, options{memory: "1G", quiet: true})
 	qt.Assert(t, qt.Equals(buf.Len(), 0))
 
-	t.Setenv(memoryScopeVar, "1")
-	announceMemoryCap(&buf, options{memory: "1G"})
-	qt.Assert(t, qt.Equals(buf.Len(), 0))
-	t.Setenv(memoryScopeVar, "")
-
 	announceMemoryCap(&buf, options{})
 	qt.Assert(t, qt.Equals(buf.Len(), 0))
 

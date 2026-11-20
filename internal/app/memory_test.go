@@ -5,7 +5,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"slices"
 	"testing"
 	"time"
 
@@ -109,33 +108,32 @@ func TestScopeRunDecision(t *testing.T) {
 		wrap      bool
 		systemd   bool
 		capped    bool
-		marker    string
 		wantWrapp bool
 	}{
-		{"wraps", "24G", true, true, false, "", true},
-		{"mem 0 opts out", "0", true, true, false, "", false},
-		{"marker: nested gate", "24G", true, true, false, "24G", false},
-		{"already in a capped cgroup", "24G", true, true, true, "", false},
-		{"no user systemd", "24G", true, false, false, "", false},
-		{"wrap switched off", "24G", false, true, false, "", false},
+		{"wraps", "24G", true, true, false, true},
+		{"mem 0 opts out", "0", true, true, false, false},
+		{"marker: nested gate", "24G", true, true, false, false},
+		{"already in a capped cgroup", "24G", true, true, true, false},
+		{"no user systemd", "24G", true, false, false, false},
+		{"wrap switched off", "24G", false, true, false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			// A marker inherited from a process that left the scope is inert.
+			t.Setenv("GATE_MEMORY_SCOPE", "24G")
 			applyMemoryWrap = tc.wrap
 			systemdAvailable = func() bool { return tc.systemd }
 			cgroupCapped = func() bool { return tc.capped }
-			t.Setenv(memoryScopeVar, tc.marker)
 			qt.Check(t, qt.Equals(shouldScopeRun(tc.size), tc.wantWrapp))
 
-			var gotArgv, gotEnv []string
-			execReplace = func(_ string, argv, env []string) error {
-				gotArgv, gotEnv = argv, env
+			var gotArgv []string
+			execReplace = func(_ string, argv, _ []string) error {
+				gotArgv = argv
 				return nil
 			}
 			scopeRun(tc.size)
 			qt.Check(t, qt.Equals(gotArgv != nil, tc.wantWrapp))
 			if tc.wantWrapp {
 				qt.Check(t, qt.Equals(gotArgv[6], "MemoryMax="+tc.size))
-				qt.Check(t, qt.IsTrue(slices.Contains(gotEnv, memoryScopeVar+"="+tc.size)))
 			}
 		})
 	}
@@ -180,6 +178,7 @@ func TestCgroupCappedWalksAncestors(t *testing.T) {
 	write := func(dir, v string) {
 		qt.Assert(t, qt.IsNil(os.WriteFile(filepath.Join(dir, "memory.max"), []byte(v+"\n"), 0o644))) //nolint:gosec // fake cgroup file
 	}
+	qt.Check(t, qt.IsTrue(cgroupCapped()), qt.Commentf("no memory.max anywhere: a scope cannot be told apart, never re-exec"))
 	write(leaf, "max")
 	write(filepath.Dir(leaf), "max")
 	qt.Check(t, qt.IsFalse(cgroupCapped()))
