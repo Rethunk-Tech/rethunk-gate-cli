@@ -225,7 +225,9 @@ func ParseTimeout(value string) (time.Duration, error) {
 // ParseMemory reads a memory ceiling wherever one is written -- the --mem
 // flag and [limits] memory both come through here, so `24G`, `16G` and a
 // disabling `0` mean the same thing in either place. The string is kept as
-// systemd MemoryMax wants it.
+// systemd MemoryMax wants it: bytes, or a number with an uppercase K, M, G, T,
+// P or E suffix. systemd rejects `g`, `GiB` and `GB`, so they are refused here
+// rather than failing the run later.
 func ParseMemory(value string) (string, error) {
 	if value == "0" {
 		return "0", nil
@@ -239,10 +241,7 @@ func ParseMemory(value string) (string, error) {
 	}
 	if i < len(value) {
 		switch value[i:] {
-		case "K", "M", "G", "T", "P", "E",
-			"k", "m", "g", "t", "p", "e",
-			"KiB", "MiB", "GiB", "TiB", "PiB", "EiB",
-			"KB", "MB", "GB", "TB", "PB", "EB":
+		case "K", "M", "G", "T", "P", "E":
 		default:
 			return "", fmt.Errorf("wants a size like 24G or 0, got %q", value)
 		}

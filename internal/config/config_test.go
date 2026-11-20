@@ -520,3 +520,16 @@ func TestQuickGatesFromToml(t *testing.T) {
 	qt.Check(t, qt.IsTrue(cfg.HasQuick))
 	qt.Check(t, qt.DeepEquals(cfg.Quick, []string{"lint", "typecheck"}))
 }
+
+func TestParseMemoryTakesOnlyWhatSystemdTakes(t *testing.T) {
+	t.Parallel()
+	for _, ok := range []string{"0", "1024", "512M", "24G", "1T", "1K", "1P", "1E"} {
+		got, err := ParseMemory(ok)
+		qt.Check(t, qt.IsNil(err), qt.Commentf("%q", ok))
+		qt.Check(t, qt.Equals(got, ok))
+	}
+	for _, bad := range []string{"", "g", "1g", "512m", "1GiB", "1GB", "1k", "1e", "-1G", "1.5G", "01G", "1 G"} {
+		_, err := ParseMemory(bad)
+		qt.Check(t, qt.IsNotNil(err), qt.Commentf("%q", bad))
+	}
+}

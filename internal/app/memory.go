@@ -119,8 +119,9 @@ func shouldScopeRun(size string) bool {
 
 // scopeRun re-execs gate under one systemd scope for the whole run. Gates run
 // in parallel, so only a cgroup around all of them bounds the run; a scope per
-// gate would be a sibling cgroup, outside this one. On any failure to exec the
-// run continues uncapped.
+// gate would be a sibling cgroup, outside this one. A failed exec continues
+// uncapped; a size systemd cannot parse would fail the run after the exec, so
+// config.ParseMemory refuses every form systemd refuses.
 func scopeRun(size string) {
 	if !shouldScopeRun(size) {
 		return
