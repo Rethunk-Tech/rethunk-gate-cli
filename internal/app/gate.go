@@ -56,7 +56,7 @@ func pinTempDir(dir string, env []string) []string {
 	if dir == "" {
 		return env
 	}
-	return append(env, "TMPDIR="+dir, "GOTMPDIR="+dir)
+	return append(append(env, pinLogBase()...), "TMPDIR="+dir, "GOTMPDIR="+dir)
 }
 
 func activeRootsValue(dirs ...string) string {

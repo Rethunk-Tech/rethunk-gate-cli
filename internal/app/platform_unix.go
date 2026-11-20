@@ -18,11 +18,26 @@ import (
 // os.TempDir is deliberately not used here. On unix it returns /tmp, which is
 // the one location this rule exists to avoid.
 func logDir() string {
-	base := os.Getenv("TMPDIR")
-	if base == "" {
-		base = "/var/tmp"
+	return filepath.Join(logBase(), "gate")
+}
+
+// logBase is GATE_LOG_BASE, which a gate that pinned TMPDIR for its children
+// leaves behind, else TMPDIR, else /var/tmp. A nested gate would otherwise
+// keep its logs under the outer run's temp directory and lose them when that
+// run ends.
+func logBase() string {
+	for _, key := range []string{"GATE_LOG_BASE", "TMPDIR"} {
+		if base := os.Getenv(key); base != "" {
+			return base
+		}
 	}
-	return filepath.Join(base, "gate")
+	return "/var/tmp"
+}
+
+// pinLogBase is what a run adds beside its pinned TMPDIR so children's gates
+// still find the real log base.
+func pinLogBase() []string {
+	return []string{"GATE_LOG_BASE=" + logBase()}
 }
 
 // childTempDir is where a run makes the directory its children share, so every

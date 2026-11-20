@@ -4,13 +4,16 @@ package app
 
 import (
 	"slices"
+	"strings"
 	"testing"
 )
 
 func TestPinTempDirUsesTheRunsOwnDirectory(t *testing.T) {
 	dir := t.TempDir()
+	t.Setenv("GATE_LOG_BASE", "")
+	t.Setenv("TMPDIR", "/caller")
 	env := pinTempDir(dir, []string{"TMPDIR=/caller"})
-	if !slices.Equal(env, []string{"TMPDIR=/caller", "TMPDIR=" + dir, "GOTMPDIR=" + dir}) {
+	if !slices.Equal(env, []string{"TMPDIR=/caller", "GATE_LOG_BASE=/caller", "TMPDIR=" + dir, "GOTMPDIR=" + dir}) {
 		t.Fatalf("pinTempDir = %q", env)
 	}
 }
@@ -33,5 +36,20 @@ func TestChildTempDirHonoursGateTmpdir(t *testing.T) {
 	t.Setenv("GATE_TMPDIR", "")
 	if got := childTempDir(); got != "/var/tmp" {
 		t.Fatalf("childTempDir = %q, want /var/tmp", got)
+	}
+}
+
+// A nested gate's log directory must not follow the TMPDIR the outer gate
+// pinned for it, which is deleted when the outer run ends.
+func TestLogDirPrefersTheRealBaseOverAPinnedTmpdir(t *testing.T) {
+	t.Setenv("GATE_LOG_BASE", "")
+	t.Setenv("TMPDIR", "/caller")
+	outer := t.TempDir()
+	for _, kv := range pinTempDir(outer, nil) {
+		k, v, _ := strings.Cut(kv, "=")
+		t.Setenv(k, v)
+	}
+	if got := logDir(); got != "/caller/gate" {
+		t.Fatalf("nested logDir = %q, want /caller/gate", got)
 	}
 }

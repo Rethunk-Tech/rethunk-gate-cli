@@ -17,6 +17,9 @@ func logDir() string {
 	return filepath.Join(os.TempDir(), "gate")
 }
 
+// pinLogBase is nothing here: logDir does not read TMPDIR.
+func pinLogBase() []string { return nil }
+
 // childTempDir is empty off unix: TMP and TEMP already name a per-user
 // directory there, so there is no caller-dependent value to pin. GATE_TMPDIR
 // still names a base when set, and each run's directory under it is still
