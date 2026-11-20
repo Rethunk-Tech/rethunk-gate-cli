@@ -42,9 +42,9 @@ func TestChildTempDirHonoursGateTmpdir(t *testing.T) {
 // A nested gate's log directory must not follow the TMPDIR the outer gate
 // pinned for it, which is deleted when the outer run ends.
 func TestLogDirPrefersTheRealBaseOverAPinnedTmpdir(t *testing.T) {
+	outer := t.TempDir()
 	t.Setenv("GATE_LOG_BASE", "")
 	t.Setenv("TMPDIR", "/caller")
-	outer := t.TempDir()
 	for _, kv := range pinTempDir(outer, nil) {
 		k, v, _ := strings.Cut(kv, "=")
 		t.Setenv(k, v)

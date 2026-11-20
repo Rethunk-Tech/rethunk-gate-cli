@@ -72,6 +72,7 @@ func TestAnnounceMemoryCapSkipsAndNotes(t *testing.T) {
 	})
 	systemdAvailable = func() bool { return false }
 	cgroupLimit = func() (uint64, bool) { return 0, false }
+	stubUnit(t, false)
 
 	var buf bytes.Buffer
 	applyMemoryWrap = false
