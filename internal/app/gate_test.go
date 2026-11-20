@@ -3745,3 +3745,17 @@ needs = ["b"]
 	qt.Check(t, qt.DeepEquals(strings.Fields(readLog(t, order)), []string{"a", "b", "step"}))
 	qt.Check(t, qt.StringContains(stderr, "also running a, b"), qt.Commentf("stderr = %q", stderr))
 }
+
+// A configured shell gate's command can run to hundreds of characters; the
+// pass line names it by role so a green run stays a few short lines.
+func TestOkLineNamesALongShellGateByRole(t *testing.T) {
+	t.Parallel()
+
+	long := "true " + strings.Repeat("x", 80)
+	root := gateProject(t, long, "true")
+	stdout, stderr, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("gate = %d, stderr = %q", code, stderr))
+	qt.Check(t, qt.Not(qt.StringContains(stdout, long)), qt.Commentf("pass line repeats the long command: %q", stdout))
+	qt.Check(t, qt.StringContains(stdout, "gate: ok  g0  "), qt.Commentf("pass line does not name the role: %q", stdout))
+	qt.Check(t, qt.StringContains(stdout, "gate: ok  true  "), qt.Commentf("a short command lost its name: %q", stdout))
+}

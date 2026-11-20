@@ -321,6 +321,16 @@ func (s gateSpec) short() string {
 	return oneLine(filepath.Base(s.argv[0]) + strings.TrimPrefix(s.display, s.argv[0]))
 }
 
+// label names a gate in one-line summaries: its command, unless that is a
+// shell string too long to scan, where the role reads better.
+func (s gateSpec) label() string {
+	const maxLabel = 60
+	if short := s.short(); s.role == "" || len(short) <= maxLabel {
+		return short
+	}
+	return s.role
+}
+
 // oneLine collapses every run of whitespace to one space. A config `run` is a
 // shell string and may span lines; it reaches one-line places -- a verdict
 // header, a stream prefix -- so a multi-line command there would turn one
@@ -837,7 +847,7 @@ func profile(results []gateResult) (sum time.Duration, count int, slowest string
 			continue
 		}
 		sum += res.elapsed
-		ran = append(ran, slow{res.spec.short(), res.elapsed})
+		ran = append(ran, slow{res.spec.label(), res.elapsed})
 	}
 	slices.SortFunc(ran, func(a, b slow) int {
 		return cmp.Compare(b.elapsed, a.elapsed)
@@ -1017,7 +1027,7 @@ func reportRan(res gateResult, opts options, quote func(io.Writer, *lineTracker)
 				cached += "  (timeout " + res.spec.timeout.String() + ")"
 			}
 			fmt.Fprintf(stdout, "gate: ok  %s  %s  %s%s\n",
-				res.spec.short(), res.elapsed.Round(time.Millisecond), res.logPath, cached)
+				res.spec.label(), res.elapsed.Round(time.Millisecond), res.logPath, cached)
 		}
 		return
 	}
