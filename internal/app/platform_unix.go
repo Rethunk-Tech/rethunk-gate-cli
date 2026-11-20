@@ -21,23 +21,26 @@ func logDir() string {
 	return filepath.Join(logBase(), "gate")
 }
 
-// logBase is GATE_LOG_BASE, which a gate that pinned TMPDIR for its children
-// leaves behind, else TMPDIR, else /var/tmp. A nested gate would otherwise
-// keep its logs under the outer run's temp directory and lose them when that
-// run ends.
+// logBase is TMPDIR, else /var/tmp. While TMPDIR is still the directory an
+// outer gate pinned for its children, it is the outer run's GATE_LOG_BASE
+// instead: a nested gate would otherwise keep its logs under that run's temp
+// directory and lose them when it ends. A child that sets its own TMPDIR
+// (a test, a tool) gets that.
 func logBase() string {
-	for _, key := range []string{"GATE_LOG_BASE", "TMPDIR"} {
-		if base := os.Getenv(key); base != "" {
-			return base
-		}
+	tmp := os.Getenv("TMPDIR")
+	if base := os.Getenv("GATE_LOG_BASE"); base != "" && tmp != "" && tmp == os.Getenv("GATE_PINNED_TMPDIR") {
+		return base
+	}
+	if tmp != "" {
+		return tmp
 	}
 	return "/var/tmp"
 }
 
-// pinLogBase is what a run adds beside its pinned TMPDIR so children's gates
-// still find the real log base.
-func pinLogBase() []string {
-	return []string{"GATE_LOG_BASE=" + logBase()}
+// pinLogBase is what a run adds beside the TMPDIR it pins for its children so
+// their gates still find the real log base.
+func pinLogBase(dir string) []string {
+	return []string{"GATE_LOG_BASE=" + logBase(), "GATE_PINNED_TMPDIR=" + dir}
 }
 
 // childTempDir is where a run makes the directory its children share, so every

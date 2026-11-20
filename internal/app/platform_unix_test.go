@@ -13,7 +13,7 @@ func TestPinTempDirUsesTheRunsOwnDirectory(t *testing.T) {
 	t.Setenv("GATE_LOG_BASE", "")
 	t.Setenv("TMPDIR", "/caller")
 	env := pinTempDir(dir, []string{"TMPDIR=/caller"})
-	if !slices.Equal(env, []string{"TMPDIR=/caller", "GATE_LOG_BASE=/caller", "TMPDIR=" + dir, "GOTMPDIR=" + dir}) {
+	if !slices.Equal(env, []string{"TMPDIR=/caller", "GATE_LOG_BASE=/caller", "GATE_PINNED_TMPDIR=" + dir, "TMPDIR=" + dir, "GOTMPDIR=" + dir}) {
 		t.Fatalf("pinTempDir = %q", env)
 	}
 }
@@ -51,5 +51,10 @@ func TestLogDirPrefersTheRealBaseOverAPinnedTmpdir(t *testing.T) {
 	}
 	if got := logDir(); got != "/caller/gate" {
 		t.Fatalf("nested logDir = %q, want /caller/gate", got)
+	}
+	// A child that sets its own TMPDIR gets it, not the outer base.
+	t.Setenv("TMPDIR", "/own")
+	if got := logDir(); got != "/own/gate" {
+		t.Fatalf("logDir under an own TMPDIR = %q, want /own/gate", got)
 	}
 }

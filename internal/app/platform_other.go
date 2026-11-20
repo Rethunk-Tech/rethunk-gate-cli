@@ -18,7 +18,7 @@ func logDir() string {
 }
 
 // pinLogBase is nothing here: logDir does not read TMPDIR.
-func pinLogBase() []string { return nil }
+func pinLogBase(string) []string { return nil }
 
 // childTempDir is empty off unix: TMP and TEMP already name a per-user
 // directory there, so there is no caller-dependent value to pin. GATE_TMPDIR
