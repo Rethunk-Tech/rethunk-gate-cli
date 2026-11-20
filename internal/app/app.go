@@ -115,7 +115,7 @@ Flags:
   --no-isolate  never isolate, even inside a pre-push hook
   --timeout D   kill a gate that runs longer than D (default 1m, 0 disables;
                 .gate.toml can set it per gate, and this beats that)
-  --mem SIZE    cap each gate at SIZE (default 24G, swap 0, 0 disables;
+  --mem SIZE    cap the whole run at SIZE (default 24G, swap 0, 0 disables;
                 .gate.toml: [limits] memory = "16G"; unused where
                 systemd-run --user is not available)
   --tail N      trailing lines to quote on failure (default 40)

@@ -3,6 +3,7 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -57,4 +58,9 @@ func secureLogDir(dir string) error {
 		return nil
 	}
 	return os.Chmod(dir, 0o700)
+}
+
+// execProcess cannot replace the process here; the run stays uncapped.
+func execProcess(string, []string, []string) error {
+	return errors.ErrUnsupported
 }

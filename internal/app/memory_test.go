@@ -3,6 +3,9 @@ package app
 import (
 	"bytes"
 	"io"
+	"os"
+	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -39,14 +42,12 @@ func TestMemoryArgvDefaultTomlFlagZeroUnavailable(t *testing.T) {
 	qt.Check(t, qt.DeepEquals(memoryArgv("24G", true, dollars), append(prefix, "sh", "-c", "echo $$$$")))
 }
 
-func TestMemoryKillLabelFromFakeExitAndScopeResult(t *testing.T) {
+func TestMemoryKillLabel(t *testing.T) {
 	t.Parallel()
-	qt.Check(t, qt.Equals(memoryKillLabel(137, "oom-kill", "24G"), "killed: memory cap 24G"))
-	qt.Check(t, qt.Equals(memoryKillLabel(137, "oom-kill", "16G"), "killed: memory cap 16G"))
-	qt.Check(t, qt.Equals(memoryKillLabel(137, "oom", "8G"), "killed: memory cap 8G"))
-	qt.Check(t, qt.Equals(memoryKillLabel(137, "success", "24G"), ""))
-	qt.Check(t, qt.Equals(memoryKillLabel(1, "oom-kill", "24G"), ""))
-	qt.Check(t, qt.Equals(memoryKillLabel(137, "oom-kill", "0"), ""))
+	qt.Check(t, qt.Equals(memoryKillLabel(137, true, "24G"), "killed: memory cap 24G"))
+	qt.Check(t, qt.Equals(memoryKillLabel(137, false, "24G"), ""))
+	qt.Check(t, qt.Equals(memoryKillLabel(1, true, "24G"), ""))
+	qt.Check(t, qt.Equals(memoryKillLabel(137, true, "0"), ""))
 }
 
 func TestMemoryOOMIsTheVerdictNotABareExit(t *testing.T) {
@@ -82,19 +83,6 @@ func TestMemoryUnusedNote(t *testing.T) {
 	qt.Check(t, qt.Equals(memoryUnusedNote("0", false), ""))
 }
 
-func TestNestedGateDoesNotOpenASecondMemoryScope(t *testing.T) {
-	origWrap, origAvail := applyMemoryWrap, systemdAvailable
-	t.Cleanup(func() {
-		applyMemoryWrap, systemdAvailable = origWrap, origAvail
-	})
-	applyMemoryWrap = true
-	systemdAvailable = func() bool { return true }
-	t.Setenv(memoryScopeVar, "24G")
-	got, unit := wrapMemoryArgv("24G", []string{"make", "test"})
-	qt.Check(t, qt.Equals(unit, ""))
-	qt.Check(t, qt.DeepEquals(got, []string{"make", "test"}))
-}
-
 func TestMemFlagOverridesAndZeroDisables(t *testing.T) {
 	t.Parallel()
 	empty := t.TempDir()
@@ -105,4 +93,50 @@ func TestMemFlagOverridesAndZeroDisables(t *testing.T) {
 	stdout, _, code := runGateTest(t, "-C", empty, "--mem", "0", "--log", tempLog(t), "true")
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stdout = %q", stdout))
 	qt.Check(t, qt.StringContains(stdout, "gate: ok"))
+}
+
+func TestScopeRunDecision(t *testing.T) {
+	bin := t.TempDir()
+	qt.Assert(t, qt.IsNil(os.WriteFile(filepath.Join(bin, "systemd-run"), []byte("#!/bin/sh\n"), 0o755))) //nolint:gosec // LookPath wants an executable stub
+	t.Setenv("PATH", bin)
+	origWrap, origAvail, origCapped, origExec := applyMemoryWrap, systemdAvailable, cgroupCapped, execReplace
+	t.Cleanup(func() {
+		applyMemoryWrap, systemdAvailable, cgroupCapped, execReplace = origWrap, origAvail, origCapped, origExec
+	})
+	for _, tc := range []struct {
+		name      string
+		size      string
+		wrap      bool
+		systemd   bool
+		capped    bool
+		marker    string
+		wantWrapp bool
+	}{
+		{"wraps", "24G", true, true, false, "", true},
+		{"mem 0 opts out", "0", true, true, false, "", false},
+		{"marker: nested gate", "24G", true, true, false, "24G", false},
+		{"already in a capped cgroup", "24G", true, true, true, "", false},
+		{"no user systemd", "24G", true, false, false, "", false},
+		{"wrap switched off", "24G", false, true, false, "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			applyMemoryWrap = tc.wrap
+			systemdAvailable = func() bool { return tc.systemd }
+			cgroupCapped = func() bool { return tc.capped }
+			t.Setenv(memoryScopeVar, tc.marker)
+			qt.Check(t, qt.Equals(shouldScopeRun(tc.size), tc.wantWrapp))
+
+			var gotArgv, gotEnv []string
+			execReplace = func(_ string, argv, env []string) error {
+				gotArgv, gotEnv = argv, env
+				return nil
+			}
+			scopeRun(tc.size)
+			qt.Check(t, qt.Equals(gotArgv != nil, tc.wantWrapp))
+			if tc.wantWrapp {
+				qt.Check(t, qt.Equals(gotArgv[6], "MemoryMax="+tc.size))
+				qt.Check(t, qt.IsTrue(slices.Contains(gotEnv, memoryScopeVar+"="+tc.size)))
+			}
+		})
+	}
 }

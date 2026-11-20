@@ -474,6 +474,7 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 	if opts.tempDir != "" {
 		defer func() { _ = os.RemoveAll(opts.tempDir) }()
 	}
+	scopeRun(opts.memory)
 	announceMemoryCap(stderr, opts)
 	results := make([]gateResult, len(opts.gates))
 	if opts.stream {
@@ -1155,8 +1156,7 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 		defer cancel()
 	}
 
-	argv, memUnit := wrapMemoryArgv(opts.memory, spec.argv)
-	cmd := exec.CommandContext(runCtx, argv[0], argv[1:]...) //nolint:gosec // gate intentionally runs the configured command
+	cmd := exec.CommandContext(runCtx, spec.argv[0], spec.argv[1:]...) //nolint:gosec // gate intentionally runs the configured command
 	// Stop the whole process group, not just the child: a test runner that
 	// spawned workers would otherwise leave them behind holding a port.
 	setProcessGroup(cmd)
@@ -1189,9 +1189,6 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 	}
 	cmd.Env = append(cmd.Env, activeRootsVar+"="+activeRootsValue(spec.root, spec.dir),
 		activeRunVar+"="+strconv.Itoa(os.Getpid())+" "+res.logPath)
-	if memUnit != "" {
-		cmd.Env = append(cmd.Env, memoryScopeVar+"="+opts.memory)
-	}
 	if isolated {
 		cmd.Env = isolatedEnv(cmd.Env, home)
 	}
@@ -1264,11 +1261,9 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 	default:
 		res.code = resolveCode(runErr)
 	}
-	if memUnit != "" && int(res.code) == 137 {
-		if label := memoryKillLabel(int(res.code), readScopeResult(runCtx, memUnit), opts.memory); label != "" {
-			res.oom = true
-			res.memory = opts.memory
-		}
+	if memoryKillLabel(int(res.code), cgroupOOMKilled(), opts.memory) != "" {
+		res.oom = true
+		res.memory = opts.memory
 	}
 
 	// A log that records output but not outcome answers the wrong question

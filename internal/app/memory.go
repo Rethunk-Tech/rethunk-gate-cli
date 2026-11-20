@@ -1,7 +1,6 @@
 package app
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"os"
@@ -9,31 +8,35 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"sync/atomic"
-	"time"
+	"testing"
 )
 
-// defaultMemory is the ceiling every gate runs under unless a flag or
-// [limits] memory says otherwise. Callers had been wrapping gate itself in
-// systemd-run --user --scope -p MemoryMax=24G about forty times a week;
-// the quoting on that wrapper is what this replaces.
+// defaultMemory is the ceiling the whole run sits under unless a flag or
+// [limits] memory says otherwise.
 const defaultMemory = "24G"
 
-// memoryScopeVar marks a child that already runs under a MemoryMax scope.
-// Nested gate (this repo's tests exec a built binary under `gate make test`)
-// must not open a second --user --scope; systemd-run then never starts the
-// command, which is the failure TestSIGHUPStopsTheGatedCommandsGroup sees.
+// memoryScopeVar marks a process already running inside gate's scope, so a
+// nested gate (this repo's tests exec a built binary under `gate make test`)
+// does not open a second one.
 const memoryScopeVar = "GATE_MEMORY_SCOPE"
 
-// applyMemoryWrap is the production switch for actually prefixing systemd-run.
-// Tests turn it off so `go test` does not exec systemd-run around `true`.
-var applyMemoryWrap = true
+// applyMemoryWrap is the production switch for re-exec'ing under systemd-run.
+// A test binary must never replace itself, so it starts off there.
+var applyMemoryWrap = !testing.Testing()
 
 // systemdAvailable reports whether a user systemd can take a --user --scope.
 // Tests replace it.
 var systemdAvailable = userSystemdAvailable
 
-var memoryUnitSeq atomic.Uint64
+// cgroupCapped reports whether this process's own cgroup already has a
+// memory.max, e.g. an outer `systemd-run --scope -p MemoryMax=...`.
+var cgroupCapped = func() bool {
+	v, ok := ownCgroupFile("memory.max")
+	return ok && strings.TrimSpace(v) != "max"
+}
+
+// execReplace swaps the process image; it returns only on failure.
+var execReplace = execProcess
 
 func memoryOn(size string) bool {
 	return size != "" && size != "0"
@@ -71,18 +74,14 @@ func memoryUnusedNote(size string, available bool) string {
 }
 
 // memoryKillLabel is the one-line verdict for a command the cap killed.
-// 137 is 128+SIGKILL; systemd reports Result=oom-kill on the scope. Either
-// missing is a bare signalled exit, not this label -- a kill from elsewhere
-// must not claim the cap did it.
-func memoryKillLabel(exit int, scopeResult, size string) string {
-	if !memoryOn(size) || exit != 137 {
+// 137 is 128+SIGKILL; the run's cgroup counts oom_kill. Either missing is a
+// bare signalled exit, not this label -- a kill from elsewhere must not claim
+// the cap did it.
+func memoryKillLabel(exit int, oomKilled bool, size string) string {
+	if !memoryOn(size) || exit != 137 || !oomKilled {
 		return ""
 	}
-	switch scopeResult {
-	case "oom-kill", "oom":
-		return "killed: memory cap " + size
-	}
-	return ""
+	return "killed: memory cap " + size
 }
 
 func userSystemdAvailable() bool {
@@ -101,7 +100,7 @@ func userSystemdAvailable() bool {
 }
 
 func announceMemoryCap(stderr io.Writer, opts options) {
-	if !applyMemoryWrap || opts.quiet || os.Getenv(memoryScopeVar) != "" {
+	if !applyMemoryWrap || opts.quiet || os.Getenv(memoryScopeVar) != "" || cgroupCapped() {
 		return
 	}
 	if note := memoryUnusedNote(opts.memory, systemdAvailable()); note != "" {
@@ -109,37 +108,60 @@ func announceMemoryCap(stderr io.Writer, opts options) {
 	}
 }
 
-func wrapMemoryArgv(size string, argv []string) (wrapped []string, unit string) {
-	if !applyMemoryWrap || !memoryOn(size) || os.Getenv(memoryScopeVar) != "" || !systemdAvailable() || len(argv) == 0 {
-		return argv, ""
-	}
-	unit = fmt.Sprintf("gate-mem-%d-%d", os.Getpid(), memoryUnitSeq.Add(1))
-	wrapped = memoryArgv(size, true, argv)
-	for i, a := range wrapped {
-		if a == "--" {
-			out := make([]string, 0, len(wrapped)+1)
-			out = append(out, wrapped[:i]...)
-			out = append(out, "--unit="+unit)
-			out = append(out, wrapped[i:]...)
-			return out, unit
-		}
-	}
-	return wrapped, unit
+// shouldScopeRun is whether this process must re-exec itself under a memory
+// scope: wrapping on, cap enabled, not already inside gate's scope or any
+// other memory-capped cgroup, and a user systemd to open one.
+func shouldScopeRun(size string) bool {
+	return applyMemoryWrap && memoryOn(size) && os.Getenv(memoryScopeVar) == "" &&
+		systemdAvailable() && !cgroupCapped()
 }
 
-func readScopeResult(ctx context.Context, unit string) string {
-	if unit == "" {
-		return ""
+// scopeRun re-execs gate under one systemd scope for the whole run. Gates run
+// in parallel, so only a cgroup around all of them bounds the run; a scope per
+// gate would be a sibling cgroup, outside this one. On any failure to exec the
+// run continues uncapped.
+func scopeRun(size string) {
+	if !shouldScopeRun(size) {
+		return
 	}
-	name := unit
-	if !strings.HasSuffix(name, ".scope") {
-		name += ".scope"
-	}
-	showCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(showCtx, "systemctl", "--user", "show", "-p", "Result", "--value", name).Output() //nolint:gosec // unit is gate-mem-<pid>-<n> we named
+	exe, err := os.Executable()
 	if err != nil {
-		return ""
+		return
 	}
-	return strings.TrimSpace(string(out))
+	path, err := exec.LookPath("systemd-run")
+	if err != nil {
+		return
+	}
+	argv := memoryArgv(size, true, append([]string{exe}, os.Args[1:]...))
+	_ = execReplace(path, argv, append(os.Environ(), memoryScopeVar+"="+size))
+}
+
+// ownCgroupFile reads a file of this process's cgroup v2 directory.
+func ownCgroupFile(name string) (string, bool) {
+	b, err := os.ReadFile("/proc/self/cgroup")
+	if err != nil {
+		return "", false
+	}
+	for line := range strings.SplitSeq(string(b), "\n") {
+		if rel, ok := strings.CutPrefix(line, "0::"); ok {
+			data, err := os.ReadFile(filepath.Join("/sys/fs/cgroup", filepath.Clean("/"+rel), name))
+			return string(data), err == nil
+		}
+	}
+	return "", false
+}
+
+// cgroupOOMKilled reports whether the kernel OOM-killed anything in this
+// process's cgroup.
+func cgroupOOMKilled() bool {
+	v, ok := ownCgroupFile("memory.events")
+	if !ok {
+		return false
+	}
+	for line := range strings.SplitSeq(v, "\n") {
+		if n, ok := strings.CutPrefix(line, "oom_kill "); ok {
+			return strings.TrimSpace(n) != "0"
+		}
+	}
+	return false
 }

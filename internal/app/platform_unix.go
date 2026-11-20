@@ -82,3 +82,8 @@ func secureLogDir(dir string) error {
 	}
 	return f.Chmod(0o700)
 }
+
+// execProcess replaces this process with path; it returns only on failure.
+func execProcess(path string, argv, env []string) error {
+	return syscall.Exec(path, argv, env) //nolint:gosec // path and argv come from this process's own invocation
+}
