@@ -598,7 +598,7 @@ Each gate runs under a memory ceiling so callers do not wrap `gate` in
 
 On Linux with a user systemd, the command is
 
-`systemd-run --user --scope -q --collect -p MemoryMax=<SIZE> -p MemorySwapMax=0 --`
+`systemd-run --user --scope -q --collect -p MemoryMax=<SIZE> -p MemorySwapMax=0 -p OOMPolicy=continue --`
 followed by the gate's argv. Display, logs and exit codes are the command's.
 Where `systemd-run --user` is missing (CI, macOS, containers) the command
 runs unwrapped and the run prints one `gate: memory cap <SIZE> unused:

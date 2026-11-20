@@ -17,20 +17,20 @@ func TestMemoryArgvDefaultTomlFlagZeroUnavailable(t *testing.T) {
 	cmd := []string{"make", "test"}
 	prefix := []string{
 		"systemd-run", "--user", "--scope", "-q", "--collect",
-		"-p", "MemoryMax=24G", "-p", "MemorySwapMax=0", "--",
+		"-p", "MemoryMax=24G", "-p", "MemorySwapMax=0", "-p", "OOMPolicy=continue", "--",
 	}
 
 	qt.Check(t, qt.DeepEquals(memoryArgv(defaultMemory, true, cmd), append(prefix, cmd...)))
 
 	tomlPrefix := []string{
 		"systemd-run", "--user", "--scope", "-q", "--collect",
-		"-p", "MemoryMax=16G", "-p", "MemorySwapMax=0", "--",
+		"-p", "MemoryMax=16G", "-p", "MemorySwapMax=0", "-p", "OOMPolicy=continue", "--",
 	}
 	qt.Check(t, qt.DeepEquals(memoryArgv("16G", true, cmd), append(tomlPrefix, cmd...)))
 
 	flagPrefix := []string{
 		"systemd-run", "--user", "--scope", "-q", "--collect",
-		"-p", "MemoryMax=8G", "-p", "MemorySwapMax=0", "--",
+		"-p", "MemoryMax=8G", "-p", "MemorySwapMax=0", "-p", "OOMPolicy=continue", "--",
 	}
 	qt.Check(t, qt.DeepEquals(memoryArgv("8G", true, cmd), append(flagPrefix, cmd...)))
 

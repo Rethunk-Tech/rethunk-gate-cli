@@ -19,6 +19,7 @@ func TestMemoryArgvPassthroughAndEscape(t *testing.T) {
 		"systemd-run", "--user", "--scope", "-q", "--collect",
 		"-p", "MemoryMax=1G",
 		"-p", "MemorySwapMax=0",
+		"-p", "OOMPolicy=continue",
 		"--",
 		"true",
 	}))

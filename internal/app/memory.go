@@ -49,11 +49,12 @@ func memoryArgv(size string, available bool, argv []string) []string {
 	if !memoryOn(size) || !available || len(argv) == 0 {
 		return append([]string(nil), argv...)
 	}
-	out := make([]string, 0, 10+len(argv))
+	out := make([]string, 0, 12+len(argv))
 	out = append(out,
 		"systemd-run", "--user", "--scope", "-q", "--collect",
 		"-p", "MemoryMax="+size,
 		"-p", "MemorySwapMax=0",
+		"-p", "OOMPolicy=continue",
 		"--",
 	)
 	// systemd ExecStart expands $VAR like a unit file. A command that
