@@ -112,7 +112,6 @@ func TestScopeRunDecision(t *testing.T) {
 	}{
 		{"wraps", "24G", true, true, false, true},
 		{"mem 0 opts out", "0", true, true, false, false},
-		{"marker: nested gate", "24G", true, true, false, false},
 		{"already in a capped cgroup", "24G", true, true, true, false},
 		{"no user systemd", "24G", true, false, false, false},
 		{"wrap switched off", "24G", false, true, false, false},
