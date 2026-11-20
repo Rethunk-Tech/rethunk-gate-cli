@@ -297,3 +297,25 @@ func TestMerge(t *testing.T) {
 		qt.Check(t, qt.DeepEquals(got.env, c.want.env), qt.Commentf("%s env", c.name))
 	}
 }
+
+// A step two gates share stays with the one whose failure counts and that
+// runs by default, whichever is declared first.
+func TestDedupeGivesASharedStepToTheGateThatCounts(t *testing.T) {
+	t.Parallel()
+	for _, option := range []string{"allow-failure = true", "e2e = true"} {
+		for _, optionalFirst := range []bool{true, false} {
+			optional := "[gates.opt]\nrun = \"./check.sh a && ./check.sh b\"\n" + option + "\n\n"
+			plain := "[gates.plain]\nrun = \"./check.sh a\"\n"
+			toml := plain + "\n" + optional
+			if optionalFirst {
+				toml = optional + plain
+			}
+			root := gateProject(t)
+			testutil.Write(t, root, ".gate.toml", toml)
+			testutil.Write(t, root, "check.sh", "#!/bin/sh\nexit 1\n")
+			qt.Assert(t, qt.IsNil(os.Chmod(filepath.Join(root, "check.sh"), 0o755))) //nolint:gosec // fixture script must be executable
+			_, stderr, code := runGateTest(t, "-C", root)
+			qt.Check(t, qt.Equals(code, Code(1)), qt.Commentf("%s, optional first %v: shared step was excused: %s", option, optionalFirst, stderr))
+		}
+	}
+}
