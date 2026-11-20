@@ -1,6 +1,8 @@
 package app
 
 import (
+	"context"
+	"io"
 	"os/exec"
 	"strings"
 	"testing"
@@ -10,56 +12,61 @@ import (
 	"github.com/go-quicktest/qt"
 )
 
-func git(t *testing.T, dir string, args ...string) string {
+func git(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	full := append([]string{"-C", dir, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"}, args...)
 	out, err := exec.CommandContext(t.Context(), "git", full...).CombinedOutput() //nolint:gosec // fixed git argv in a test
 	qt.Assert(t, qt.IsNil(err), qt.Commentf("git %v: %s", args, out))
-	return strings.TrimSpace(string(out))
 }
 
-// pushFixture is a gate project with one unpushed commit, tracking a local
-// bare remote. It returns the project root and the bare remote.
-func pushFixture(t *testing.T, command string) (root, remote string) {
+// landFixture is a committed gate project with land and rgit stubbed. calls
+// collects each land invocation as "dir|args...". Tests using it are not
+// parallel: they swap package variables.
+func landFixture(t *testing.T, command string, landCode Code) (root string, calls *[]string) {
 	t.Helper()
 	root = gateProject(t, command)
-	remote = t.TempDir()
-	git(t, remote, "init", "--bare", "-b", "main")
 	git(t, root, "init", "-b", "main")
 	git(t, root, "add", ".")
 	git(t, root, "commit", "-m", "base")
-	git(t, root, "remote", "add", "origin", remote)
-	git(t, root, "push", "-u", "origin", "main")
-	testutil.Write(t, root, "change.txt", "x")
-	git(t, root, "add", ".")
-	git(t, root, "commit", "-m", "change")
-	return root, remote
+	calls = &[]string{}
+	origLand, origRgit := landRun, rgitOnPath
+	t.Cleanup(func() { landRun, rgitOnPath = origLand, origRgit })
+	rgitOnPath = func() bool { return true }
+	landRun = func(_ context.Context, dir string, args []string, _, _ io.Writer) Code {
+		*calls = append(*calls, dir+"|"+strings.Join(args, " "))
+		return landCode
+	}
+	return root, calls
 }
 
-func TestPushGreenGatePushes(t *testing.T) {
-	t.Parallel()
-	root, remote := pushFixture(t, "true")
-	_, stderr, code := runGateTest(t, "-C", root, "push")
-	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
-	qt.Check(t, qt.Equals(git(t, remote, "rev-parse", "main"), git(t, root, "rev-parse", "HEAD")))
+func TestPushGreenGateLands(t *testing.T) {
+	root, calls := landFixture(t, "true", Code(7))
+	_, stderr, code := runGateTest(t, "-C", root, "push", "--", "--wait", "--install")
+	qt.Check(t, qt.Equals(code, Code(7)), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.DeepEquals(*calls, []string{root + "|--wait --install"}))
 }
 
-func TestPushRedGateDoesNotPush(t *testing.T) {
-	t.Parallel()
-	root, remote := pushFixture(t, "exit 3")
-	before := git(t, remote, "rev-parse", "main")
+func TestPushRedGateDoesNotLand(t *testing.T) {
+	root, calls := landFixture(t, "exit 3", Success)
 	_, _, code := runGateTest(t, "-C", root, "push")
 	qt.Check(t, qt.Equals(code, Code(3)))
-	qt.Check(t, qt.Equals(git(t, remote, "rev-parse", "main"), before))
+	qt.Check(t, qt.HasLen(*calls, 0))
 }
 
 func TestPushRefusesDirtyTreeBeforeRunning(t *testing.T) {
-	t.Parallel()
-	root, remote := pushFixture(t, "true")
-	before := git(t, remote, "rev-parse", "main")
+	root, calls := landFixture(t, "true", Success)
 	testutil.Write(t, root, "stray.txt", "x")
 	_, stderr, code := runGateTest(t, "-C", root, "push")
 	qt.Check(t, qt.Equals(code, Fatal))
 	qt.Check(t, qt.StringContains(stderr, "dirty"))
-	qt.Check(t, qt.Equals(git(t, remote, "rev-parse", "main"), before))
+	qt.Check(t, qt.HasLen(*calls, 0))
+}
+
+func TestPushRefusesWithoutRgit(t *testing.T) {
+	root, calls := landFixture(t, "true", Success)
+	rgitOnPath = func() bool { return false }
+	_, stderr, code := runGateTest(t, "-C", root, "push")
+	qt.Check(t, qt.Equals(code, Fatal))
+	qt.Check(t, qt.StringContains(stderr, "rgit is not on PATH"))
+	qt.Check(t, qt.HasLen(*calls, 0))
 }

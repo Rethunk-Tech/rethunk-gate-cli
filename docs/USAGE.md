@@ -405,16 +405,17 @@ A program named `quick` is `gate -- quick`.
 
 ### `gate push`
 
-`gate push` is bare `gate` (same flags, `-C` included) followed by `git push`
-of the current branch when every gate passes. Arguments after `--` go to
-`git push`: `gate push -- origin HEAD:main`.
+`gate push` is bare `gate` (same flags, `-C` included) followed by
+`rgit land --repos <the -C dir or cwd>` when every gate passes, so the repo's
+GitHub branch rules decide a direct push or a land/ branch with PR and merge.
+Arguments after `--` go to `rgit land`: `gate push -- --wait --install`. Its
+output streams through and gate exits with its code.
 
 It refuses, with one line and before running any gate, when the working tree
-is dirty or the branch has no upstream. Fast-forward only: `--force*`,
-`--delete`, `--mirror`, `--prune` and `+`/`:` refspecs are refused. A red gate
-prints its normal report and exits with gate's code. A failed push exits 128
-with git's stderr. `--list`, `--json` and `--failed` are refused, since none
-is a full run. A program named `push` is `gate -- push`.
+is dirty (the gate must have tested what gets landed) or `rgit` is not on
+PATH. A red gate prints its normal report, exits with gate's code and lands
+nothing. `--list`, `--json` and `--failed` are refused, since none is a full
+run. A program named `push` is `gate -- push`.
 
 ## Configuration
 

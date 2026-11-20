@@ -48,7 +48,7 @@ const (
 const gateHelp = `usage: gate [-C <path>] [flags] [<command> [args...]]
        gate [-C <path>] [flags] run <name>...
        gate [-C <path>] [flags] quick [--all]
-       gate [-C <path>] [flags] push [-- <git push args>...]
+       gate [-C <path>] [flags] push [-- <rgit land args>...]
        gate [-C <path>] [--json] doctor
        gate [-C <path>] [--json] fix [--dry-run]
        gate [-C <path>] [--json] record
@@ -67,7 +67,7 @@ Commands:
                 workflows, markdown, shell, canon, test, vuln, and any others .gate.toml declares
   quick         format, lint and typecheck, files changed vs HEAD
                 (--all for the whole project; skips test, build, knip, vuln, e2e)
-  push          run the full gate, then git push only when it is green
+  push          run the full gate, then rgit land only when it is green
   doctor        report what is cheap to fix here (read-only)
   fix           apply doctor findings that name a closed mechanical remedy
   record        print the last result record, and whether it is still true
