@@ -798,8 +798,13 @@ func (st *runState) detectGates(ctx context.Context, dir string, roles []string,
 	}
 	project, code, ok = st.buildGates(ctx, proj, cfg, roles, stderr)
 	if ok && st.opts.quick {
+		had := len(st.opts.gates)
 		st.opts.gates = applyQuick(ctx, st.opts.gates, cfg, project.Root, st.opts.quickAll)
 		st.opts.serial = true
+		if had > 0 && len(st.opts.gates) == 0 {
+			fmt.Fprintln(stderr, "gate: nothing changed vs HEAD that a quick gate covers")
+			return project, cfg, Success, false
+		}
 	}
 	return project, cfg, code, ok
 }
@@ -825,7 +830,7 @@ func (st *runState) buildGates(ctx context.Context, proj detect.Project, cfg con
 	})
 	include := roles
 	if len(roles) > 0 {
-		include, _ = expandNeeds(roles, cfg)
+		include = expandNeeds(roles, cfg)
 	}
 	for _, g := range proj.Gates {
 		if note := leftOutNote(cfg, proj.Root, g); note != "" {
@@ -1048,10 +1053,10 @@ func applyDirAndAllow(spec *gateSpec, name string, c config.Gate, root string) e
 
 // expandNeeds returns the named gates plus every gate they need, transitively,
 // in dependency order: a need before the gates that wait on it, original
-// relative order otherwise. extra is the names that were not asked for.
-func expandNeeds(named []string, cfg config.Config) (order, extra []string) {
+// relative order otherwise.
+func expandNeeds(named []string, cfg config.Config) (order []string) {
 	if len(named) == 0 {
-		return nil, nil
+		return nil
 	}
 	seen := make(map[string]bool, len(named)+len(cfg.Gates))
 	var visit func(string)
@@ -1068,16 +1073,7 @@ func expandNeeds(named []string, cfg config.Config) (order, extra []string) {
 	for _, name := range named {
 		visit(name)
 	}
-	asked := make(map[string]bool, len(named))
-	for _, name := range named {
-		asked[name] = true
-	}
-	for _, name := range order {
-		if !asked[name] {
-			extra = append(extra, name)
-		}
-	}
-	return order, extra
+	return order
 }
 
 // orderGates sorts gates to match names, which is the dependency order
