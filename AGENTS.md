@@ -40,8 +40,8 @@ Breaking one of these is silent.
 | A log close error is reported, not deferred away | Losing the log silently is the failure nobody would notice |
 | An interrupted gate still reaches `writeTrailer` and `Close` | An unfinished file gate opened is left empty |
 | An interrupt reports the signal that reached *gate* | The child dies of the signal gate sent it |
-| A memory-capped command is `systemd-run --user --scope … --` plus the original argv; display and the log still name the command | The wrapper is how the cap is applied, not a second verdict |
-| Where systemd-run --user is missing, the command runs unwrapped and the run says so once | A missing wrapper is not a failure |
+| A memory-capped run re-execs gate once, as `systemd-run --user --scope … --` plus gate's own argv, before the lock, installs and temp dir; commands, display and logs are unchanged | One cgroup bounds every parallel gate; work done before the exec would run twice and its temp dir leak |
+| Where systemd-run --user is missing, or gate was started by a systemd unit or sits under a memory cap, the run is not re-exec'd and says so once when the cap differs | A missing scope is not a failure; the unit's own stop and kill must still reach gate |
 | `--ndjson` under a mutex, from the finishing gate's own goroutine | Concurrent gates would interleave into an unparseable line |
 
 ## Interrupts
@@ -136,9 +136,9 @@ Logs: `$TMPDIR` or `/var/tmp` — never `/tmp` on unix (`logDir` is
 build-tagged). `run` strings: `sh -c` vs `cmd /c`. 0600 in 0700. Sweep own
 directory >7 days. `--log` paths are never swept.
 
-Temp: one `/var/tmp/gate-run-<pid>-<random>` per run (parent: `GATE_TMPDIR`),
+Temp: one `/var/tmp/gr-<pid>-<random>` per run (parent: `GATE_TMPDIR`),
 named `TMPDIR`/`GOTMPDIR` for every child and removed when the run ends.
-`GOCACHE` stays shared. A run sweeps first: `gate-run-*` with a dead pid past
+`GOCACHE` stays shared. A run sweeps first: `gr-*` with a dead pid past
 an hour, loose `go-build*` past a day, its own logs past 7 days — one stderr
 line with the counts, silence under `--quiet`. A SIGKILLed run's directory is
 what the next run's sweep is for.

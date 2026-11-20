@@ -144,7 +144,7 @@ type Config struct {
 	TrustedOrgs    []string
 	HasTrustedOrgs bool
 
-	// Memory is the systemd MemoryMax each gate runs under. Empty means
+	// Memory is the systemd MemoryMax the whole run runs under. Empty means
 	// the app default; "0" disables. HasMemory distinguishes "not set"
 	// from a deliberate 0, the same way timeout does.
 	Memory    string

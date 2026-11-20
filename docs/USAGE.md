@@ -591,21 +591,28 @@ Gates run with `GORACE=atexit_sleep_ms=0` unless `GORACE` is already set, so a r
 
 ## Memory cap
 
-Each gate runs under a memory ceiling so callers do not wrap `gate` in
+The whole run sits under one memory ceiling so callers do not wrap `gate` in
 `systemd-run --user --scope -p MemoryMax=24G`. Default 24G, swap 0.
 `.gate.toml` `[limits] memory = "16G"` is the repo; `--mem SIZE` is the run
 (flag wins). `--mem 0` and `memory = "0"` disable it.
 
-On Linux with a user systemd, the command is
+On Linux with a user systemd, gate re-execs itself once, before the lock and
+any install, as
 
 `systemd-run --user --scope -q --collect -p MemoryMax=<SIZE> -p MemorySwapMax=0 -p OOMPolicy=continue --`
-followed by the gate's argv. Display, logs and exit codes are the command's.
-Where `systemd-run --user` is missing (CI, macOS, containers) the command
-runs unwrapped and the run prints one `gate: memory cap <SIZE> unused:
-systemd-run --user is unavailable` line; that is not a failure.
+followed by its own argv, so every parallel gate shares one cgroup. Display,
+logs and exit codes are the command's. `<SIZE>` is bytes or a number with an
+uppercase `K`, `M`, `G`, `T`, `P` or `E` (`24G`); systemd takes no `g` or
+`GiB`, so gate refuses them. Where `systemd-run --user` is missing (CI, macOS,
+containers) the run is not capped and prints one `gate: memory cap <SIZE>
+unused: systemd-run --user is unavailable` line; that is not a failure. A gate
+started by a systemd unit (`INVOCATION_ID` set) is not re-exec'd, so
+`systemctl stop` still reaches it, and says so. Under an existing memory cap on
+the process's cgroup or an ancestor, gate adds none, and prints a note when
+`<SIZE>` differs from the cap in force.
 
-A command the cap kills (exit 137 and the scope's Result is `oom-kill`) is
-reported `killed: memory cap <SIZE>`, not `FAIL exit 137`.
+A command the cap kills (exit 137 and the cgroup's `oom_kill` count rose during
+the run) is reported `killed: memory cap <SIZE>`, not `FAIL exit 137`.
 
 ## Concurrent runs
 
@@ -655,7 +662,7 @@ When any step failed, the report ends with one line per failure,
 
 ## Temporary files
 
-One directory per run, `/var/tmp/gate-run-<pid>-<random>` (`GATE_TMPDIR`
+One directory per run, `/var/tmp/gr-<pid>-<random>` (`GATE_TMPDIR`
 moves the parent), and every gate runs with `TMPDIR` and `GOTMPDIR` pointing
 at it. Whatever a step leaves there — a `go-build` work tree, a test's fixture
 directory — goes with it when the run ends, however it ends: pass, fail,
@@ -669,7 +676,7 @@ sweeps first, and prints one line:
 gate: removed 2 dead run dir(s), 1 go-build dir(s), 3 log(s) older than 7 days
 ```
 
-`gate-run-*` goes once its pid is gone and it is over an hour old; a
+`gr-*` goes once its pid is gone and it is over an hour old; a
 `go-build*` left loose in that parent goes after a day; logs in gate's own
 directory go after **7 days**. `--quiet` silences the line, not the sweep.
 `--log` paths are never swept.

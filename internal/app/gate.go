@@ -200,7 +200,7 @@ type options struct {
 	// are the same statement; the flag wins when both are present.
 	failFast bool
 
-	// memory is the systemd MemoryMax each gate runs under. Empty or "0"
+	// memory is the systemd MemoryMax the whole run runs under. Empty or "0"
 	// means no wrap. The default is 24G; --mem and [limits] memory override.
 	memory string
 
@@ -391,8 +391,8 @@ type gateResult struct {
 	logCut bool
 	note   string
 
-	// oom is a SIGKILL the memory cap caused (exit 137 and the scope's
-	// Result is oom-kill). The verdict names the cap instead of a bare 137.
+	// oom is a SIGKILL the memory cap caused (exit 137 and the cgroup's
+	// oom_kill count rose during the run). The verdict names the cap instead of a bare 137.
 	oom    bool
 	memory string
 }
