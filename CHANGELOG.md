@@ -16,6 +16,7 @@ Notable changes to `gate`. The format follows
 
 ### Changed
 
+- A run where every gate passes prints one line (`gate: ok  N gates  <longest>  logs <dir>`) instead of a line per gate; a failing run still lists every gate. Per-gate logs come from `--ndjson` or `gate record --json`.
 - A passing gate's `ok` line and the slowest-gates list name a configured shell gate by its role (`build`, `test`) when its command runs past 60 characters, instead of repeating the whole shell string. Shorter commands keep their name.
 - Logs in gate's own directory are kept **7 days** rather than 14, and the sweep runs once per run instead of once per day.
 

@@ -70,9 +70,11 @@ $ gate bun test
 gate: ok  bun test  1.7s  /var/tmp/gate/bun-test-563617115.log
 ```
 
-With no command, `gate` reads the project and runs detected gates. A gate turbo,
-`go test`, or make served from cache is labelled `(cached)` or `(N/M cached)` on
-that line. `--force-cache` re-runs it for real.
+With no command, `gate` reads the project and runs detected gates. When every
+gate passes, that is one line too (`gate: ok  9 gates  4.2s  logs /var/tmp/gate`);
+`--ndjson` or `gate record --json` lists each gate and its log. A failing run
+names every gate. A gate turbo, `go test`, or make served from cache is labelled
+`(cached)` or `(N/M cached)` on its own line. `--force-cache` re-runs it for real.
 
 Browser e2e suites are skipped unless you pass `--e2e` or `gate run <name>`. A
 passing run over 10s prints one line naming the slowest gates.

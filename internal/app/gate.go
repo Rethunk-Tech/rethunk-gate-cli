@@ -892,6 +892,12 @@ func report(results []gateResult, opts options, stdout, stderr io.Writer) Code {
 	// They must not become the aggregate -- that verdict is the first
 	// non-allowed failure -- the way a user signal's Interrupted must.
 	ignoreInterrupt := opts.failFast && failFastTrigger(results)
+	// A green multi-gate run is one line: the per-gate list is as long as the
+	// logs it stands for, and `gate record` still has it.
+	collapse := !opts.quiet && len(results) > 1 && allPassed(results)
+	if collapse {
+		opts.quiet = true
+	}
 	for _, res := range results {
 		code := reportOutcome(res, opts, quote, stdout, stderr)
 		if res.outcome() == outcomeTimedOut && !sawTimeout {
@@ -931,7 +937,26 @@ func report(results []gateResult, opts options, stdout, stderr io.Writer) Code {
 		writeTimeoutRemedy(stderr, killed, killedAfter)
 	}
 	writeFailedSteps(stderr, results)
+	if collapse && aggregate == Success {
+		var longest time.Duration
+		for _, res := range results {
+			longest = max(longest, res.elapsed)
+		}
+		fmt.Fprintf(stdout, "gate: ok  %d gates  %s  logs %s\n",
+			len(results), longest.Round(time.Millisecond), filepath.Dir(results[0].logPath))
+	}
 	return aggregate
+}
+
+// allPassed reports whether every gate ran and exited 0 with a log, the only
+// run whose per-gate lines carry nothing a reader needs.
+func allPassed(results []gateResult) bool {
+	for _, res := range results {
+		if res.outcome() != outcomeRan || res.code != Success || res.fatalErr != nil || res.note != "" || res.logPath == "" {
+			return false
+		}
+	}
+	return true
 }
 
 // writeFailedSteps names each failure last, so tail of the report is enough

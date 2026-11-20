@@ -614,16 +614,16 @@ func TestEveryGateIsReportedAndTheFirstFailureWins(t *testing.T) {
 func TestReportFollowsDeclarationOrderNotFinishOrder(t *testing.T) {
 	t.Parallel()
 
-	root := gateProject(t, "sleep 0.05", "true")
-	stdout, stderr, code := runGateTest(t, "-C", root)
-	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("gate = %d, stderr = %q", code, stderr))
-	slow := strings.Index(stdout, "sleep 0.05")
-	fast := strings.Index(stdout, "true")
+	root := gateProject(t, "sleep 0.05; exit 3", "exit 4")
+	_, stderr, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Not(qt.Equals(code, Success)), qt.Commentf("stderr = %q", stderr))
+	slow := strings.Index(stderr, "exit 3  sleep")
+	fast := strings.Index(stderr, "exit 4  exit 4")
 	if slow < 0 || fast < 0 {
-		t.Fatalf("stdout did not report both gates: %q", stdout)
+		t.Fatalf("stderr did not report both gates: %q", stderr)
 	}
 	if slow > fast {
-		t.Errorf("report followed finish order, not declaration order: %q", stdout)
+		t.Errorf("report followed finish order, not declaration order: %q", stderr)
 	}
 }
 
@@ -680,13 +680,22 @@ func TestEachGateGetsItsOwnLog(t *testing.T) {
 	stdout, stderr, code := runGateTest(t, "-C", root, "--timeout", "0")
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("gate = %d, stderr = %q", code, stderr))
 
-	var logs []string
-	for line := range strings.SplitSeq(strings.TrimSpace(stdout), "\n") {
-		fields := strings.Fields(line)
-		logs = append(logs, fields[len(fields)-1])
+	qt.Check(t, qt.StringContains(stdout, "gate: ok  2 gates  "), qt.Commentf("stdout = %q", stdout))
+	// The per-gate log paths a green text run no longer lists come from --ndjson.
+	recOut, recErr, recCode := runGateTest(t, "-C", root, "--timeout", "0", "--ndjson")
+	qt.Assert(t, qt.Equals(recCode, Success), qt.Commentf("ndjson = %d, stderr = %q", recCode, recErr))
+	logByName := map[string]string{}
+	for line := range strings.SplitSeq(strings.TrimSpace(recOut), "\n") {
+		var g struct {
+			Name string `json:"name"`
+			Log  string `json:"log"`
+		}
+		qt.Assert(t, qt.IsNil(json.Unmarshal([]byte(line), &g)), qt.Commentf("line = %q", line))
+		logByName[g.Name] = g.Log
 	}
-	if len(logs) != 2 {
-		t.Fatalf("want two verdict lines, got %q", stdout)
+	logs := []string{logByName["g0"], logByName["g1"]}
+	if logs[0] == "" || logs[1] == "" {
+		t.Fatalf("want a log per gate, got %q", recOut)
 	}
 	if logs[0] == logs[1] {
 		t.Fatalf("both gates logged to %s", logs[0])
@@ -813,9 +822,7 @@ func TestRunSerialRunsEveryGateWhenAllPass(t *testing.T) {
 	stdout, stderr, code := runGateTest(t, "-C", root, "--serial")
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("gate = %d, stderr = %q", code, stderr))
 	qt.Check(t, qt.IsTrue(exists(marker)), qt.Commentf("--serial skipped the second gate"))
-	if strings.Count(stdout, "gate: ok") != 2 {
-		t.Errorf("want two pass lines, got %q", stdout)
-	}
+	qt.Check(t, qt.StringContains(stdout, "gate: ok  2 gates  "), qt.Commentf("want one line for both gates, got %q", stdout))
 }
 
 // Detection puts the resolved path in argv, which execution needs and the
@@ -832,7 +839,7 @@ func TestResolvedPathIsShortenedOnTheVerdictLineOnly(t *testing.T) {
 	logs := t.TempDir()
 	t.Setenv("TMPDIR", logs)
 
-	stdout, stderr, code := runGateTest(t, "-C", root)
+	stdout, stderr, code := runGateTest(t, "-C", root, "run", "lint")
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("gate = %d, stderr = %q", code, stderr))
 
 	// The verdict names the command, not the directory it was resolved from.
@@ -3752,10 +3759,10 @@ func TestOkLineNamesALongShellGateByRole(t *testing.T) {
 	t.Parallel()
 
 	long := "true " + strings.Repeat("x", 80)
-	root := gateProject(t, long, "true")
-	stdout, stderr, code := runGateTest(t, "-C", root)
+	stdout, stderr, code := runGateTest(t, "-C", gateProject(t, long))
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("gate = %d, stderr = %q", code, stderr))
 	qt.Check(t, qt.Not(qt.StringContains(stdout, long)), qt.Commentf("pass line repeats the long command: %q", stdout))
 	qt.Check(t, qt.StringContains(stdout, "gate: ok  g0  "), qt.Commentf("pass line does not name the role: %q", stdout))
+	stdout, _, _ = runGateTest(t, "-C", gateProject(t, "true"))
 	qt.Check(t, qt.StringContains(stdout, "gate: ok  true  "), qt.Commentf("a short command lost its name: %q", stdout))
 }
