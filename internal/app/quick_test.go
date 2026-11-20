@@ -151,6 +151,10 @@ func TestQuickWithNothingChangedPrintsAndSucceeds(t *testing.T) {
 	root := t.TempDir()
 	testutil.Write(t, root, "go.mod", "module x\n\ngo 1.22\n")
 	testutil.Write(t, root, "a.go", "package a\n")
+	// CI's test job has no golangci-lint, and without a lint gate quick has nothing to skip.
+	bin := t.TempDir()
+	testutil.WriteExecutable(t, bin, "golangci-lint")
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	committedRepo(t, root)
 	_, stderr, code := runGateTest(t, "-C", root, "quick")
 	qt.Check(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
