@@ -96,7 +96,8 @@ func memoryNote(size string) string {
 		return ""
 	}
 	if limit, capped := cgroupLimit(); capped {
-		if want, ok := parseSizeBytes(size); ok && limit > 0 && want != limit {
+		// Only a looser cap in force loses protection; a stricter one is noise.
+		if want, ok := parseSizeBytes(size); ok && limit > 0 && want < limit {
 			return "memory cap " + size + " not applied: already under a " + formatSize(limit) + " cap"
 		}
 		return ""
@@ -107,11 +108,13 @@ func memoryNote(size string) string {
 	return memoryUnusedNote(size, systemdAvailable())
 }
 
-// startedByUnit is true for a process systemd spawned. Re-exec'ing would move
-// it out of that unit, so `systemctl stop` and cgroup kills would no longer
-// reach it.
-func startedByUnit() bool {
-	return os.Getenv("INVOCATION_ID") != ""
+// startedByUnit is true for a process running directly in a systemd service's
+// cgroup. Re-exec'ing would move it out of that unit, so `systemctl stop` and
+// cgroup kills would no longer reach it. INVOCATION_ID is not the test: it is
+// inherited by terminals and sessions a service spawned into their own scopes.
+var startedByUnit = func() bool {
+	dir, ok := cgroupDir()
+	return ok && strings.HasSuffix(dir, ".service")
 }
 
 func announceMemoryCap(stderr io.Writer, opts options) {

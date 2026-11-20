@@ -119,7 +119,7 @@ func TestScopeRunDecision(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// A marker inherited from a process that left the scope is inert.
 			t.Setenv("GATE_MEMORY_SCOPE", "24G")
-			t.Setenv("INVOCATION_ID", "")
+			stubUnit(t, false)
 			applyMemoryWrap = tc.wrap
 			systemdAvailable = func() bool { return tc.systemd }
 			cgroupLimit = func() (uint64, bool) { return 0, tc.capped }
@@ -145,7 +145,7 @@ func TestScopeRunHappensBeforeTempDirs(t *testing.T) {
 	qt.Assert(t, qt.IsNil(os.WriteFile(filepath.Join(bin, "systemd-run"), []byte("#!/bin/sh\n"), 0o755))) //nolint:gosec // LookPath wants an executable stub
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	base := t.TempDir()
-	t.Setenv("INVOCATION_ID", "")
+	stubUnit(t, false)
 	t.Setenv("GATE_TMPDIR", base)
 	origWrap, origAvail, origCapped, origExec := applyMemoryWrap, systemdAvailable, cgroupLimit, execReplace
 	t.Cleanup(func() {
@@ -203,14 +203,14 @@ func TestMemoryNoteNamesWhyTheCapIsNotTheRequestedOne(t *testing.T) {
 	}{
 		{"same cap in force", "24G", 24 * g, true, "", true, ""},
 		{"smaller request under a larger cap", "8G", 30 * g, true, "", true, "memory cap 8G not applied: already under a 30G cap"},
-		{"larger request under a smaller cap", "24G", 8 * g, true, "", true, "memory cap 24G not applied: already under a 8G cap"},
+		{"larger request under a smaller cap", "24G", 8 * g, true, "", true, ""},
 		{"cap of unknown size", "8G", 0, true, "", true, ""},
 		{"started by a unit", "24G", 0, false, "abc", true, "memory cap 24G unused: started by a systemd unit, whose own limits apply"},
 		{"no user systemd", "24G", 0, false, "", false, "memory cap 24G unused: systemd-run --user is unavailable"},
 		{"disabled", "0", 8 * g, true, "", true, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv("INVOCATION_ID", tc.unit)
+			stubUnit(t, tc.unit != "")
 			systemdAvailable = func() bool { return tc.systemd }
 			cgroupLimit = func() (uint64, bool) { return tc.limit, tc.capped }
 			qt.Check(t, qt.Equals(memoryNote(tc.size), tc.want))
@@ -218,14 +218,35 @@ func TestMemoryNoteNamesWhyTheCapIsNotTheRequestedOne(t *testing.T) {
 	}
 }
 
+func stubUnit(t *testing.T, v bool) {
+	t.Helper()
+	orig := startedByUnit
+	t.Cleanup(func() { startedByUnit = orig })
+	startedByUnit = func() bool { return v }
+}
+
 func TestScopeRunSkipsAUnitsProcess(t *testing.T) {
-	origWrap, origAvail, origLimit := applyMemoryWrap, systemdAvailable, cgroupLimit
-	t.Cleanup(func() { applyMemoryWrap, systemdAvailable, cgroupLimit = origWrap, origAvail, origLimit })
-	applyMemoryWrap, systemdAvailable, cgroupLimit = true, func() bool { return true }, func() (uint64, bool) { return 0, false }
-	t.Setenv("INVOCATION_ID", "")
-	qt.Check(t, qt.IsTrue(shouldScopeRun("24G")))
+	origWrap, origAvail, origLimit, origUnit := applyMemoryWrap, systemdAvailable, cgroupLimit, startedByUnit
+	origProc, origFS := procSelfCgroup, cgroupFS
+	t.Cleanup(func() {
+		applyMemoryWrap, systemdAvailable, cgroupLimit, startedByUnit = origWrap, origAvail, origLimit, origUnit
+		procSelfCgroup, cgroupFS = origProc, origFS
+	})
+	applyMemoryWrap, systemdAvailable, cgroupLimit, startedByUnit = true, func() bool { return true }, func() (uint64, bool) { return 0, false }, origUnit
+	proc := filepath.Join(t.TempDir(), "cgroup")
+	procSelfCgroup, cgroupFS = proc, t.TempDir()
+	// A terminal a service spawned carries INVOCATION_ID but sits in its own scope.
 	t.Setenv("INVOCATION_ID", "0123abcd")
-	qt.Check(t, qt.IsFalse(shouldScopeRun("24G")))
+	for _, tc := range []struct {
+		path string
+		want bool
+	}{
+		{"/user.slice/user@1000.service/app.slice/app-ghostty-surface-transient-1.scope", true},
+		{"/user.slice/user@1000.service/app.slice/bosun-live.service", false},
+	} {
+		qt.Assert(t, qt.IsNil(os.WriteFile(proc, []byte("0::"+tc.path+"\n"), 0o600)))
+		qt.Check(t, qt.Equals(shouldScopeRun("24G"), tc.want), qt.Commentf("%s", tc.path))
+	}
 }
 
 func TestSizeRoundTrip(t *testing.T) {

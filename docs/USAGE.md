@@ -606,7 +606,7 @@ uppercase `K`, `M`, `G`, `T`, `P` or `E` (`24G`); systemd takes no `g` or
 `GiB`, so gate refuses them. Where `systemd-run --user` is missing (CI, macOS,
 containers) the run is not capped and prints one `gate: memory cap <SIZE>
 unused: systemd-run --user is unavailable` line; that is not a failure. A gate
-started by a systemd unit (`INVOCATION_ID` set) is not re-exec'd, so
+started directly in a systemd service's cgroup is not re-exec'd, so
 `systemctl stop` still reaches it, and says so. Under an existing memory cap on
 the process's cgroup or an ancestor, gate adds none, and prints a note when
 `<SIZE>` differs from the cap in force.
