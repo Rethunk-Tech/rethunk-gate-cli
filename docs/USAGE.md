@@ -403,20 +403,6 @@ gates = ["format", "lint", "typecheck"]
 
 A program named `quick` is `gate -- quick`.
 
-### `gate push`
-
-`gate push` is bare `gate` (same flags, `-C` included) followed by
-`rgit land --repos <the -C dir or cwd>` when every gate passes, so the repo's
-GitHub branch rules decide a direct push or a land/ branch with PR and merge.
-Arguments after `--` go to `rgit land`: `gate push -- --wait --install`. Its
-output streams through and gate exits with its code.
-
-It refuses, with one line and before running any gate, when the working tree
-is dirty (the gate must have tested what gets landed) or `rgit` is not on
-PATH. A red gate prints its normal report, exits with gate's code and lands
-nothing. `--list`, `--json` and `--failed` are refused, since none is a full
-run. A program named `push` is `gate -- push`.
-
 ## Configuration
 
 Needed only for a check detection cannot infer, or an order it cannot see.

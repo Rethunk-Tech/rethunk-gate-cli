@@ -6,8 +6,10 @@ Notable changes to `gate`. The format follows
 
 ## [Unreleased]
 
+### Removed
+- `gate push`: `rgit land` is the ship command and runs the gate itself.
+
 ### Added
-- `gate push [-- <rgit land args>]`: runs the full gate, then `rgit land --repos <dir>` (the repo's branch rules decide direct push or PR) only when every gate passes. Refuses (one line, no gate run) on a dirty tree or when `rgit` is not on PATH. A red gate exits with gate's code and lands nothing; otherwise the exit code is land's. See USAGE.md, `gate push`.
 - A named command that is the project's whole CI (`bun run ci`, `npm run check`, `make check`, ...) writes a full (not partial) result record; any other named command still writes none.
 
 - `gate quick`: format (write mode), lint and typecheck after an edit, scoped to files changed vs HEAD; `--all` for the whole project. `.gate.toml` `[quick] gates` names the set. See USAGE.md, `gate quick`.

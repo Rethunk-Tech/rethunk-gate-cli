@@ -48,7 +48,6 @@ const (
 const gateHelp = `usage: gate [-C <path>] [flags] [<command> [args...]]
        gate [-C <path>] [flags] run <name>...
        gate [-C <path>] [flags] quick [--all]
-       gate [-C <path>] [flags] push [-- <rgit land args>...]
        gate [-C <path>] [--json] doctor
        gate [-C <path>] [--json] fix [--dry-run]
        gate [-C <path>] [--json] record
@@ -67,7 +66,6 @@ Commands:
                 workflows, markdown, shell, canon, test, vuln, and any others .gate.toml declares
   quick         format, lint and typecheck, files changed vs HEAD
                 (--all for the whole project; skips test, build, knip, vuln, e2e)
-  push          run the full gate, then rgit land only when it is green
   doctor        report what is cheap to fix here (read-only)
   fix           apply doctor findings that name a closed mechanical remedy
   record        print the last result record, and whether it is still true
@@ -133,7 +131,7 @@ The first non-flag argument begins the command, and everything after it --
 including its own flags -- belongs to the command. 'gate test' runs the
 program, not the gate; 'gate run test' runs the gate. Use -- when the
 command's first token would otherwise look like a flag to gate, or when you
-mean a program named run, doctor, fix, record, push, or quick: 'gate -- run x' runs a program called
+mean a program named run, doctor, fix, record, or quick: 'gate -- run x' runs a program called
 run.
 
 Run 'gate doctor --help' for what doctor checks, 'gate fix --help' for apply,
@@ -527,10 +525,6 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	}
 	if code, ok := st.finalizeFlags(stderr); !ok {
 		return code
-	}
-	if !explicit && len(args) > 0 && args[0] == "push" {
-		gateArgs := append([]string{"-C", dir}, argv[:len(argv)-len(args)]...)
-		return st.runPush(ctx, version, dir, args[1:], gateArgs, stdout, stderr)
 	}
 	if !explicit && len(args) > 0 {
 		if code, handled := st.runVerb(ctx, dir, args, stdout, stderr); handled {

@@ -82,7 +82,6 @@ passing run over 10s prints one line naming the slowest gates.
 `gate --list` shows what it picked. `gate run test` runs that gate and any it `needs`.
 `gate quick` is format, lint and typecheck after an edit (files changed vs
 HEAD; `--all` for the whole project).
-`gate push` runs the full gate and lands with `rgit land` only when it is green.
 `gate --failed` re-runs only the gates that failed last time.
 `gate doctor` reports what is cheap to fix here; `gate fix` applies the
 mechanical ones. `gate record` prints the last result for this tree.
