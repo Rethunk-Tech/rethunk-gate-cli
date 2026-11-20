@@ -575,6 +575,11 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		return code
 	}
 
+	// The size is final here. Re-exec before the lock, the installs and the
+	// temp dir: exec skips defers, so anything made first would be redone by
+	// the child and the parent's temp dir leaked.
+	scopeRun(opts.memory)
+
 	release, code, done := st.lockAndSkip(ctx, dir, project, configured, len(command) == 0 && len(roles) == 0, stdout, stderr)
 	if done {
 		return code

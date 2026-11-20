@@ -474,7 +474,6 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 	if opts.tempDir != "" {
 		defer func() { _ = os.RemoveAll(opts.tempDir) }()
 	}
-	scopeRun(opts.memory)
 	announceMemoryCap(stderr, opts)
 	results := make([]gateResult, len(opts.gates))
 	if opts.stream {

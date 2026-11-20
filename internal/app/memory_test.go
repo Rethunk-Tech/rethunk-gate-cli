@@ -140,3 +140,28 @@ func TestScopeRunDecision(t *testing.T) {
 		})
 	}
 }
+
+// The re-exec happens before anything a second run would repeat or leak.
+func TestScopeRunHappensBeforeTempDirs(t *testing.T) {
+	bin := t.TempDir()
+	qt.Assert(t, qt.IsNil(os.WriteFile(filepath.Join(bin, "systemd-run"), []byte("#!/bin/sh\n"), 0o755))) //nolint:gosec // LookPath wants an executable stub
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	base := t.TempDir()
+	t.Setenv("GATE_TMPDIR", base)
+	origWrap, origAvail, origCapped, origExec := applyMemoryWrap, systemdAvailable, cgroupCapped, execReplace
+	t.Cleanup(func() {
+		applyMemoryWrap, systemdAvailable, cgroupCapped, execReplace = origWrap, origAvail, origCapped, origExec
+	})
+	applyMemoryWrap, systemdAvailable, cgroupCapped = true, func() bool { return true }, func() bool { return false }
+	var seen []os.DirEntry
+	execed := false
+	execReplace = func(string, []string, []string) error {
+		execed = true
+		seen, _ = os.ReadDir(base)
+		return nil
+	}
+	_, _, code := runGateTest(t, "-C", t.TempDir(), "--log", tempLog(t), "true")
+	qt.Assert(t, qt.Equals(code, Success))
+	qt.Assert(t, qt.IsTrue(execed))
+	qt.Check(t, qt.HasLen(seen, 0))
+}
