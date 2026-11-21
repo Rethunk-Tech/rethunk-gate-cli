@@ -13,14 +13,10 @@ import (
 func TestQuickSelectsFormatLintTypecheckInOrder(t *testing.T) {
 	t.Parallel()
 	gates := []gateSpec{
-		{role: "build", argv: []string{"go", "build", "./..."}, display: "go build ./..."},
 		{role: "lint", argv: []string{"biome", "check", "."}, display: "biome check ."},
 		{role: "typecheck", argv: []string{"tsc", "--noEmit"}, display: "tsc --noEmit"},
-		{role: "test", argv: []string{"go", "test", "./..."}, display: "go test ./..."},
-		{role: "knip", argv: []string{"knip"}, display: "knip"},
-		{role: "vuln", argv: []string{"govulncheck", "./..."}, display: "govulncheck ./..."},
 	}
-	got := selectQuick(gates, defaultQuickGates)
+	got := ensureQuickFormat(gates)
 	qt.Assert(t, qt.HasLen(got, 3))
 	qt.Check(t, qt.Equals(got[0].role, "format"))
 	qt.Check(t, qt.DeepEquals(got[0].argv, []string{"biome", "check", "--write", "."}))
@@ -36,14 +32,14 @@ func TestQuickKeepsADetectedFormatGateInWriteMode(t *testing.T) {
 		{role: "format", argv: []string{"dotnet", "format", "App.sln", "--verify-no-changes"}},
 		{role: "lint", argv: []string{"biome", "check", "."}},
 	}
-	got := selectQuick(gates, defaultQuickGates)
+	got := ensureQuickFormat(gates)
 	qt.Assert(t, qt.Equals(got[0].role, "format"))
 	qt.Check(t, qt.DeepEquals(got[0].argv, []string{"dotnet", "format", "App.sln"}))
 }
 
 func TestQuickRolesFromConfig(t *testing.T) {
 	t.Parallel()
-	qt.Check(t, qt.DeepEquals(quickRoles(config.Config{}), defaultQuickGates))
+	qt.Check(t, qt.DeepEquals(quickRoles(config.Config{}), []string{"format", "fmt", "lint", "typecheck"}))
 	qt.Check(t, qt.DeepEquals(quickRoles(config.Config{HasQuick: true, Quick: []string{"lint"}}), []string{"lint"}))
 	qt.Check(t, qt.DeepEquals(quickRoles(config.Config{HasQuick: true}), nil))
 }
@@ -177,4 +173,31 @@ func TestQuickWithNothingChangedPrintsAndSucceeds(t *testing.T) {
 	_, stderr, code := runGateTest(t, "-C", root, "quick")
 	qt.Check(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
 	qt.Check(t, qt.StringContains(stderr, "nothing changed"))
+}
+
+func TestQuickResolvesScriptAndShellGatesAndFmt(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	testutil.Write(t, dir, "package.json", `{"scripts":{"lint":"biome check --error-on-warnings .","multi":"biome check . && tsc"}}`)
+	gates := []gateSpec{
+		{role: "fmt", argv: shellArgv("golangci-lint fmt --diff ./..."), display: "golangci-lint fmt --diff ./..."},
+		{role: "lint", argv: []string{"bun", "run", "lint"}, dir: dir, display: "bun run lint"},
+		{role: "typecheck", argv: []string{"bun", "run", "multi"}, dir: dir, display: "bun run multi"},
+	}
+	got := applyQuick(t.Context(), gates, config.Config{}, "", true)
+	qt.Assert(t, qt.HasLen(got, 3))
+	qt.Check(t, qt.Equals(got[0].role, "format"))
+	qt.Check(t, qt.DeepEquals(got[0].argv, []string{"golangci-lint", "fmt", "./..."}))
+	qt.Check(t, qt.DeepEquals(got[1].argv, []string{"bun", "run", "biome", "check", "--error-on-warnings", "."}))
+	qt.Check(t, qt.DeepEquals(got[2].argv, []string{"bun", "run", "multi"}), qt.Commentf("a chain is not one command"))
+
+	scoped := scopeQuick(got[:2], []string{"a.go", "b.ts"}, false)
+	qt.Assert(t, qt.HasLen(scoped, 2))
+	qt.Check(t, qt.DeepEquals(scoped[0].argv, []string{"golangci-lint", "fmt", "a.go"}))
+	qt.Check(t, qt.DeepEquals(scoped[1].argv, []string{"bun", "run", "biome", "check", "--error-on-warnings", "b.ts"}))
+
+	cargo := []gateSpec{{role: "format", argv: []string{"cargo", "fmt", "--check"}}}
+	qt.Check(t, qt.DeepEquals(ensureQuickFormat(cargo)[0].argv, []string{"cargo", "fmt"}))
+	qt.Check(t, qt.HasLen(scopeQuick(ensureQuickFormat(cargo), []string{"a.go"}, false), 0))
+	qt.Check(t, qt.HasLen(scopeQuick(ensureQuickFormat(cargo), []string{"a.rs"}, false), 1))
 }

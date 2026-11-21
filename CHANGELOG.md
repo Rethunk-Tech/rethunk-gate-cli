@@ -29,6 +29,7 @@ Notable changes to `gate`. The format follows
 - A passing partial run (`gate quick`, `gate run <name>`) no longer replaces a fresh full-pass record for the same tree, so the next bare `gate` is not forced to rerun everything.
 - `gate doctor -C <path>`, `gate record -C x`, `gate list` and `gate quick --list` exit 129 and say where the flag goes, instead of running a program named `doctor` and exiting 127.
 - A `check`, `ci`, `verify` or `validate` package script that runs commands of its own (`astro check`) is a gate. Only a script that just calls other scripts is declined as an aggregate, and the parts of a mixed chain that are not script calls run as a gate.
+- `gate quick` reads a package script or `run = "..."` string that is one plain `biome`, `ruff`, `gofmt`, `golangci-lint` or `cargo fmt` command, so path scoping and write mode apply to it; before, only a gate whose argv named the tool was scoped. A gate named `fmt` counts as format (37 fleet repos use that name), and `golangci-lint fmt --diff` and `cargo fmt --check` get write modes.
 
 ## [0.8.0] - 2026-11-13
 

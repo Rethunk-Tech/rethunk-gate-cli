@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"encoding/json"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
@@ -24,33 +26,17 @@ a different set. Same one-line verdict and log as a normal run.
 Full reference: docs/USAGE.md
 `
 
+// quickRoles is the roles a quick run selects. A format role also selects a
+// gate named fmt, the fleet's more common spelling.
 func quickRoles(cfg config.Config) []string {
+	roles := slices.Clone(defaultQuickGates)
 	if cfg.HasQuick {
-		return slices.Clone(cfg.Quick)
+		roles = slices.Clone(cfg.Quick)
 	}
-	return slices.Clone(defaultQuickGates)
-}
-
-func selectQuick(gates []gateSpec, roles []string) []gateSpec {
-	rank := make(map[string]int, len(roles))
-	want := make(map[string]bool, len(roles))
-	for i, name := range roles {
-		rank[name] = i
-		want[name] = true
+	if i := slices.Index(roles, "format"); i >= 0 && !slices.Contains(roles, "fmt") {
+		roles = slices.Insert(roles, i+1, "fmt")
 	}
-	var out []gateSpec
-	for _, g := range gates {
-		if want[g.role] {
-			out = append(out, g)
-		}
-	}
-	slices.SortStableFunc(out, func(a, b gateSpec) int {
-		return rank[a.role] - rank[b.role]
-	})
-	if slices.Contains(roles, "format") {
-		return ensureQuickFormat(out)
-	}
-	return out
+	return roles
 }
 
 func ensureQuickFormat(gates []gateSpec) []gateSpec {
@@ -105,6 +91,10 @@ func writeModeArgv(argv []string) []string {
 		if !slices.Contains(out, "-w") {
 			out = slices.Insert(out, 1, "-w")
 		}
+	case argvHas(out, "golangci-lint") && slices.Contains(out, "fmt"):
+		out = slices.DeleteFunc(out, func(s string) bool { return s == "--diff" })
+	case argvHas(out, "cargo") && slices.Contains(out, "fmt"):
+		out = slices.DeleteFunc(out, func(s string) bool { return s == "--check" })
 	}
 	return out
 }
@@ -145,12 +135,21 @@ func scopeGate(g gateSpec, files []string) (gateSpec, bool) {
 		}
 		g.argv = replacePathArgs(g.argv, matched)
 	case "golangci":
-		if len(filterExt(files, []string{".go"})) == 0 {
+		matched := filterExt(files, []string{".go"})
+		if len(matched) == 0 {
 			return g, true
 		}
-		if !slices.Contains(g.argv, "--new-from-rev=HEAD") {
+		if slices.Contains(g.argv, "fmt") {
+			g.argv = replacePathArgs(g.argv, matched)
+		} else if !slices.Contains(g.argv, "--new-from-rev=HEAD") {
 			g.argv = insertAfter(g.argv, []string{"run"}, "--new-from-rev=HEAD")
 		}
+	case "cargofmt":
+		// cargo fmt takes no paths; only whether any Rust changed.
+		if len(filterExt(files, []string{".rs"})) == 0 {
+			return g, true
+		}
+		return g, false
 	default:
 		// tsc, go vet, and anything else the tool cannot take paths for
 		// stay whole-project.
@@ -175,6 +174,8 @@ func quickTool(argv []string) string {
 		return "gofmt"
 	case argvHas(argv, "golangci-lint"):
 		return "golangci"
+	case argvHas(argv, "cargo") && slices.Contains(argv, "fmt"):
+		return "cargofmt"
 	case argvHas(argv, "tsc"):
 		return "tsc"
 	case argvHas(argv, "vet"):
@@ -269,8 +270,77 @@ func changedFiles(ctx context.Context, root string) []string {
 }
 
 func applyQuick(ctx context.Context, gates []gateSpec, cfg config.Config, root string, all bool) []gateSpec {
+	gates = slices.Clone(gates)
+	hasFormat := slices.ContainsFunc(gates, func(g gateSpec) bool { return g.role == "format" })
+	for i := range gates {
+		if gates[i].role == "fmt" && !hasFormat {
+			gates[i].role = "format"
+		}
+		gates[i] = resolveQuickTool(gates[i])
+	}
 	if slices.Contains(quickRoles(cfg), "format") {
 		gates = ensureQuickFormat(gates)
 	}
 	return scopeQuick(gates, changedFiles(ctx, root), all)
+}
+
+// resolveQuickTool replaces a gate that runs a scopable tool through a
+// package script or an `sh -c` string with the tool's own argv, so scoping and
+// write mode see it. Anything it cannot read as one plain command is left as
+// it is.
+func resolveQuickTool(g gateSpec) gateSpec {
+	tokens, viaScript := quickTokens(g)
+	switch quickTool(tokens) {
+	case "biome", "ruff", "gofmt", "golangci", "cargofmt":
+	default:
+		return g
+	}
+	// A package script runs with node_modules/.bin on PATH; its runner keeps that.
+	if viaScript && tokens[0] == "biome" {
+		tokens = append(slices.Clone(scriptExec[g.argv[0]]), tokens...)
+	}
+	g.argv = tokens
+	g.display = strings.Join(tokens, " ")
+	return g
+}
+
+var scriptExec = map[string][]string{
+	"bun": {"bun", "run"}, "npm": {"npm", "exec", "--"}, "pnpm": {"pnpm", "exec"}, "yarn": {"yarn"},
+}
+
+// quickTokens is the command a gate's `sh -c` string or package script body
+// spells, when that is one plain command.
+func quickTokens(g gateSpec) (tokens []string, viaScript bool) {
+	if len(g.argv) == 3 && g.argv[0] == "sh" && g.argv[1] == "-c" {
+		return plainCommand(g.argv[2]), false
+	}
+	var script string
+	switch {
+	case len(g.argv) == 3 && g.argv[1] == "run" && slices.Contains([]string{"bun", "npm", "pnpm"}, g.argv[0]):
+		script = g.argv[2]
+	case len(g.argv) == 2 && g.argv[0] == "yarn":
+		script = g.argv[1]
+	default:
+		return nil, false
+	}
+	data, err := os.ReadFile(filepath.Clean(filepath.Join(g.dir, "package.json")))
+	if err != nil {
+		return nil, false
+	}
+	var pkg struct {
+		Scripts map[string]string `json:"scripts"`
+	}
+	if json.Unmarshal(data, &pkg) != nil {
+		return nil, false
+	}
+	return plainCommand(pkg.Scripts[script]), true
+}
+
+// plainCommand splits a command with no shell syntax, or returns nil.
+func plainCommand(s string) []string {
+	f := strings.Fields(s)
+	if len(f) == 0 || strings.ContainsAny(s, "&|;<>$`\\\"'(){}*?[]!#") || strings.Contains(f[0], "=") {
+		return nil
+	}
+	return f
 }
