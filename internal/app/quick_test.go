@@ -229,3 +229,13 @@ func TestFormatConventionsGetQuickWriteModesAndYieldToFmt(t *testing.T) {
 	qt.Check(t, qt.Not(qt.StringContains(stdout, "ruff format")), qt.Commentf("%s", stdout))
 	qt.Check(t, qt.StringContains(stdout, "echo fmt"))
 }
+
+// git quotes a non-ASCII name unless told to separate paths with NUL.
+func TestChangedFilesKeepsNonASCIINames(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, "a.go", "package a\n")
+	committedRepo(t, root)
+	testutil.Write(t, root, "café.go", "package a\n")
+	qt.Check(t, qt.DeepEquals(changedFiles(t.Context(), root), []string{"café.go"}))
+}

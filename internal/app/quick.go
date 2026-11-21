@@ -262,16 +262,16 @@ func changedFiles(ctx context.Context, root string) []string {
 			return nil
 		}
 		var files []string
-		for line := range strings.SplitSeq(strings.TrimSpace(string(out)), "\n") {
-			if line != "" {
-				files = append(files, filepath.ToSlash(line))
+		for name := range strings.SplitSeq(string(out), "\x00") {
+			if name != "" {
+				files = append(files, filepath.ToSlash(name))
 			}
 		}
 		return files
 	}
 	seen := map[string]bool{}
 	var files []string
-	for _, f := range append(git("diff", "--name-only", "--diff-filter=d", "--relative", "HEAD"), git("ls-files", "--others", "--exclude-standard")...) {
+	for _, f := range append(git("diff", "-z", "--name-only", "--diff-filter=d", "--relative", "HEAD"), git("ls-files", "-z", "--others", "--exclude-standard")...) {
 		if seen[f] {
 			continue
 		}
