@@ -6,6 +6,8 @@ Notable changes to `gate`. The format follows
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-11-21
+
 ### Added
 - The `fuzz` gate has a local wall budget: `GATE_FUZZ_BUDGET` or `fuzz-budget = "8s"` in `.gate.toml` (default 8s, `0` fuzzes every target). Each run fuzzes the targets that fit, least recently fuzzed first, and the line says so, as in `fuzz (6/27 targets, rotating)`. A subset is still a plain pass. Last-fuzzed times and costs sit beside the result record in the state directory. CI fuzzes every target.
 
