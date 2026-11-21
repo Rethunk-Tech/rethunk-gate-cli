@@ -61,7 +61,11 @@ func dedupe(gates []gateSpec) ([]gateSpec, []string) {
 			notes = append(notes, note)
 		}
 		if keep {
-			out = append(out, g)
+			plain, e2e, ok := splitE2E(g)
+			out = append(out, plain)
+			if ok {
+				out = append(out, e2e)
+			}
 		}
 	}
 	return out, notes
@@ -216,6 +220,33 @@ func (p *dedupePlan) resolve(i int) (g gateSpec, keep bool, note string) {
 	g.argv = shellArgv(g.display)
 	g.source += ", split"
 	return g, true, "split " + g.role + " to `" + g.display + "`: " + already(covered) + " the rest"
+}
+
+// splitE2E separates a split aggregate's browser steps from the rest, so the
+// rest stays in a default run. Only a gate classified e2e by what it runs is
+// split: one a config entry marked e2e is skipped whole, as asked.
+func splitE2E(g gateSpec) (plain, e2e gateSpec, ok bool) {
+	if !g.e2e || !strings.HasSuffix(g.source, ", split") {
+		return g, g, false
+	}
+	var rest, browser []string
+	for _, s := range detect.Work(g.dir, g.display) {
+		if detect.IsE2E(g.dir, "", shellArgv(s.Text)) {
+			browser = append(browser, s.Text)
+		} else {
+			rest = append(rest, s.Text)
+		}
+	}
+	if len(rest) == 0 || len(browser) == 0 {
+		return g, g, false
+	}
+	plain, e2e = g, g
+	plain.display, plain.e2e = strings.Join(rest, " && "), false
+	plain.argv = shellArgv(plain.display)
+	e2e.role += ":e2e"
+	e2e.display = strings.Join(browser, " && ")
+	e2e.argv = shellArgv(e2e.display)
+	return plain, e2e, true
 }
 
 // scriptClaims is, per gate that runs one script file, the steps of other

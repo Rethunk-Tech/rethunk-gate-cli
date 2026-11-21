@@ -319,3 +319,30 @@ func TestDedupeGivesASharedStepToTheGateThatCounts(t *testing.T) {
 		}
 	}
 }
+
+// An aggregate that runs the unit suite, a second unit suite and a browser
+// suite is split to the part no gate covers; the second unit suite stays in
+// the default run and only the browser step is skipped.
+func TestDedupeSplitKeepsNonE2EPartsInTheDefaultRun(t *testing.T) {
+	t.Parallel()
+	root := dedupeProject(t,
+		`"test":"vitest run","test:js":"vitest run --config vitest.js.config.ts","test:playwright":"playwright test","test:all":"bun run test && bun run test:js && bun run test:playwright"`, `
+[gates.test]
+run = "bun run test"
+
+[gates.all]
+run = "bun run test:all"
+`)
+	out := listDedupe(t, root)
+	qt.Check(t, qt.StringContains(out, "all:e2e"))
+	var plain string
+	for block := range strings.SplitSeq(out, "\n  ") {
+		if strings.HasPrefix(strings.TrimSpace(block), "all ") {
+			plain = block
+		}
+	}
+	qt.Assert(t, qt.Not(qt.Equals(plain, "")), qt.Commentf("no all gate in %s", out))
+	qt.Check(t, qt.StringContains(plain, "vitest.js.config.ts"))
+	qt.Check(t, qt.Not(qt.StringContains(plain, "playwright")))
+	qt.Check(t, qt.Not(qt.StringContains(plain, "e2e, skipped")))
+}
