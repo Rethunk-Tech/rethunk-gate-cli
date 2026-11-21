@@ -5,6 +5,7 @@ package app
 import (
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -58,3 +59,6 @@ func TestLogDirPrefersTheRealBaseOverAPinnedTmpdir(t *testing.T) {
 		t.Fatalf("logDir under an own TMPDIR = %q, want /own/gate", got)
 	}
 }
+
+// processGone reports whether no process has this pid.
+func processGone(pid int) bool { return syscall.Kill(pid, 0) != nil }

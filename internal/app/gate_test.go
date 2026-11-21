@@ -12,7 +12,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -1250,7 +1249,7 @@ func TestAnInterruptedGateIsStoppedNotFailedAndKeepsItsLog(t *testing.T) {
 	// to finish tearing the process down.
 	gone := false
 	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
-		if syscall.Kill(pid, 0) != nil {
+		if processGone(pid) {
 			gone = true
 			break
 		}
