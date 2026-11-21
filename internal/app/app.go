@@ -437,6 +437,14 @@ func (st *runState) runVerb(ctx context.Context, dir string, args []string, stdo
 	case word == "quick" && len(args) == 2 && (args[1] == "-h" || args[1] == "--help"):
 		fmt.Fprint(stdout, quickHelp)
 		return Success, true
+	case (word == "doctor" || word == "record") && len(args) > 1:
+		fmt.Fprintf(stderr, "gate: flags go before the verb: gate -C <path> %s\n", word)
+		fmt.Fprintf(stderr, "gate: a program named %s is `gate -- %s`\n", word, word)
+		return InvalidUsage, true
+	case word == "list" && len(args) == 1:
+		fmt.Fprintln(stderr, "gate: list is a flag: gate --list")
+		fmt.Fprintln(stderr, "gate: a program named list is `gate -- list`")
+		return InvalidUsage, true
 	}
 	return Success, false
 }
@@ -454,6 +462,9 @@ func (st *runState) splitRun(args []string, explicit bool, stderr io.Writer) (co
 			case "--all":
 				st.opts.quickAll = true
 			default:
+				if strings.HasPrefix(a, "-") {
+					fmt.Fprintf(stderr, "gate: flags go before the verb: gate %s quick\n", a)
+				}
 				fmt.Fprintln(stderr, "gate: quick takes no arguments besides --all; `gate run` names gates")
 				fmt.Fprintln(stderr, "gate: a program named quick is `gate -- quick`")
 				return nil, nil, InvalidUsage, false

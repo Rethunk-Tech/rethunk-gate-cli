@@ -118,6 +118,24 @@ func TestQuickHelpAndUnknownArg(t *testing.T) {
 	qt.Check(t, qt.StringContains(stderr, "quick"))
 }
 
+func TestVerbWithTrailingFlagsPointsAtTheFlagOrder(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"doctor", "-C", "x"}, "gate -C <path> doctor"},
+		{[]string{"doctor", "--tail", "3"}, "gate -C <path> doctor"},
+		{[]string{"record", "-C", "x"}, "gate -C <path> record"},
+		{[]string{"list"}, "gate --list"},
+		{[]string{"quick", "--list"}, "gate --list quick"},
+	} {
+		_, stderr, code := runGateTest(t, tc.args...)
+		qt.Check(t, qt.Equals(code, InvalidUsage), qt.Commentf("%v", tc.args))
+		qt.Check(t, qt.StringContains(stderr, tc.want), qt.Commentf("%v: %q", tc.args, stderr))
+	}
+}
+
 func TestChangedFilesSkipsDeletedAndIsRelativeToTheProject(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
