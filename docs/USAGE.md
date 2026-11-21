@@ -223,17 +223,20 @@ not parsed; the env vars reach a nested tool.
 3. **package.json** scripts
 4. **Conventions** for remaining roles: `go build` / `go test` /
    `golangci-lint run --allow-parallel-runners` / `govulncheck`; `cargo build`
-   / `test` / `clippy` / `audit`; `dotnet build <sln-or-proj> -c Release`,
+   / `test` / `clippy` / `audit`, plus `cargo fmt --check` as `format`; `dotnet build <sln-or-proj> -c Release`,
    `dotnet format <sln-or-proj> --verify-no-changes`, and, with a test
    project, `dotnet test … -c Release --no-build` (`--solution` or
    `--project` when `global.json` selects Microsoft.Testing.Platform) where a
    `*.sln`/`*.slnx` is at the root or exactly one `*.csproj`/`*.fsproj` is at
    the root or one directory down (absent `dotnet` is a note); `uv run pytest`
-   / `ruff` / `pyrefly` plus `uv audit` where `uv.lock` exists (pytest only if
+   / `ruff` (with `ruff format --check` as `format` where ruff is declared) / `pyrefly` plus `uv audit` where `uv.lock` exists (pytest only if
    a manifest names it or `tests/`, `test/`, `conftest.py`, or `pytest.ini`
    exists); `biome` / `tsc --noEmit` where `tsconfig.json` exists
    (`tsc -b --noEmit` when it names project references — without `-b` a
-   solution-style file exits 0 having checked nothing); `actionlint`;
+   solution-style file exits 0 having checked nothing); `actionlint`, then every `uses:` against the repo's allowed-actions settings and
+   verified-creator rule (the `workflows` gate; needs `gh` auth, and warns and
+   skips when offline); a bun workspace's `vuln` gate (`audit-bun`, else
+   `bun audit`);
    `markdownlint-cli2` where a `.markdownlint-cli2.*` config exists and no
    package script already runs it (bare when the config sets `globs`, else over
    `**/*.md`); `shellcheck` over the project's `.sh` files; `canon verify .`
@@ -401,7 +404,9 @@ Detection is the project's usual set. `.gate.toml` may name a different list:
 gates = ["format", "lint", "typecheck"]
 ```
 
-A program named `quick` is `gate -- quick`.
+A program named like one of gate's own words (`doctor`, `run`, `fix`, `record`,
+`quick`, `completion`, `man`, and the hidden `actions-allowed`) is run as
+`gate -- <word>`, for example `gate -- quick`.
 
 ## Configuration
 
