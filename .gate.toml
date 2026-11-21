@@ -1,0 +1,2 @@
+[gates.windows]
+run = "GOOS=windows go build ./... && GOOS=windows go vet ./..."
