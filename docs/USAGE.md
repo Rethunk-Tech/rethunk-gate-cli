@@ -435,7 +435,7 @@ MDBOOK_VERSION = "0.4"
 ```
 
 Gate keys: `run`, `serial`, `needs`, `timeout`, `dir`, `env`, `allow-failure`, `e2e`, `isolate`.
-Outside: `budget`, `jobs`, `fail-fast`, `trusted-orgs` ([`--trust`](#--trust)), `[detect] exclude`, `[lock] scope` ([`Concurrent runs`](#concurrent-runs)), `[limits] memory` ([Memory cap](#memory-cap)), `[quick] gates` ([`gate quick`](#gate-quick)). `run` is a shell string (`sh` / `cmd`).
+Outside: `budget`, `jobs`, `fail-fast`, `trusted-orgs` ([`--trust`](#--trust)), `[detect] exclude`, `[lock] scope` ([`Concurrent runs`](#concurrent-runs)), `[limits] memory` ([Memory cap](#memory-cap)), `[quick] gates` ([`gate quick`](#gate-quick)). `run` is a shell string (`sh` / `cmd`). It runs under `sh -c` without `-e`, so in a multi-line `run` only the last command's status counts: guard earlier lines with `|| exit 1`, or start the string with `set -e`.
 `timeout` is the same grammar as `--timeout` (`5m`, `90s`, `1m30s`, `0`).
 `jobs` is an integer >= 1 (no cap when absent, unless the 1-minute loadavg
 exceeds nproc, then nproc/2). `fail-fast` is a bool
