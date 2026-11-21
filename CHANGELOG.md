@@ -6,6 +6,8 @@ Notable changes to `gate`. The format follows
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-21
+
 ### Removed
 - `gate push`: `rgit land` is the ship command and runs the gate itself.
 
