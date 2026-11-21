@@ -493,8 +493,31 @@ func nodeConventionGates(root string, proj *Project) (gates []Gate, skipped []Sk
 			gates = append(gates, Gate{Name: "test", Argv: []string{"bun", "test"}, Source: "convention: node (bun test)"})
 		}
 	}
+	gates = append(gates, bunAuditGate(root, proj)...)
 	return gates, skipped
 }
+
+// bunAuditGate audits a bun workspace from its lockfile. audit-bun fails only
+// on advisories whose fix has shipped and honours .bun-audit-ignore; plain
+// `bun audit` fails on every advisory, including ones with no patched release,
+// so it is the fallback where audit-bun is not checked out.
+func bunAuditGate(root string, proj *Project) []Gate {
+	if !IsBunWorkspace(root) {
+		return nil
+	}
+	bin := resolve(root, proj, "bun")
+	switch {
+	case bin == "":
+		return nil
+	case exists(auditBunScript):
+		return []Gate{{Name: "vuln", Argv: []string{bin, auditBunScript}, Source: "convention: bun (audit-bun)"}}
+	}
+	return []Gate{{Name: "vuln", Argv: []string{bin, "audit"}, Source: "convention: bun (bun audit)"}}
+}
+
+// auditBunScript is the fleet's audit-bun, checked out beside the other
+// Rethunk repositories. Tests point it elsewhere.
+var auditBunScript = "/usr/local/src/com.github/Rethunk-Tech/gh-actions/audit-bun/audit.ts"
 
 func workflowConventionGates(root string, proj *Project) (gates []Gate, skipped []Skip) {
 	// actionlint runs on a different toolchain from everything above, so it
@@ -1096,6 +1119,10 @@ func ciPackageGate(ctx context.Context, proj *Project, rel string) {
 	}
 	var parts []Gate
 	for _, g := range sub.Gates {
+		// The root's audit covers the workspace; a package's own is not CI's run.
+		if g.Name == "vuln" && strings.HasPrefix(g.Source, "convention: bun") {
+			continue
+		}
 		if slices.Contains(declaredNames, g.Name) && (entered == "" || !strings.Contains(entered, toolKey(g.Argv))) {
 			parts = append(parts, g)
 		}

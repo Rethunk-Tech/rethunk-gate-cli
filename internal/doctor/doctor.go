@@ -345,6 +345,10 @@ func hasBunAudit(proj detect.Project, cfg config.Config) bool {
 
 // checkBunAudit needs a bun lockfile, not a package.json: packageRunner
 // defaults to bun without one, and that is not this gap.
+// auditBunPath is the fleet's audit-bun script; fix writes the same command
+// detection's bun convention runs.
+const auditBunPath = "/usr/local/src/com.github/Rethunk-Tech/gh-actions/audit-bun/audit.ts"
+
 func checkBunAudit(root string, proj detect.Project, cfg config.Config, add func(Finding)) {
 	if !detect.IsBunWorkspace(root) {
 		return
@@ -361,8 +365,8 @@ func checkBunAudit(root string, proj detect.Project, cfg config.Config, add func
 		Check: "bun-no-audit",
 		Where: filepath.Join(root, lock),
 		What:  "no audit-bun gate runs for this bun workspace",
-		Why:   "the shared setup-bun action ships run-audit opt-in and OFF, and detection has no bun audit convention",
-		Fix:   "add a vuln gate that runs audit-bun",
+		Why:   "the shared setup-bun action ships run-audit opt-in and OFF, and detection found no bun to run the audit convention with",
+		Fix:   `add [gates.vuln] run = "bun ` + auditBunPath + `" to .gate.toml`,
 	})
 }
 

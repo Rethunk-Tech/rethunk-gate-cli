@@ -40,7 +40,6 @@ var skipReasons = map[string]string{
 	"go-no-govulncheck":  "go install is machine-wide, not a repo edit",
 	"python-no-audit":    "the remedy is not a one-line repo edit",
 	"rust-no-clippy":     "the remedy is not a one-line repo edit",
-	"bun-no-audit":       "the remedy is not a one-line repo edit",
 	"no-ci":              "adding a workflow needs a template choice",
 	"ci-no-final-gate":   "an aggregating job is a design, not a splice",
 	"superseded-tooling": "Fix and Path do not uniquely name a file move",
@@ -75,6 +74,8 @@ func Apply(f doctor.Finding, dryRun bool) (Result, error) {
 	switch f.Check {
 	case "next-build-typecheck-race":
 		return applySerialTOML(f, dryRun)
+	case "bun-no-audit":
+		return applyBunAudit(f, dryRun)
 	case "ci-govulncheck-off":
 		return applyWorkflow(f, dryRun, enableWorkflowInput("gh-actions/setup-go", "run-govulncheck"))
 	case "ci-python-audit-off":
@@ -664,4 +665,38 @@ func dependabotToBun(root string) func(string) (string, string) {
 		}
 		return strings.Join(lines, "\n"), ""
 	}
+}
+
+// --- bun-no-audit ---
+
+const bunAuditGate = "\n[gates.vuln]\nrun = \"bun /usr/local/src/com.github/Rethunk-Tech/gh-actions/audit-bun/audit.ts\"\n"
+
+func applyBunAudit(f doctor.Finding, dryRun bool) (Result, error) {
+	path := filepath.Join(filepath.Dir(f.Path), config.ProjectFile)
+	var body string
+	data, err := os.ReadFile(filepath.Clean(path))
+	switch {
+	case err == nil:
+		body = string(data)
+		if _, ok := decodeGateTOML(body); !ok {
+			return skip(f, "existing .gate.toml is not a mechanical edit"), nil
+		}
+		if strings.Contains(body, "[gates.vuln]") {
+			return skip(f, "already in the named post-state"), nil
+		}
+	case errors.Is(err, os.ErrNotExist):
+	default:
+		return Result{}, fmt.Errorf("%s: %w", f.Check, err)
+	}
+	if dryRun {
+		return done(f, true), nil
+	}
+	next := body + bunAuditGate
+	if body == "" {
+		next = strings.TrimPrefix(bunAuditGate, "\n")
+	}
+	if err := writeFile(path, next); err != nil {
+		return Result{}, fmt.Errorf("%s: %w", f.Check, err)
+	}
+	return done(f, false), nil
 }

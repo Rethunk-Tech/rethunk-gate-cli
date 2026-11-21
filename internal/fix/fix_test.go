@@ -128,6 +128,18 @@ func TestApplyClearsTheNamedDoctorCheck(t *testing.T) {
 				qt.Check(t, qt.StringContains(string(body), "actions/checkout@v4"))
 			},
 		},
+		{
+			check: "bun-no-audit",
+			plant: func(t *testing.T, dir string) {
+				testutil.Write(t, dir, "bun.lock", "")
+			},
+			after: func(t *testing.T, dir string) {
+				body, err := os.ReadFile(filepath.Clean(filepath.Join(dir, ".gate.toml")))
+				qt.Assert(t, qt.IsNil(err))
+				qt.Check(t, qt.StringContains(string(body), "[gates.vuln]\nrun = \"bun "))
+				qt.Check(t, qt.StringContains(string(body), "audit-bun/audit.ts"))
+			},
+		},
 	} {
 		t.Run(tc.check, func(t *testing.T) {
 			dir := t.TempDir()
@@ -187,7 +199,6 @@ func TestUnappliableSkips(t *testing.T) {
 		{"go-no-govulncheck", "go install is machine-wide, not a repo edit"},
 		{"python-no-audit", "the remedy is not a one-line repo edit"},
 		{"rust-no-clippy", "the remedy is not a one-line repo edit"},
-		{"bun-no-audit", "the remedy is not a one-line repo edit"},
 		{"no-ci", "adding a workflow needs a template choice"},
 		{"missing-gate-test", "adding a script is ambiguous"},
 		{"missing-gate-typecheck", "adding a script is ambiguous"},

@@ -909,7 +909,7 @@ func TestJSONListingCarriesWhatListDoes(t *testing.T) {
 	qt.Check(t, qt.Equals(got.Schema, jsonSchema))
 
 	qt.Assert(t, qt.Equals(got.Root, root))
-	qt.Assert(t, qt.DeepEquals(namesWithoutCanon(got.Gates), []string{"typecheck", "lint", "e2e"}))
+	qt.Assert(t, qt.DeepEquals(namesWithoutCanon(got.Gates), []string{"typecheck", "lint", "vuln", "e2e"}))
 
 	typecheck := listedNamed(t, got.Gates, "typecheck")
 	lint := listedNamed(t, got.Gates, "lint")
@@ -3418,6 +3418,7 @@ func TestNodeAndUvInstallsBothRun(t *testing.T) {
 	testutil.Write(t, root, "bun.lock", "")
 	testutil.Write(t, root, "uv.lock", "version = 1\n")
 	testutil.Write(t, root, "Makefile", "test:\n\ttrue\n")
+	testutil.Write(t, root, ".gate.toml", "[gates.vuln]\nrun = \"true\"\n")
 
 	_, stderr, code := runGateTest(t, "-C", root)
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))

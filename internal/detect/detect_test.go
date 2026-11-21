@@ -1466,3 +1466,25 @@ func TestAnAggregateScriptRunningItsOwnCommandIsAGate(t *testing.T) {
 	proj = detect(t, dir)
 	qt.Check(t, qt.DeepEquals(gateNamed(t, proj, "check").Argv, []string{"sh", "-c", "astro check"}))
 }
+
+// A bun workspace is audited from its lockfile: audit-bun where it is checked
+// out, plain `bun audit` otherwise.
+func TestBunWorkspaceGetsAVulnGate(t *testing.T) {
+	dir := t.TempDir()
+	bin := t.TempDir()
+	testutil.WriteExecutable(t, bin, "bun")
+	t.Setenv("PATH", bin)
+	testutil.Write(t, dir, "package.json", `{"name":"app"}`)
+	testutil.Write(t, dir, "bun.lock", "")
+
+	orig := auditBunScript
+	t.Cleanup(func() { auditBunScript = orig })
+	auditBunScript = filepath.Join(dir, "missing-audit.ts")
+	g := gateNamed(t, detect(t, dir), "vuln")
+	qt.Check(t, qt.DeepEquals(g.Argv, []string{filepath.Join(bin, "bun"), "audit"}))
+
+	auditBunScript = filepath.Join(dir, "audit.ts")
+	testutil.Write(t, dir, "audit.ts", "")
+	g = gateNamed(t, detect(t, dir), "vuln")
+	qt.Check(t, qt.DeepEquals(g.Argv, []string{filepath.Join(bin, "bun"), auditBunScript}))
+}
