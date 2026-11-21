@@ -1471,9 +1471,7 @@ func TestAnAggregateScriptRunningItsOwnCommandIsAGate(t *testing.T) {
 // out, plain `bun audit` otherwise.
 func TestBunWorkspaceGetsAVulnGate(t *testing.T) {
 	dir := t.TempDir()
-	bin := t.TempDir()
-	testutil.WriteExecutable(t, bin, "bun")
-	t.Setenv("PATH", bin)
+	bun := testutil.WriteExecutable(t, dir, "node_modules/.bin/bun")
 	testutil.Write(t, dir, "package.json", `{"name":"app"}`)
 	testutil.Write(t, dir, "bun.lock", "")
 
@@ -1481,10 +1479,27 @@ func TestBunWorkspaceGetsAVulnGate(t *testing.T) {
 	t.Cleanup(func() { auditBunScript = orig })
 	auditBunScript = filepath.Join(dir, "missing-audit.ts")
 	g := gateNamed(t, detect(t, dir), "vuln")
-	qt.Check(t, qt.DeepEquals(g.Argv, []string{filepath.Join(bin, "bun"), "audit"}))
+	qt.Check(t, qt.DeepEquals(g.Argv, []string{bun, "audit"}))
 
 	auditBunScript = filepath.Join(dir, "audit.ts")
 	testutil.Write(t, dir, "audit.ts", "")
 	g = gateNamed(t, detect(t, dir), "vuln")
-	qt.Check(t, qt.DeepEquals(g.Argv, []string{filepath.Join(bin, "bun"), auditBunScript}))
+	qt.Check(t, qt.DeepEquals(g.Argv, []string{bun, auditBunScript}))
+}
+
+func TestRuffAndRustfmtAreFormatGates(t *testing.T) {
+	dir := t.TempDir()
+	testutil.Write(t, dir, "pyproject.toml", "[project]\nname = \"x\"\n\n[tool.ruff]\nline-length = 100\n")
+	g := gateNamed(t, detect(t, dir), "format")
+	qt.Check(t, qt.DeepEquals(g.Argv, []string{"uv", "run", "ruff", "format", "--check", "."}))
+
+	plain := t.TempDir()
+	testutil.Write(t, plain, "pyproject.toml", "[project]\nname = \"x\"\n")
+	qt.Check(t, qt.IsFalse(slices.ContainsFunc(detect(t, plain).Gates, func(g Gate) bool { return g.Name == "format" })))
+
+	rust := t.TempDir()
+	testutil.Write(t, rust, "Cargo.toml", "[package]\nname = \"x\"\nversion = \"0.0.0\"\n")
+	testutil.WriteExecutable(t, rust, "node_modules/.bin/cargo-fmt")
+	g = gateNamed(t, detect(t, rust), "format")
+	qt.Check(t, qt.DeepEquals(g.Argv, []string{"cargo", "fmt", "--check"}))
 }
