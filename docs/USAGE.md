@@ -27,7 +27,10 @@ status hash as now, not partial, exit 0, same root, younger than 10 minutes,
 and the stored run was not `--e2e`. It prints
 `gate: ok (unchanged since <HH:MM:SS>)` and exits 0 without starting anything.
 `--force` always runs. A flag or gate selection that differs from the stored
-run also runs.
+run also runs. Isolation is part of that: a pre-push hook turns `--isolate` on
+by itself, so it reuses only a pass that was isolated too. `rgit land` gates
+with `--isolate` in a repo that has a pre-push hook, which is what lets the
+push's hook run return at once instead of running everything a second time.
 
 The stored run also keys on what it ran with: the version of each toolchain a
 detected gate invokes (`go`, `bun`/`bunx`, `node`/`npm`/`npx`/`pnpm`/`yarn`,

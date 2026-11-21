@@ -67,13 +67,13 @@ func TestCheck(t *testing.T) {
 			AllowedActions: "selected", GithubOwnedAllowed: true, VerifiedAllowed: true,
 			PatternsAllowed: []string{"org/*"},
 		}, map[string]bool{
-			"EndBug/label-sync@v2": true, "evil/x@v1": false,
+			"EndBug/label-sync@v2": false, "evil/x@v1": false,
 		}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			got := map[string]bool{}
-			for _, f := range Check(uses, c.s, func(o string) (bool, bool) { return false, o == "endbug" }) {
+			for _, f := range Check(uses, c.s) {
 				got[f.Use.Ref] = f.Fail
 			}
 			qt.Check(t, qt.DeepEquals(got, c.want))
@@ -102,35 +102,6 @@ func TestLoadFetchesOncePerDay(t *testing.T) {
 	qt.Check(t, qt.IsNotNil(err))
 }
 
-func TestOwnerVerifier(t *testing.T) {
-	dir := t.TempDir()
-	bodies := map[string]string{
-		"google":  `{"data":{"repositoryOwner":{"__typename":"Organization","isVerified":true}}}`,
-		"endbug":  `{"data":{"repositoryOwner":{"__typename":"User"}}}`,
-		"missing": `{"data":{"repositoryOwner":null}}`,
-	}
-	calls := 0
-	v := OwnerVerifier(dir, "2026-11-21", func(o string) ([]byte, error) {
-		calls++
-		if b, ok := bodies[o]; ok {
-			return []byte(b), nil
-		}
-		return nil, errors.New("offline")
-	})
-	ok, known := v("Google")
-	qt.Check(t, qt.IsTrue(ok && known))
-	ok, known = v("EndBug")
-	qt.Check(t, qt.IsTrue(!ok && known))
-	_, known = v("missing")
-	qt.Check(t, qt.IsFalse(known))
-	_, known = v("nobody")
-	qt.Check(t, qt.IsFalse(known))
-	v2 := OwnerVerifier(dir, "2026-11-21", func(string) ([]byte, error) { return nil, errors.New("offline") })
-	ok, known = v2("google")
-	qt.Check(t, qt.IsTrue(ok && known))
-	qt.Check(t, qt.Equals(calls, 4))
-}
-
 func TestCheckEnforcesSHAPinningWhenRequired(t *testing.T) {
 	uses := []Use{
 		{Ref: "actions/checkout@v4"},
@@ -139,11 +110,11 @@ func TestCheckEnforcesSHAPinningWhenRequired(t *testing.T) {
 		{Ref: "docker://alpine"},
 	}
 	var got []string
-	for _, f := range Check(uses, Settings{AllowedActions: "all", SHAPinningRequired: true}, nil) {
+	for _, f := range Check(uses, Settings{AllowedActions: "all", SHAPinningRequired: true}) {
 		got = append(got, f.Use.Ref)
 	}
 	qt.Check(t, qt.DeepEquals(got, []string{"actions/checkout@v4"}))
-	qt.Check(t, qt.HasLen(Check(uses, Settings{AllowedActions: "all"}, nil), 0))
+	qt.Check(t, qt.HasLen(Check(uses, Settings{AllowedActions: "all"}), 0))
 }
 
 func TestLoadPrunesOtherDays(t *testing.T) {
@@ -173,10 +144,13 @@ func TestGlobWithSeveralStars(t *testing.T) {
 	}
 }
 
-func TestCheckPassesAVerifiedOwner(t *testing.T) {
+func TestCheckWarnsOnAnUnverifiableOwner(t *testing.T) {
 	s := Settings{AllowedActions: "selected", VerifiedAllowed: true}
-	got := Check([]Use{{Ref: "google/x@v1"}}, s, func(string) (bool, bool) { return true, true })
-	qt.Check(t, qt.HasLen(got, 0))
+	got := Check([]Use{{Ref: "google/x@v1"}}, s)
+	qt.Assert(t, qt.HasLen(got, 1))
+	qt.Check(t, qt.IsFalse(got[0].Fail))
+	qt.Check(t, qt.StringContains(got[0].Reason, "google"))
+	qt.Check(t, qt.StringContains(got[0].Reason, "cannot be checked"))
 }
 
 func TestLoadReportsASelectedActionsFailure(t *testing.T) {
