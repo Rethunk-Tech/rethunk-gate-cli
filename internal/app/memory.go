@@ -243,6 +243,18 @@ func cgroupOOMCount() uint64 {
 	return 0
 }
 
+// writeOOMNote says so when the cap killed anything during the run. A kill
+// under sh -c, make or go test reaches the gate as a plain failure, so the
+// per-gate "killed" label cannot be the only place it is reported.
+func writeOOMNote(stderr io.Writer, opts options) {
+	if opts.quiet || !memoryOn(opts.memory) {
+		return
+	}
+	if n := cgroupOOMCount(); n > opts.oomBase {
+		fmt.Fprintf(stderr, "gate: %d OOM kill(s) under the %s cap during this run\n", n-opts.oomBase, capInForce(opts.memory))
+	}
+}
+
 var sizeUnits = "KMGTPE"
 
 // parseSizeBytes reads a ParseMemory size as systemd does: 1024-based.

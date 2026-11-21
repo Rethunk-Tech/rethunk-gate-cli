@@ -285,3 +285,24 @@ func TestOOMCountIsReadFromMemoryEvents(t *testing.T) {
 	events("4")
 	qt.Check(t, qt.IsTrue(cgroupOOMCount() > base))
 }
+
+// A kill under sh -c is a plain exit 1 to gate; the run still says the cap fired.
+func TestRunReportsAnOOMKillWhateverTheExitCode(t *testing.T) {
+	root := t.TempDir()
+	scope := filepath.Join(root, "run.scope")
+	qt.Assert(t, qt.IsNil(os.MkdirAll(scope, 0o750)))
+	events := filepath.Join(scope, "memory.events")
+	qt.Assert(t, qt.IsNil(os.WriteFile(events, []byte("oom_kill 3\n"), 0o600)))
+	proc := filepath.Join(t.TempDir(), "cgroup")
+	qt.Assert(t, qt.IsNil(os.WriteFile(proc, []byte("0::/run.scope\n"), 0o600)))
+	origProc, origFS := procSelfCgroup, cgroupFS
+	t.Cleanup(func() { procSelfCgroup, cgroupFS = origProc, origFS })
+	procSelfCgroup, cgroupFS = proc, root
+
+	_, stderr, code := runGateTest(t, "--mem", "24G", "sh", "-c", "echo 'oom_kill 5' > "+events+"; exit 1")
+	qt.Check(t, qt.Equals(code, Code(1)))
+	qt.Check(t, qt.StringContains(stderr, "gate: 2 OOM kill(s) under the 24G cap during this run"))
+
+	_, stderr, _ = runGateTest(t, "--mem", "24G", "true")
+	qt.Check(t, qt.Not(qt.StringContains(stderr, "OOM")))
+}

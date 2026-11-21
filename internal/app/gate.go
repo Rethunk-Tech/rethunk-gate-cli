@@ -568,6 +568,7 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 	if opts.profile {
 		writeProfile(stderr, results, wall)
 	}
+	writeOOMNote(stderr, opts)
 	// A warning, never a verdict: the command's status is the verdict, and
 	// a slow pass is still a pass.
 	waited := sc.loads.waitedFor()
