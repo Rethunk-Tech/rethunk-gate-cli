@@ -487,17 +487,17 @@ func gateProject(t *testing.T, commands ...string) string {
 func TestIndependentGatesOverlap(t *testing.T) {
 	t.Parallel()
 
-	root := gateProject(t, "sleep 0.15", "sleep 0.15")
+	root := gateProject(t, "sleep 1", "sleep 1")
 	started := time.Now()
 	_, stderr, code := runGateTest(t, "-C", root)
 	elapsed := time.Since(started)
 
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("gate = %d, stderr = %q", code, stderr))
-	// Two 0.15s gates: overlapped they finish near 0.15s, serialised near 0.3s.
-	// The threshold sits between the two rather than near either, so ordinary
-	// scheduling noise cannot decide the result.
-	if elapsed > 280*time.Millisecond {
-		t.Errorf("two 0.15s gates took %s, want them overlapped", elapsed)
+	// Two 1s gates: overlapped they finish near 1s, serialised near 2s. The
+	// threshold sits between the two, and the gates are long enough that a
+	// loaded host's startup noise cannot reach it.
+	if elapsed > 1700*time.Millisecond {
+		t.Errorf("two 1s gates took %s, want them overlapped", elapsed)
 	}
 }
 
