@@ -1218,8 +1218,8 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 	for k, v := range spec.env {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}
-	cmd.Env = append(cmd.Env, activeRootsVar+"="+activeRootsValue(spec.root, spec.dir),
-		activeRunVar+"="+strconv.Itoa(os.Getpid())+" "+res.logPath)
+	runEntry := activeRunVar + "=" + strconv.Itoa(os.Getpid()) + " " + res.logPath
+	cmd.Env = append(cmd.Env, activeRootsVar+"="+activeRootsValue(spec.root, spec.dir), runEntry)
 	if isolated {
 		cmd.Env = isolatedEnv(cmd.Env, home)
 	}
@@ -1249,6 +1249,7 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 	if !killBy.IsZero() {
 		killProcessGroupBy(cmd, killBy)
 	}
+	killOrphans(runEntry)
 	res.elapsed = time.Since(started)
 	res.started = true
 

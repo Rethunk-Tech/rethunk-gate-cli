@@ -11,6 +11,12 @@ Notable changes to `gate`. The format follows
 - The `workflows` gate also checks every `uses:` in the workflows, and in the local composite actions they call, against the repo's allowed-actions settings (`gh api repos/O/R/actions/permissions`). A refused action fails the gate. Under `verified_allowed`, an owner is verified when it is an organization with GitHub's verified badge (GraphQL `Organization.isVerified`, cached per owner per day); any other owner fails, and one whose status cannot be read warns as unverifiable. Answers are cached per repo per day; offline or without gh auth the check is skipped with a note.
 
 ### Fixed
+- A gated command no longer outlives its gate: after each gate, anything still carrying that run's `GATE_ACTIVE_RUN` entry is killed, including a `setsid` child outside the process group (Linux).
+- Children no longer start with SIGPIPE ignored; gate catches it instead.
+- `gate make check` (or `yarn check`) where the project defines no such target is a partial pass, not a full-pass record.
+- `gate quick` no longer skips changed files with non-ASCII names.
+- `doctor` no longer warns `go-no-govulncheck` when `.gate.toml` declares a `vuln` gate, or `go-test-no-race` when `.gate.toml` declares only other roles, and flags a bare `@v1` pin as a moving ref.
+- The workflows gate fails any action not pinned to a full commit SHA when the repo sets `sha_pinning_required`, prunes cached settings from earlier days, and `GATE_ACTIONS_REFRESH=1` skips the cache.
 - When `gate` splits an aggregate script such as `test:all` down to what no other gate runs, the browser step moves to its own `<name>:e2e` gate, so the unit steps beside it stay in the default run instead of being skipped with it.
 - `doctor`'s `KnownGoodActionsTag` is `v1.32`, and this repo's workflows pin the same tag.
 - The interrupted-gate test could fail under load: it raced a 0.2s sleep against the cancel. It now checks the background child by pid.
