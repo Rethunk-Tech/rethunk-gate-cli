@@ -3,9 +3,11 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -300,6 +302,18 @@ func applyQuick(ctx context.Context, gates []gateSpec, cfg config.Config, root s
 // it is.
 func resolveQuickTool(g gateSpec) gateSpec {
 	tokens, viaScript := quickTokens(g)
+	var env map[string]string
+	for len(tokens) > 1 && assignment.MatchString(tokens[0]) {
+		k, v, _ := strings.Cut(tokens[0], "=")
+		if env == nil {
+			env = maps.Clone(g.env)
+			if env == nil {
+				env = map[string]string{}
+			}
+		}
+		env[k] = v
+		tokens = tokens[1:]
+	}
 	switch quickTool(tokens) {
 	case "biome", "ruff", "gofmt", "golangci", "cargofmt":
 	default:
@@ -311,8 +325,13 @@ func resolveQuickTool(g gateSpec) gateSpec {
 	}
 	g.argv = tokens
 	g.display = strings.Join(tokens, " ")
+	if env != nil {
+		g.env = env
+	}
 	return g
 }
+
+var assignment = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)
 
 var scriptExec = map[string][]string{
 	"bun": {"bun", "run"}, "npm": {"npm", "exec", "--"}, "pnpm": {"pnpm", "exec"}, "yarn": {"yarn"},
@@ -349,7 +368,11 @@ func quickTokens(g gateSpec) (tokens []string, viaScript bool) {
 // plainCommand splits a command with no shell syntax, or returns nil.
 func plainCommand(s string) []string {
 	f := strings.Fields(s)
-	if len(f) == 0 || strings.ContainsAny(s, "&|;<>$`\\\"'(){}*?[]!#") || strings.Contains(f[0], "=") {
+	if len(f) == 0 || strings.ContainsAny(s, "&|;<>$`\\\"'(){}*?[]!#") {
+		return nil
+	}
+	// Leading VAR=value words are environment, but a command is still needed after them.
+	if i := slices.IndexFunc(f, func(w string) bool { return !assignment.MatchString(w) }); i < 0 {
 		return nil
 	}
 	return f

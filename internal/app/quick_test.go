@@ -196,6 +196,11 @@ func TestQuickResolvesScriptAndShellGatesAndFmt(t *testing.T) {
 	qt.Check(t, qt.DeepEquals(scoped[0].argv, []string{"golangci-lint", "fmt", "a.go"}))
 	qt.Check(t, qt.DeepEquals(scoped[1].argv, []string{"bun", "run", "biome", "check", "--error-on-warnings", "b.ts"}))
 
+	env := resolveQuickTool(gateSpec{role: "lint", argv: shellArgv("GOGC=400 go tool golangci-lint run ./..."), env: map[string]string{"A": "1"}})
+	qt.Check(t, qt.DeepEquals(env.argv, []string{"go", "tool", "golangci-lint", "run", "./..."}))
+	qt.Check(t, qt.DeepEquals(env.env, map[string]string{"A": "1", "GOGC": "400"}))
+	qt.Check(t, qt.DeepEquals(resolveQuickTool(gateSpec{argv: shellArgv("GOGC=400")}).argv, shellArgv("GOGC=400")))
+
 	cargo := []gateSpec{{role: "format", argv: []string{"cargo", "fmt", "--check"}}}
 	qt.Check(t, qt.DeepEquals(ensureQuickFormat(cargo)[0].argv, []string{"cargo", "fmt"}))
 	qt.Check(t, qt.HasLen(scopeQuick(ensureQuickFormat(cargo), []string{"a.go"}, false), 0))
