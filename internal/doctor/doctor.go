@@ -104,11 +104,11 @@ func RunProject(ctx context.Context, proj detect.Project, cfg config.Config) []F
 	}
 
 	checkSupersededTooling(root, add)
-	checkGoVuln(root, proj, add)
+	checkGoVuln(root, proj, cfg, add)
 	checkPythonAudit(root, proj, cfg, add)
 	checkRustClippy(root, proj, cfg, add)
 	checkBunAudit(root, proj, cfg, add)
-	checkGoRace(root, proj, add)
+	checkGoRace(root, proj, cfg, add)
 	checkNoCI(proj, cfg, add)
 	checkWorkflows(proj, add)
 	checkDependabot(proj, add)
@@ -236,14 +236,11 @@ func checkSupersededTooling(root string, add func(Finding)) {
 
 // checkGoVuln covers both halves of the govulncheck gap: not installed
 // locally, and not switched on in CI.
-func checkGoVuln(root string, proj detect.Project, add func(Finding)) {
+func checkGoVuln(root string, proj detect.Project, cfg config.Config, add func(Finding)) {
 	if !exists(filepath.Join(root, "go.mod")) {
 		return
 	}
-	hasVuln := slices.ContainsFunc(proj.Gates, func(g detect.Gate) bool {
-		return g.Name == "vuln"
-	})
-	if !hasVuln {
+	if !hasNamedGate(proj, cfg, "vuln") {
 		add(Finding{
 			Warn:  true,
 			Check: "go-no-govulncheck",
@@ -384,7 +381,7 @@ var gateFiles = []string{
 // Comment lines are dropped, so a note about -race is not mistaken for a step
 // that runs it. The repository root is read as well as the module, since CI
 // and the Makefile usually live there.
-func checkGoRace(root string, proj detect.Project, add func(Finding)) {
+func checkGoRace(root string, proj detect.Project, cfg config.Config, add func(Finding)) {
 	if !exists(filepath.Join(root, "go.mod")) {
 		return
 	}
@@ -409,8 +406,16 @@ func checkGoRace(root string, proj detect.Project, add func(Finding)) {
 		text.WriteString(body)
 		text.WriteByte('\n')
 	}
+	_, declaresTest := cfg.Gates["test"]
 	for _, dir := range dirs {
 		for _, name := range gateFiles {
+			// A .gate.toml that declares no test gate leaves the convention
+			// `go test -race` running, so it defines nothing here.
+			if name == ".gate.toml" && !declaresTest {
+				text.WriteString(readFile(filepath.Join(dir, name)))
+				text.WriteByte('\n')
+				continue
+			}
 			take(readFile(filepath.Join(dir, name)))
 		}
 		take(packageScripts(dir))
@@ -884,9 +889,13 @@ func isSHA(ref string) bool {
 	return true
 }
 
+// floatingRef is a branch name or a bare major tag (v1), which the shared
+// repo moves with each release.
 func floatingRef(ref string) bool {
-	return slices.Contains([]string{"main", "master", "HEAD"}, ref)
+	return slices.Contains([]string{"main", "master", "HEAD"}, ref) || majorOnly.MatchString(ref)
 }
+
+var majorOnly = regexp.MustCompile(`^v\d+$`)
 
 // olderThanKnownGood compares vMAJOR.MINOR tags numerically. Anything it
 // cannot parse -- a commit sha, an unusual scheme -- is left alone rather than

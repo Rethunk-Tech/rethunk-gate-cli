@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/config"
 	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/detect"
 	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/result"
 	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/testutil"
@@ -90,7 +91,7 @@ func TestConventionRaceDoesNotStandInForAGateFile(t *testing.T) {
 			testutil.Write(t, dir, "go.mod", "module demo\n\ngo 1.26\n")
 			testutil.Write(t, dir, "Makefile", tc.makefile)
 			var findings []Finding
-			checkGoRace(dir, proj, func(f Finding) { findings = append(findings, f) })
+			checkGoRace(dir, proj, config.Config{}, func(f Finding) { findings = append(findings, f) })
 			qt.Check(t, qt.Equals(reported(findings, "go-test-no-race"), tc.want),
 				qt.Commentf("findings = %v", checkNames(findings)))
 		})
@@ -876,4 +877,31 @@ func TestDependabotNpmInBun(t *testing.T) {
 		"  - package-ecosystem: bun\n    directory: /web\n"
 	qt.Check(t, qt.DeepEquals(DependabotNpmInBun(dir, body), []int{4}))
 	qt.Check(t, qt.HasLen(DependabotNpmInBun(dir, ""), 0))
+}
+
+// A .gate.toml that declares only other roles leaves the convention
+// `go test -race` and a vuln gate of its own in force: neither warns.
+func TestGateTomlDeclaringOtherRolesDoesNotHideConventionGates(t *testing.T) {
+	isolatePath(t)
+	dir := t.TempDir()
+	testutil.Write(t, dir, "go.mod", "module demo\n\ngo 1.26\n")
+	testutil.Write(t, dir, ".gate.toml", "[gates.vuln]\nrun = \"govulncheck ./...\"\n")
+
+	findings, err := Run(t.Context(), dir)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsFalse(reported(findings, "go-test-no-race")), qt.Commentf("findings = %v", checkNames(findings)))
+	qt.Check(t, qt.IsFalse(reported(findings, "go-no-govulncheck")), qt.Commentf("findings = %v", checkNames(findings)))
+}
+
+// The shared repo moves its bare major tag, so a pin to it floats like main.
+func TestBareMajorTagIsAFloatingRef(t *testing.T) {
+	isolatePath(t)
+	dir := t.TempDir()
+	testutil.Write(t, dir, "package.json", `{"name":"demo"}`)
+	testutil.Write(t, dir, ".github/workflows/ci.yml",
+		"jobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-go@v1\n")
+
+	findings, err := Run(t.Context(), dir)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsTrue(reported(findings, "actions-floating-ref")), qt.Commentf("findings = %v", checkNames(findings)))
 }
