@@ -1,6 +1,8 @@
 package app
 
 import (
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -160,4 +162,32 @@ func TestSameRunGatesComparesCountAndRoles(t *testing.T) {
 	qt.Check(t, qt.IsTrue(sameRunGates([]gateSpec{{role: "lint"}, {role: "test"}}, stored)))
 	qt.Check(t, qt.IsFalse(sameRunGates([]gateSpec{{role: "lint"}}, stored)))
 	qt.Check(t, qt.IsFalse(sameRunGates([]gateSpec{{role: "lint"}, {role: "build"}}, stored)))
+}
+
+// A role left empty for want of a tool was never judged: the pass is partial,
+// so nothing that reads the record treats it as the whole gate passing.
+func TestMissingToolMakesThePassPartial(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	// PATH without govulncheck's directory, so the vuln gate has no tool.
+	var dirs []string
+	for _, d := range filepath.SplitList(os.Getenv("PATH")) {
+		if _, err := os.Stat(filepath.Join(d, "govulncheck")); err != nil {
+			dirs = append(dirs, d)
+		}
+	}
+	t.Setenv("PATH", strings.Join(dirs, string(os.PathListSeparator)))
+	if _, err := exec.LookPath("govulncheck"); err == nil {
+		t.Skip("govulncheck shares a directory with tools the gates need")
+	}
+	root := t.TempDir()
+	testutil.Write(t, root, "go.mod", "module demo\n\ngo 1.22\n")
+	testutil.Write(t, root, "main.go", "package main\n\nfunc main() {}\n")
+	testutil.Write(t, root, ".gate.toml", "[gates.canon]\nrun = \"true\"\n")
+	committedRepo(t, root)
+	stdout, stderr, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.StringContains(stdout, "partial pass, vuln skipped for a missing tool"))
+	rec, err := loadRecord(root)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsTrue(rec.Partial))
 }

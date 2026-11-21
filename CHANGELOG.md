@@ -11,6 +11,8 @@ Notable changes to `gate`. The format follows
 - The `workflows` gate also checks every `uses:` in the workflows, and in the local composite actions they call, against the repo's allowed-actions settings (`gh api repos/O/R/actions/permissions`). A refused action fails the gate. Under `verified_allowed`, an owner is verified when it is an organization with GitHub's verified badge (GraphQL `Organization.isVerified`, cached per owner per day); any other owner fails, and one whose status cannot be read warns as unverifiable. Answers are cached per repo per day; offline or without gh auth the check is skipped with a note.
 
 ### Fixed
+- A run that leaves a role out for want of a tool (govulncheck, clippy, rustfmt, cargo-audit, dotnet) writes a partial record, so it is not mistaken for the whole gate passing, and prints one line naming the skipped roles. The exit stays 0.
+- A second isolated run on an unchanged tree reuses the first's pass. `rgit land` gates isolated in a repo with a pre-push hook, so the hook's gate on the push returns at once; a non-isolated pass still does not stand in for the hook's isolated run.
 - A gated command no longer outlives its gate: after each gate, anything still carrying that run's `GATE_ACTIVE_RUN` entry is killed, including a `setsid` child outside the process group (Linux).
 - Children no longer start with SIGPIPE ignored; gate catches it instead.
 - `gate make check` (or `yarn check`) where the project defines no such target is a partial pass, not a full-pass record.

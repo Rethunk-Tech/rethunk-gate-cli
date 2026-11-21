@@ -704,6 +704,16 @@ func (st *runState) announceAndCheckLog(dir string, project detect.Project, stde
 func (st *runState) setBudget(project detect.Project, configured config.Config, named bool) {
 	opts := &st.opts
 	opts.root, opts.partial = project.Root, named || opts.failed
+	// A role left empty for want of a tool was never judged, so the pass is
+	// not the project's whole gate passing.
+	for _, sk := range project.Skipped {
+		if configured.Gates[sk.Role].Run == "" {
+			opts.skippedTools = append(opts.skippedTools, sk.Role)
+		}
+	}
+	if len(opts.skippedTools) > 0 {
+		opts.partial = true
+	}
 	// A named command that is the project's whole CI is a full pass, so it
 	// keeps the record a bare run does.
 	if st.wholeCI != "" {

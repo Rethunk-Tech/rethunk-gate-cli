@@ -177,6 +177,10 @@ type options struct {
 	skipE2E    bool
 	skippedE2E int
 
+	// skippedTools names the roles left out for want of a tool; the record is
+	// partial while there are any.
+	skippedTools []string
+
 	// failed re-runs only the gates whose last record status was fail,
 	// timeout, or error. Detection still runs; this only narrows selection.
 	failed bool
@@ -561,6 +565,9 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 	code := report(results, opts, stdout, stderr)
 	if userStop && stopped {
 		code = Interrupted
+	}
+	if len(opts.skippedTools) > 0 && !opts.quiet {
+		fmt.Fprintf(stdout, "gate: partial pass, %s skipped for a missing tool\n", strings.Join(opts.skippedTools, ", "))
 	}
 	if opts.skippedE2E > 0 && !opts.quiet {
 		fmt.Fprintf(stdout, "gate: %d e2e gate(s) skipped; `gate --e2e` runs them\n", opts.skippedE2E)
