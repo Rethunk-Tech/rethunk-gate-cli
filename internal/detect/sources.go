@@ -539,8 +539,9 @@ func workflowConventionGates(root string, proj *Project) (gates []Gate, skipped 
 			gates = append(gates, Gate{
 				// "workflows", not "ci": this lints the workflow files, which
 				// is not what a project means by a ci target.
-				Name: "workflows", Argv: []string{bin},
-				Source: "convention: .github/workflows",
+				Name: "workflows", Argv: []string{selfPath(), "actions-allowed", bin},
+				Summary: "actionlint + allowed actions",
+				Source:  "convention: .github/workflows",
 			})
 		} else {
 			skipped = append(skipped, Skip{"workflows", "actionlint not installed; skipping the workflows gate (brew install actionlint)"})
@@ -1414,4 +1415,13 @@ func WholeCIRoot(dir string, argv []string) (string, bool) {
 	pkg, ok := readPackageJSON(filepath.Join(root, "package.json"))
 	_, has := pkg.Scripts[name]
 	return root, ok && has
+}
+
+// selfPath is this binary: the workflows gate re-enters gate for the
+// allowed-actions half, which has no program of its own.
+func selfPath() string {
+	if exe, err := os.Executable(); err == nil {
+		return exe
+	}
+	return "gate"
 }

@@ -360,7 +360,7 @@ func (st *runState) finalizeFlags(stderr io.Writer) (code Code, ok bool) {
 }
 
 // runVerb serves the words gate claims as its own rather than as a command:
-// "doctor", "fix", "record", "completion" and "man". A real program by any of
+// "doctor", "fix", "record", "completion", "man" and the hidden "actions-allowed". A real program by any of
 // those names is still reachable as `gate -- doctor`, which is what -- is for.
 // completion and man are hidden: they are not in --help. handled is false
 // when args name no verb.
@@ -392,6 +392,8 @@ func (st *runState) runVerb(ctx context.Context, dir string, args []string, stdo
 			return InvalidUsage, true
 		}
 		return runMan(args[1:], stdout, stderr), true
+	case word == "actions-allowed":
+		return runActionsAllowed(ctx, dir, args[1:], stdout, stderr), true
 	case word == "doctor" && len(args) == 1:
 		// --ndjson streams what a run did, and doctor runs nothing. --json
 		// is served: findings are a list with a stable schema, and a sweep

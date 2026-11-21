@@ -402,7 +402,7 @@ func TestTheWorkflowLinterIsNamedWorkflowsAndCiIsNotAGate(t *testing.T) {
 	// A role missing from gateOrder is dropped silently, so the linter has to
 	// be asserted by name.
 	linter := gateNamed(t, proj, "workflows")
-	qt.Check(t, qt.IsTrue(strings.HasSuffix(linter.Argv[0], "actionlint")),
+	qt.Check(t, qt.IsTrue(strings.HasSuffix(linter.Argv[2], "actionlint")),
 		qt.Commentf("workflows gate runs %q", linter.Display()))
 }
 

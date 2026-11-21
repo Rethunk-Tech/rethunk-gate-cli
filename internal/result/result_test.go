@@ -299,7 +299,7 @@ func TestStateDir(t *testing.T) {
 			t.Setenv("XDG_STATE_HOME", "")
 			qt.Assert(t, qt.IsNil(os.Unsetenv("XDG_STATE_HOME")))
 		}
-		got, err := stateDir()
+		got, err := StateDir()
 		qt.Assert(t, qt.IsNil(err), qt.Commentf("xdg=%q set=%v", c.xdg, c.set))
 		qt.Check(t, qt.Equals(got, c.want), qt.Commentf("xdg=%q set=%v", c.xdg, c.set))
 	}

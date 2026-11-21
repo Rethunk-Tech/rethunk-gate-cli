@@ -405,9 +405,9 @@ func worktreePath(p string) bool {
 	return clean != ".." && !strings.HasPrefix(clean, "../") && clean != "."
 }
 
-// stateDir is $XDG_STATE_HOME, or ~/.local/state where it is unset or not
+// StateDir is $XDG_STATE_HOME, or ~/.local/state where it is unset or not
 // absolute, which is what the XDG spec says a reader must then assume.
-func stateDir() (string, error) {
+func StateDir() (string, error) {
 	if dir := os.Getenv("XDG_STATE_HOME"); filepath.IsAbs(dir) {
 		return dir, nil
 	}
@@ -430,7 +430,7 @@ func Canonical(root string) string {
 // Path is where root's record lives: the hex SHA-256 of the canonical root,
 // so any path maps to one flat file name. root is used as given.
 func Path(root string) (string, error) {
-	dir, err := stateDir()
+	dir, err := StateDir()
 	if err != nil {
 		return "", err
 	}
