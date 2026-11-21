@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -14,6 +15,10 @@ import (
 	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/allowed"
 	stored "github.com/Rethunk-Tech/rethunk-gate-cli/internal/result"
 )
+
+// actionsRefreshVar, when set, discards the cached repository settings and
+// owner answers so a run reads GitHub's current policy.
+const actionsRefreshVar = "GATE_ACTIONS_REFRESH"
 
 var githubRemote = regexp.MustCompile(`github\.com[:/]([^/\s]+/[^/\s]+?)(?:\.git)?/?$`)
 
@@ -59,6 +64,9 @@ func checkAllowedActions(ctx context.Context, dir string, fetch allowed.Fetcher,
 		return skip(err.Error())
 	}
 	cacheDir := filepath.Join(state, "gate", "actions-allowed")
+	if os.Getenv(actionsRefreshVar) != "" {
+		_ = os.RemoveAll(cacheDir)
+	}
 	s, err := allowed.Load(m[1], cacheDir, today, fetch)
 	if err != nil {
 		return skip("cannot read " + m[1] + " settings: " + err.Error())

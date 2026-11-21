@@ -235,7 +235,9 @@ not parsed; the env vars reach a nested tool.
    (`tsc -b --noEmit` when it names project references — without `-b` a
    solution-style file exits 0 having checked nothing); `actionlint`, then every `uses:` against the repo's allowed-actions settings and
    verified-creator rule (the `workflows` gate; needs `gh` auth, and warns and
-   skips when offline); a bun workspace's `vuln` gate (`audit-bun`, else
+   skips when offline; answers are cached per UTC day, and `GATE_ACTIONS_REFRESH=1`
+   discards them; a repo that requires SHA pins fails any ref that is not a full
+   commit SHA); a bun workspace's `vuln` gate (`audit-bun`, else
    `bun audit`);
    `markdownlint-cli2` where a `.markdownlint-cli2.*` config exists and no
    package script already runs it (bare when the config sets `globs`, else over

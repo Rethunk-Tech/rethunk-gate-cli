@@ -45,3 +45,16 @@ func TestActionsAllowedSkipsWhenSettingsUnreadable(t *testing.T) {
 	qt.Check(t, qt.Equals(checkAllowedActions(t.Context(), dir, offline, noOwners, "2026-11-21", &stderr), Success))
 	qt.Check(t, qt.StringContains(stderr.String(), "skipped"))
 }
+
+func TestActionsAllowedRefreshVarBypassesTheCache(t *testing.T) {
+	dir := actionsRepo(t, "git@github.com:o/r.git")
+	answer := `{"allowed_actions":"all"}`
+	fetch := func(string) ([]byte, error) { return []byte(answer), nil }
+	var stderr bytes.Buffer
+	qt.Assert(t, qt.Equals(checkAllowedActions(t.Context(), dir, fetch, noOwners, "2026-11-21", &stderr), Success))
+
+	answer = `{"allowed_actions":"local_only"}`
+	qt.Check(t, qt.Equals(checkAllowedActions(t.Context(), dir, fetch, noOwners, "2026-11-21", &stderr), Success), qt.Commentf("cache not used"))
+	t.Setenv(actionsRefreshVar, "1")
+	qt.Check(t, qt.Equals(checkAllowedActions(t.Context(), dir, fetch, noOwners, "2026-11-21", &stderr), Code(1)))
+}

@@ -20,6 +20,7 @@ type Settings struct {
 	GithubOwnedAllowed bool     `json:"github_owned_allowed"`
 	VerifiedAllowed    bool     `json:"verified_allowed"`
 	PatternsAllowed    []string `json:"patterns_allowed"`
+	SHAPinningRequired bool     `json:"sha_pinning_required"`
 }
 
 // Use is one `uses:` reference and where it was written.
@@ -114,6 +115,10 @@ func Check(uses []Use, s Settings, verified Verifier) []Finding {
 		if strings.HasPrefix(u.Ref, "./") || strings.HasPrefix(u.Ref, "docker://") {
 			continue
 		}
+		if s.SHAPinningRequired && !shaPinned(u.Ref) {
+			out = append(out, Finding{u, true, "the repository requires actions pinned to a full commit SHA"})
+			continue
+		}
 		switch s.AllowedActions {
 		case "local_only":
 			out = append(out, Finding{u, true, "only local actions are allowed"})
@@ -125,6 +130,10 @@ func Check(uses []Use, s Settings, verified Verifier) []Finding {
 	}
 	return out
 }
+
+var fullSHA = regexp.MustCompile(`@[0-9a-fA-F]{40}$`)
+
+func shaPinned(ref string) bool { return fullSHA.MatchString(ref) }
 
 func checkSelected(u Use, s Settings, verified Verifier) (Finding, bool) {
 	ref := strings.ToLower(u.Ref)
@@ -186,6 +195,7 @@ type Fetcher func(path string) ([]byte, error)
 func Load(repo, cacheDir, today string, fetch Fetcher) (Settings, error) {
 	cache := filepath.Join(cacheDir, strings.ReplaceAll(repo, "/", "__")+"-"+today+".json")
 	var s Settings
+	prune(cacheDir, today)
 	if data, err := os.ReadFile(filepath.Clean(cache)); err == nil && json.Unmarshal(data, &s) == nil {
 		return s, nil
 	}
@@ -209,6 +219,16 @@ func Load(repo, cacheDir, today string, fetch Fetcher) (Settings, error) {
 		_ = os.WriteFile(cache, data, 0o600)
 	}
 	return s, nil
+}
+
+// prune removes cached answers from any day but today.
+func prune(cacheDir, today string) {
+	entries, _ := os.ReadDir(cacheDir)
+	for _, e := range entries {
+		if n := e.Name(); strings.HasSuffix(n, ".json") && !strings.HasSuffix(n, "-"+today+".json") {
+			_ = os.Remove(filepath.Join(cacheDir, n))
+		}
+	}
 }
 
 // Verifier reports whether owner is a verified creator, and whether that is

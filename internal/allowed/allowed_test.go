@@ -130,3 +130,31 @@ func TestOwnerVerifier(t *testing.T) {
 	qt.Check(t, qt.IsTrue(ok && known))
 	qt.Check(t, qt.Equals(calls, 4))
 }
+
+func TestCheckEnforcesSHAPinningWhenRequired(t *testing.T) {
+	uses := []Use{
+		{Ref: "actions/checkout@v4"},
+		{Ref: "actions/checkout@" + "3d3c42e5aac5ba805825da76410c181273ba90b1"},
+		{Ref: "./local"},
+		{Ref: "docker://alpine"},
+	}
+	var got []string
+	for _, f := range Check(uses, Settings{AllowedActions: "all", SHAPinningRequired: true}, nil) {
+		got = append(got, f.Use.Ref)
+	}
+	qt.Check(t, qt.DeepEquals(got, []string{"actions/checkout@v4"}))
+	qt.Check(t, qt.HasLen(Check(uses, Settings{AllowedActions: "all"}, nil), 0))
+}
+
+func TestLoadPrunesOtherDays(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "o__r-2026-11-20.json", "{}")
+	write(t, dir, "owners-2026-11-20.json", "{}")
+	fetch := func(string) ([]byte, error) { return []byte(`{"allowed_actions":"all"}`), nil }
+	_, err := Load("o/r", dir, "2026-11-21", fetch)
+	qt.Assert(t, qt.IsNil(err))
+	entries, err := os.ReadDir(dir)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.HasLen(entries, 1))
+	qt.Check(t, qt.Equals(entries[0].Name(), "o__r-2026-11-21.json"))
+}
