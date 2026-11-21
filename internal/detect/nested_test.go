@@ -102,7 +102,7 @@ func TestGoModuleBesideAPackageJSONStillRuns(t *testing.T) {
 
 	proj := detect(t, root)
 	goGate := gateNamed(t, proj, "go")
-	qt.Check(t, qt.StringContains(goGate.Display(), "go build ./..."))
+	qt.Check(t, qt.StringContains(goGate.Display(), "go build -o /dev/null ./..."))
 	qt.Check(t, qt.StringContains(goGate.Display(), "go test -race ./..."))
 	// An embed reads the dist/ the build rewrites, so the two cannot overlap.
 	qt.Check(t, qt.IsTrue(goGate.Serial))
@@ -121,7 +121,7 @@ func TestGoGateOverlapsGoBuildDespiteAnEmbed(t *testing.T) {
 	testutil.Write(t, root, "bun.lock", "")
 
 	proj := detect(t, root)
-	qt.Check(t, qt.Equals(gateNamed(t, proj, "build").Display(), "go build ./..."))
+	qt.Check(t, qt.Equals(gateNamed(t, proj, "build").Display(), "go build -o /dev/null ./..."))
 	qt.Check(t, qt.IsFalse(gateNamed(t, proj, "build").Serial))
 	qt.Check(t, qt.IsFalse(gateNamed(t, proj, "go").Serial))
 }

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -130,6 +131,8 @@ type packageJSON struct {
 	Dependencies map[string]string `json:"dependencies"`
 	DevDeps      map[string]string `json:"devDependencies"`
 	Workspaces   json.RawMessage   `json:"workspaces"`
+	// PackageManager is corepack's "name@version" pin.
+	PackageManager string `json:"packageManager"`
 }
 
 func (p packageJSON) hasWorkspaces() bool {
@@ -205,6 +208,11 @@ func frozenInstall(workspace string) []string {
 	case IsBunWorkspace(workspace):
 		return []string{"bun", "install", "--frozen-lockfile"}
 	case exists(filepath.Join(workspace, "yarn.lock")):
+		if yarnBerry(workspace) {
+			// Berry has no --frozen-lockfile; on Yarn 4 the old flag also
+			// migrates the project and writes .yarnrc.yml into the tree.
+			return []string{"yarn", "install", "--immutable"}
+		}
 		return []string{"yarn", "install", "--frozen-lockfile"}
 	case exists(filepath.Join(workspace, "package-lock.json")):
 		return []string{"npm", "ci"}
@@ -212,6 +220,22 @@ func frozenInstall(workspace string) []string {
 		return []string{"pnpm", "install", "--frozen-lockfile"}
 	}
 	return nil
+}
+
+// yarnBerry reports whether workspace uses Yarn 2 or newer, by its
+// packageManager pin, a .yarnrc.yml, or a vendored .yarn/releases.
+func yarnBerry(workspace string) bool {
+	if exists(filepath.Join(workspace, ".yarnrc.yml")) || exists(filepath.Join(workspace, ".yarn", "releases")) {
+		return true
+	}
+	pkg, _ := readPackageJSON(filepath.Join(workspace, "package.json"))
+	ver, ok := strings.CutPrefix(pkg.PackageManager, "yarn@")
+	if !ok {
+		return false
+	}
+	major, _, _ := strings.Cut(ver, ".")
+	n, err := strconv.Atoi(major)
+	return err == nil && n >= 2
 }
 
 // uvInstall is the locked sync that brings .venv in line with uv.lock in
@@ -271,10 +295,14 @@ func conventionGates(ctx context.Context, root string, proj *Project) ([]Gate, [
 	return gates, skipped
 }
 
+// goConventionBuild compiles every package and writes nothing: without -o a
+// module whose only package is main leaves a binary in the tree.
+var goConventionBuild = []string{"go", "build", "-o", "/dev/null", "./..."}
+
 func goConventionGates(root string, proj *Project) (gates []Gate, skipped []Skip) {
 	if exists(filepath.Join(root, "go.mod")) {
 		gates = append(gates,
-			Gate{Name: "build", Argv: []string{"go", "build", "./..."}, Source: "convention: go"},
+			Gate{Name: "build", Argv: slices.Clone(goConventionBuild), Source: "convention: go"},
 			// -race because that is what the fleet's CI runs: the shared setup-go
 			// action's run-test-race step and most workflows call
 			// `go test -race ./...`, and a plain run passes data races CI fails.

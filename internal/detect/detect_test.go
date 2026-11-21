@@ -1010,7 +1010,7 @@ func TestCIRunGoModuleInASubdirectoryIsOneGate(t *testing.T) {
 	g := gateNamed(t, proj, "src/setup")
 	qt.Check(t, qt.Equals(g.Dir, setup))
 	qt.Check(t, qt.Equals(g.Argv[0], "sh"))
-	qt.Check(t, qt.StringContains(g.Summary, "go build ./..."))
+	qt.Check(t, qt.StringContains(g.Summary, "go build -o /dev/null ./..."))
 	qt.Check(t, qt.StringContains(g.Summary, "make test"), qt.Commentf("the module's own Makefile target outranks the convention"))
 	qt.Check(t, qt.HasLen(proj.Installs, 0))
 }
@@ -1207,7 +1207,7 @@ func TestCIScriptStepsLeaveTheGoConventionBuildConcurrent(t *testing.T) {
 	testutil.Write(t, root, ".github/workflows/ci.yml", "on: [push, pull_request]\njobs:\n  a:\n    steps:\n      - run: bun run gate\n")
 
 	proj := detect(t, root)
-	qt.Check(t, qt.DeepEquals(gateNamed(t, proj, "build").Argv, []string{"go", "build", "./..."}))
+	qt.Check(t, qt.DeepEquals(gateNamed(t, proj, "build").Argv, []string{"go", "build", "-o", "/dev/null", "./..."}))
 	qt.Check(t, qt.IsFalse(gateNamed(t, proj, "build").Serial))
 	qt.Check(t, qt.IsTrue(gateNamed(t, proj, "gate").Serial))
 }
@@ -1502,4 +1502,27 @@ func TestRuffAndRustfmtAreFormatGates(t *testing.T) {
 	testutil.WriteExecutable(t, rust, "node_modules/.bin/cargo-fmt")
 	g = gateNamed(t, detect(t, rust), "format")
 	qt.Check(t, qt.DeepEquals(g.Argv, []string{"cargo", "fmt", "--check"}))
+}
+
+// Yarn berry has no --frozen-lockfile, and Yarn 4 given it migrates the
+// project, writing .yarnrc.yml into the tree.
+func TestYarnBerryInstallsImmutable(t *testing.T) {
+	t.Parallel()
+	for name, files := range map[string]map[string]string{
+		"classic":       {"yarn.lock": "", "package.json": `{"packageManager":"yarn@1.22.22"}`},
+		"pin":           {"yarn.lock": "", "package.json": `{"packageManager":"yarn@4.18.0"}`},
+		"yarnrc":        {"yarn.lock": "", ".yarnrc.yml": "nodeLinker: node-modules\n"},
+		"releases":      {"yarn.lock": "", ".yarn/releases/yarn-4.js": ""},
+		"unpinned yarn": {"yarn.lock": ""},
+	} {
+		ws := t.TempDir()
+		for f, body := range files {
+			testutil.Write(t, ws, f, body)
+		}
+		want := []string{"yarn", "install", "--immutable"}
+		if name == "classic" || name == "unpinned yarn" {
+			want = []string{"yarn", "install", "--frozen-lockfile"}
+		}
+		qt.Check(t, qt.DeepEquals(frozenInstall(ws), want), qt.Commentf("%s", name))
+	}
 }
