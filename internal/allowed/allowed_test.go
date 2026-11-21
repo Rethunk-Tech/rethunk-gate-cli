@@ -158,3 +158,38 @@ func TestLoadPrunesOtherDays(t *testing.T) {
 	qt.Check(t, qt.HasLen(entries, 1))
 	qt.Check(t, qt.Equals(entries[0].Name(), "o__r-2026-11-21.json"))
 }
+
+func TestGlobWithSeveralStars(t *testing.T) {
+	for _, c := range []struct {
+		pattern, s string
+		want       bool
+	}{
+		{"a/*/b/*@v1", "a/x/b/y@v1", true},
+		{"a/*/b/*@v1", "a/x/c/y@v1", false},
+		{"*mid*end", "startmidend", true},
+		{"*mid*end", "startendmid", false},
+	} {
+		qt.Check(t, qt.Equals(glob(c.pattern, c.s), c.want), qt.Commentf("%s ~ %s", c.pattern, c.s))
+	}
+}
+
+func TestCheckPassesAVerifiedOwner(t *testing.T) {
+	s := Settings{AllowedActions: "selected", VerifiedAllowed: true}
+	got := Check([]Use{{Ref: "google/x@v1"}}, s, func(string) (bool, bool) { return true, true })
+	qt.Check(t, qt.HasLen(got, 0))
+}
+
+func TestLoadReportsASelectedActionsFailure(t *testing.T) {
+	for name, second := range map[string]func(string) ([]byte, error){
+		"fetch error": func(string) ([]byte, error) { return nil, errors.New("boom") },
+		"bad json":    func(string) ([]byte, error) { return []byte("{"), nil },
+	} {
+		_, err := Load("o/r", t.TempDir(), "2026-11-21", func(p string) ([]byte, error) {
+			if p == "repos/o/r/actions/permissions" {
+				return []byte(`{"allowed_actions":"selected"}`), nil
+			}
+			return second(p)
+		})
+		qt.Check(t, qt.IsNotNil(err), qt.Commentf(name))
+	}
+}

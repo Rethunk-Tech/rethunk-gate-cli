@@ -989,3 +989,19 @@ func TestRecordTextPadsToTheLongestGateName(t *testing.T) {
 	qt.Check(t, qt.StringContains(out.String(), "lint            ok\n"))
 	qt.Check(t, qt.StringContains(out.String(), "schema          0\n"))
 }
+
+func TestRecordCorruptIsFatal(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "test:\n\ttrue\n")
+	committedRepo(t, root)
+	_, _, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Success))
+	path, err := stored.Path(stored.Canonical(root))
+	qt.Assert(t, qt.IsNil(err))
+	qt.Assert(t, qt.IsNil(os.WriteFile(path, []byte("{not json"), 0o600)))
+
+	_, stderr, code := runGateTest(t, "-C", root, "record")
+	qt.Check(t, qt.Equals(code, Fatal))
+	qt.Check(t, qt.StringContains(stderr, "cannot read the result record"))
+}
