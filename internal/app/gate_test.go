@@ -891,7 +891,7 @@ func TestJSONListingCarriesWhatListDoes(t *testing.T) {
 	tsc := plantBin(t, root, "tsc")
 	testutil.Write(t, root, "tsconfig.json", "{}")
 	plantBin(t, root, "biome")
-	testutil.Write(t, root, "package.json", `{"name":"app","scripts":{"ci":"echo all"}}`)
+	testutil.Write(t, root, "package.json", `{"name":"app","scripts":{"ci":"bun run typecheck && bun run lint"}}`)
 	testutil.Write(t, root, "bun.lock", "")
 	// typecheck and lint are declared serial, so they share one group while
 	// the config-only gate runs as its own.

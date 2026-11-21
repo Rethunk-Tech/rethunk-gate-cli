@@ -28,6 +28,7 @@ Notable changes to `gate`. The format follows
 - `gate` as the direct command of `systemd-run --user --scope` no longer fails with "already loaded": its own scope gets a unit name of its own.
 - A passing partial run (`gate quick`, `gate run <name>`) no longer replaces a fresh full-pass record for the same tree, so the next bare `gate` is not forced to rerun everything.
 - `gate doctor -C <path>`, `gate record -C x`, `gate list` and `gate quick --list` exit 129 and say where the flag goes, instead of running a program named `doctor` and exiting 127.
+- A `check`, `ci`, `verify` or `validate` package script that runs commands of its own (`astro check`) is a gate. Only a script that just calls other scripts is declined as an aggregate, and the parts of a mixed chain that are not script calls run as a gate.
 
 ## [0.8.0] - 2026-11-13
 

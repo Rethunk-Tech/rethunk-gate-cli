@@ -1445,3 +1445,24 @@ func TestCanonVerifyGateIsSkippedWhenAMakefileAlreadyRunsIt(t *testing.T) {
 		return g.Name == "canon"
 	})), qt.Commentf("gates = %v", proj.Gates))
 }
+
+// A check script that is one command of its own (`astro check`) is not an
+// aggregate of other gates, so declining it by name lost the only run of it;
+// a chain of script references is still declined.
+func TestAnAggregateScriptRunningItsOwnCommandIsAGate(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	testutil.Write(t, dir, "package.json", `{"scripts":{"build":"astro build","check":"astro check"}}`)
+	proj := detect(t, dir)
+	qt.Check(t, qt.DeepEquals(gateNamed(t, proj, "check").Argv, []string{"bun", "run", "check"}))
+
+	dir = t.TempDir()
+	testutil.Write(t, dir, "package.json", `{"scripts":{"build":"astro build","lint":"biome check .","check":"bun run lint && bun run build"}}`)
+	proj = detect(t, dir)
+	qt.Check(t, qt.IsFalse(slices.ContainsFunc(proj.Gates, func(g Gate) bool { return g.Name == "check" })))
+
+	dir = t.TempDir()
+	testutil.Write(t, dir, "package.json", `{"scripts":{"build":"astro build","lint":"biome check .","check":"bun run lint && astro check"}}`)
+	proj = detect(t, dir)
+	qt.Check(t, qt.DeepEquals(gateNamed(t, proj, "check").Argv, []string{"sh", "-c", "astro check"}))
+}

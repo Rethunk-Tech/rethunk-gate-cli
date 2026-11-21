@@ -307,6 +307,12 @@ func (c *gateClaims) claim(g Gate) {
 // is not a role -- it is every role at once, so no position among them is
 // the right one.
 func addAggregate(proj *Project, aggregate Gate) {
+	if g, ok := aggregateOwnGate(proj, aggregate); ok {
+		proj.Notes = append(proj.Notes, aggregate.Source+
+			" found and run: it runs commands no other gate here does")
+		proj.Gates = append(proj.Gates, g)
+		return
+	}
 	if slices.ContainsFunc(proj.Gates, func(g Gate) bool { return slices.Contains(declaredNames, g.Name) }) {
 		proj.Notes = append(proj.Notes, aggregate.Source+
 			" found but not run: it aggregates the gates gate is already scheduling")
@@ -315,6 +321,28 @@ func addAggregate(proj *Project, aggregate Gate) {
 	proj.Notes = append(proj.Notes, aggregate.Source+
 		" found and run: gate claimed none of the gates it aggregates, so declining it would leave this project unchecked")
 	proj.Gates = append(proj.Gates, aggregate)
+}
+
+// aggregateOwnGate is the gate for the parts of a package-script aggregate
+// that are not references to other scripts: `check` that is just `astro
+// check` is the project's only run of it, whatever roles exist beside it.
+func aggregateOwnGate(proj *Project, aggregate Gate) (Gate, bool) {
+	if !strings.HasPrefix(aggregate.Source, packageSource) {
+		return Gate{}, false
+	}
+	pkg, ok := readPackageJSON(filepath.Join(proj.Root, "package.json"))
+	if !ok {
+		return Gate{}, false
+	}
+	rest, whole := aggregateRest(pkg.Scripts[aggregate.Name])
+	switch {
+	case whole:
+		return aggregate, true
+	case len(rest) > 0:
+		aggregate.Argv = []string{"sh", "-c", strings.Join(rest, " && ")}
+		return aggregate, true
+	}
+	return Gate{}, false
 }
 
 func (p Project) workspaceOrRoot() string {

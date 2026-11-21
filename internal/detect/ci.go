@@ -143,7 +143,8 @@ func (b *ciGateBuilder) expand(script string, st ciStep, seen []string) {
 	}
 	// An aggregate gate declined is one whose roles are already gates;
 	// what it runs beyond them is what is left to cover.
-	if !slices.Contains(aggregateNames, script) || b.have(script) {
+	rest, whole := aggregateRest(body)
+	if !slices.Contains(aggregateNames, script) || b.have(script) || whole {
 		via := ""
 		if len(seen) > 0 {
 			via = ", " + packageSource + script
@@ -152,10 +153,10 @@ func (b *ciGateBuilder) expand(script string, st ciStep, seen []string) {
 		return
 	}
 	seen = append(seen, script)
-	segs, ok := andChain(body)
-	if !ok {
-		return
+	if len(rest) > 0 {
+		b.add(script, []string{"sh", "-c", strings.Join(rest, " && ")}, st, ", "+packageSource+script)
 	}
+	segs, _ := andChain(body)
 	for _, seg := range segs {
 		c, ok := parseRun(seg)
 		if !ok {
@@ -166,6 +167,24 @@ func (b *ciGateBuilder) expand(script string, st ciStep, seen []string) {
 			b.expand(name, st, seen)
 		}
 	}
+}
+
+// aggregateRest is what an aggregate script runs that is not another script
+// or a turbo task: those parts are gates of their own, since nothing else
+// covers them. whole is true when the body is that one command, so the script
+// itself is the gate.
+func aggregateRest(body string) (rest []string, whole bool) {
+	segs, ok := andChain(body)
+	if !ok {
+		return []string{body}, true
+	}
+	for _, seg := range segs {
+		if c, ok := parseRun(seg); ok && (c.scriptName() != "" || c.tasks() != nil) {
+			continue
+		}
+		rest = append(rest, seg)
+	}
+	return rest, len(segs) == 1 && len(rest) == 1
 }
 
 func (b *ciGateBuilder) addTasks(c runCall, st ciStep) {
