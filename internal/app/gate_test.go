@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -1211,12 +1212,13 @@ func TestAnInterruptedGateIsStoppedNotFailedAndKeepsItsLog(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	started := filepath.Join(dir, "child-started")
-	orphan := filepath.Join(dir, "orphan-survived")
 	log := tempLog(t)
 
 	ctx, cancel := context.WithCancel(t.Context())
-	script := "echo before-the-interrupt; (touch " + started +
-		"; sleep 0.2; touch " + orphan + "); sleep 10"
+	// The background child's pid is the proof: asserting on a file it writes
+	// after a sleep races the cancel under load.
+	script := "echo before-the-interrupt; sleep 30 & echo $! > " + started + ".tmp && mv " +
+		started + ".tmp " + started + "; wait"
 
 	var out, errBuf bytes.Buffer
 	done := make(chan Code, 1)
@@ -1240,8 +1242,20 @@ func TestAnInterruptedGateIsStoppedNotFailedAndKeepsItsLog(t *testing.T) {
 		qt.Commentf("an interrupt was reported as a failure: %q", stderr))
 
 	qt.Assert(t, qt.IsTrue(exists(started)), qt.Commentf("the background child never ran, so nothing here is proven"))
-	time.Sleep(300 * time.Millisecond)
-	qt.Check(t, qt.IsFalse(exists(orphan)), qt.Commentf("a process spawned by the gate survived the interrupt"))
+	raw, err := os.ReadFile(started) //nolint:gosec // path under t.TempDir()
+	qt.Assert(t, qt.IsNil(err))
+	pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+	qt.Assert(t, qt.IsNil(err))
+	// Run has returned, so the group is already signalled; allow the kernel
+	// to finish tearing the process down.
+	gone := false
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		if syscall.Kill(pid, 0) != nil {
+			gone = true
+			break
+		}
+	}
+	qt.Check(t, qt.IsTrue(gone), qt.Commentf("a process spawned by the gate survived the interrupt"))
 
 	// The log is the guarantee: an interrupted run still finishes its file.
 	output, trailer := splitLog(t, log)
