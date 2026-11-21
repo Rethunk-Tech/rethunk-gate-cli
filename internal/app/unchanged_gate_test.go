@@ -138,6 +138,22 @@ func TestUnchangedTreeRunsWhenIsolationOrMemoryChanges(t *testing.T) {
 	}
 }
 
+// The pre-push hook is isolated and so is the run `rgit land` makes just
+// before it: the second reuses the first's pass.
+func TestUnchangedTreeSkipsASecondIsolatedRun(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	root := t.TempDir()
+	marker := filepath.Join(root, "ran")
+	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
+	testutil.Write(t, root, ".gate.toml", "[gates.g0]\nrun = \"echo ran >> "+marker+"\"\n")
+	committedRepo(t, root)
+	for range 2 {
+		_, stderr, code := runGateTest(t, "-C", root, "--isolate")
+		qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	}
+	qt.Check(t, qt.Equals(markerHits(t, marker, "ran"), 1), qt.Commentf("the second isolated run was not skipped"))
+}
+
 func TestSameRunGatesComparesCountAndRoles(t *testing.T) {
 	t.Parallel()
 	stored := []result{{Name: "lint"}, {Name: "test"}}
