@@ -117,6 +117,11 @@ type Config struct {
 	Budget    time.Duration
 	HasBudget bool
 
+	// FuzzBudget is the total wall time a local run gives the fuzz gate's
+	// targets; zero fuzzes every target.
+	FuzzBudget    time.Duration
+	HasFuzzBudget bool
+
 	// Jobs caps how many gates run at once. Zero means no cap (today's
 	// default). HasJobs distinguishes "not set" from a value the file named.
 	// Only N >= 1 is stored; 0 and negatives refuse the file.
@@ -173,11 +178,12 @@ var DefaultTrustedOrgs = []string{
 // `workdir` or `continue-on-error` is refused as an unknown key by
 // DisallowUnknownFields, the same as any typo, rather than silently accepted.
 type File struct {
-	Budget   *string   `toml:"budget"`
-	Jobs     *int      `toml:"jobs"`
-	FailFast *bool     `toml:"fail-fast"`
-	Trusted  *[]string `toml:"trusted-orgs"`
-	Detect   struct {
+	Budget     *string   `toml:"budget"`
+	FuzzBudget *string   `toml:"fuzz-budget"`
+	Jobs       *int      `toml:"jobs"`
+	FailFast   *bool     `toml:"fail-fast"`
+	Trusted    *[]string `toml:"trusted-orgs"`
+	Detect     struct {
 		Exclude []string `toml:"exclude"`
 	} `toml:"detect"`
 	Lock struct {
@@ -389,6 +395,15 @@ func (c *Config) mergeSettings(f File) (unusable []string) {
 			unusable = append(unusable, fmt.Sprintf("budget %v", err))
 		} else {
 			c.Budget, c.HasBudget = d, true
+		}
+	}
+
+	if f.FuzzBudget != nil {
+		d, err := ParseTimeout(*f.FuzzBudget)
+		if err != nil {
+			unusable = append(unusable, fmt.Sprintf("fuzz-budget %v", err))
+		} else {
+			c.FuzzBudget, c.HasFuzzBudget = d, true
 		}
 	}
 

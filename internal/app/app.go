@@ -869,6 +869,11 @@ func (st *runState) buildGates(ctx context.Context, proj detect.Project, cfg con
 		if len(include) > 0 && !slices.Contains(include, g.Name) {
 			continue
 		}
+		g, err := rotateFuzz(g, cfg, proj.Root, os.Getenv)
+		if err != nil {
+			fmt.Fprintf(stderr, "gate: %v\n", err)
+			return project, InvalidUsage, false
+		}
 		spec, err := detectedSpec(g, cfg, proj.Root)
 		if err != nil {
 			fmt.Fprintf(stderr, "gate: %v\n", err)

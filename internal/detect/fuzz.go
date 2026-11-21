@@ -1,24 +1,33 @@
 package detect
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 )
+
+const fuzzSource = "convention: go (Fuzz targets)"
 
 var fuzzTarget = regexp.MustCompile(`(?m)^func (Fuzz\w+)\(\w+ \*testing\.F\)`)
 
 // fuzzScript runs each "dir:Target" argument with a short -fuzztime, four at
-// a time: go test takes one -fuzz target and one package per run. A crasher
+// a time, each with -parallel a quarter of the CPUs (go test otherwise starts
+// one worker per CPU per target): go test takes one -fuzz target and one package per run. A crasher
 // stays in the package's testdata/fuzz, and go test prints that path in the
 // failure. Output is held until a target finishes so failures do not
 // interleave.
-const fuzzScript = `printf '%s\n' "$@" | xargs -P 4 -I{} sh -c '
+const fuzzScript = `[ -n "$GATE_FUZZ_STATE" ] && mkdir -p "${GATE_FUZZ_STATE%/*}"
+printf '%s\n' "$@" | xargs -P 4 -I{} sh -c '
 d=${1%%:*}; t=${1#*:}; rc=0
-out=$(cd "$d" && go test -run='"'"'^$'"'"' -fuzz="^$t\$" -fuzztime="${GATE_FUZZTIME:-2s}" . 2>&1) || rc=1
+s=$(date +%s%3N)
+out=$(cd "$d" && go test -run='"'"'^$'"'"' -fuzz="^$t\$" -parallel=@PAR@ -fuzztime="${GATE_FUZZTIME:-2s}" . 2>&1) || rc=1
+if [ $rc = 0 ] && [ -n "$GATE_FUZZ_STATE" ]; then e=$(date +%s%3N); printf "%s\t%s\t%s\n" "$1" "$((e/1000))" "$((e-s))" >> "$GATE_FUZZ_STATE"; fi
 printf "%s\n" "$out"; exit $rc' _ {}`
 
 // fuzzGates is one gate for a module that declares Fuzz targets, none where
@@ -63,7 +72,8 @@ func fuzzGates(root string) []Gate {
 		dirs = append(dirs, d)
 	}
 	sort.Strings(dirs)
-	argv := []string{"sh", "-c", fuzzScript, "sh"}
+	script := strings.Replace(fuzzScript, "@PAR@", strconv.Itoa(fuzzParallel()), 1)
+	argv := []string{"sh", "-c", script, "sh"}
 	for _, d := range dirs {
 		ts := targets[d]
 		sort.Strings(ts)
@@ -71,5 +81,11 @@ func fuzzGates(root string) []Gate {
 			argv = append(argv, d+":"+t)
 		}
 	}
-	return []Gate{{Name: "fuzz", Argv: argv, Source: "convention: go (Fuzz targets)"}}
+	return []Gate{{Name: "fuzz", Argv: argv, Source: fuzzSource, Summary: fmt.Sprintf("go test -fuzz (%d targets)", len(argv)-4)}}
+}
+
+// fuzzParallel is each target's -parallel: four targets run at once, so a
+// quarter of the CPUs apiece keeps the fleet of workers near the CPU count.
+func fuzzParallel() int {
+	return max(1, runtime.NumCPU()/4)
 }
