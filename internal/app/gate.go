@@ -597,8 +597,10 @@ func saveRecord(stderr io.Writer, opts options, results []gateResult, state stor
 	for _, res := range results {
 		rec.Gates = append(rec.Gates, toResult(res))
 	}
-	if err := writeRecord(rec); err != nil {
-		fmt.Fprintf(stderr, "gate: cannot write the result record: %v\n", err)
+	if !rec.Partial || code != Success || !freshFullPass(rec.Root, state) {
+		if err := writeRecord(rec); err != nil {
+			fmt.Fprintf(stderr, "gate: cannot write the result record: %v\n", err)
+		}
 	}
 	// Cached passes are skipped: their speed says nothing about a cold run.
 	passed := map[string]int64{}
@@ -610,6 +612,18 @@ func saveRecord(stderr io.Writer, opts options, results []gateResult, state stor
 	if err := stored.AppendDurations(opts.root, passed); err != nil {
 		fmt.Fprintf(stderr, "gate: cannot write the duration history: %v\n", err)
 	}
+}
+
+// freshFullPass is whether root's stored record is a whole-project pass of
+// this very tree. A passing partial run (`gate quick`, `gate run x`) proves
+// less and must not replace it, or the next bare gate reruns everything.
+func freshFullPass(root string, state stored.State) bool {
+	l, err := stored.Load(root)
+	if err != nil {
+		return false
+	}
+	fresh, _ := stored.Verdict(l.Schema, l.Head, l.Status, l.Partial, l.Exit, state)
+	return fresh
 }
 
 // groupRun is what running one schedule group needs from the run around it.

@@ -440,6 +440,26 @@ func TestRecordSaysPartialAfterANamedRun(t *testing.T) {
 	assertRecordView(t, js, false, "partial")
 }
 
+// A passing partial run proves less than the full pass already on record for
+// this tree, so it leaves that record alone.
+func TestPartialPassKeepsAFreshFullPassRecord(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "build:\n\ttrue\n\ntest:\n\ttrue\n")
+	testutil.Write(t, root, ".gate.toml", detectNoCanon)
+	committedRepo(t, root)
+
+	_, _, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Success))
+	_, _, code = runGateTest(t, "-C", root, "run", "build")
+	qt.Assert(t, qt.Equals(code, Success))
+	rec := readRecord(t, root)
+	qt.Check(t, qt.IsFalse(rec.Partial))
+	qt.Check(t, qt.HasLen(rec.Gates, 2))
+	_, _, code = runGateTest(t, "-C", root, "record")
+	qt.Check(t, qt.Equals(code, Success))
+}
+
 func TestRecordSaysFailedAfterAFailedRun(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
