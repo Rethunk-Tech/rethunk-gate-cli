@@ -176,3 +176,23 @@ func TestGateAsTheCommandOfAScopeStillRuns(t *testing.T) {
 	out, err = exec.CommandContext(t.Context(), "systemd-run", "--user", "--scope", "-q", "--collect", "--", bin, "-C", dir, "--log", filepath.Join(dir, "g.log"), "--", "true").CombinedOutput() //nolint:gosec // binary built above
 	qt.Check(t, qt.IsNil(err), qt.Commentf("%s", out))
 }
+
+// A command gate runs sees SIGPIPE at its default: ignoring it in gate must
+// not be inherited, or `yes | head -1` behaves differently under gate.
+func TestGatedCommandDoesNotInheritIgnoredSIGPIPE(t *testing.T) {
+	if _, err := os.Stat("/proc/self/status"); err != nil {
+		t.Skip("needs /proc")
+	}
+	ignoreSIGPIPE()
+	signals := make(chan os.Signal)
+	close(signals)
+	logPath := filepath.Join(t.TempDir(), "gate.log")
+	var out, errBuf bytes.Buffer
+	code := run([]string{"--log", logPath, "sh", "-c", "grep SigIgn /proc/self/status"}, &out, &errBuf, signals)
+	qt.Assert(t, qt.Equals(code, app.Code(0)), qt.Commentf("stderr = %q", errBuf.String()))
+	log, err := os.ReadFile(filepath.Clean(logPath))
+	qt.Assert(t, qt.IsNil(err))
+	mask, err := strconv.ParseUint(strings.TrimSpace(strings.TrimPrefix(strings.SplitN(string(log), "\n", 2)[0], "SigIgn:")), 16, 64)
+	qt.Assert(t, qt.IsNil(err), qt.Commentf("log = %q", log))
+	qt.Check(t, qt.Equals(mask&(1<<(syscall.SIGPIPE-1)), uint64(0)))
+}

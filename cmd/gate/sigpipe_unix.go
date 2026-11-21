@@ -3,6 +3,7 @@
 package main
 
 import (
+	"os"
 	"os/signal"
 	"syscall"
 )
@@ -15,6 +16,10 @@ import (
 // trailer in the log and the gated command still going. Ignoring it turns
 // that into an EPIPE the display writer simply drops, so the capture path
 // finishes normally and the command's status is still the verdict.
+//
+// Notify rather than Ignore: an ignored signal stays ignored across exec, so
+// every gated command would start with SIGPIPE off, while a handled one is
+// reset to the default in the child.
 func ignoreSIGPIPE() {
-	signal.Ignore(syscall.SIGPIPE)
+	signal.Notify(make(chan os.Signal, 1), syscall.SIGPIPE)
 }
