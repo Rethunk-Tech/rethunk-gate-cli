@@ -93,6 +93,26 @@ func TestReadTreeHashesSkipWorktreeAndAssumeUnchanged(t *testing.T) {
 	qt.Check(t, qt.IsTrue(assumed.Dirty), qt.Commentf("an assume-unchanged edit left dirty false"))
 }
 
+// A sparse checkout leaves excluded paths skip-worktree and absent from disk;
+// the tree is still readable, and a flagged file that is present still counts.
+func TestReadTreeReadsASparseCheckout(t *testing.T) {
+	t.Parallel()
+	repo := t.TempDir()
+	git := gitFixture(t, repo)
+	testutilWrite(t, repo, "in/f", "a\n")
+	testutilWrite(t, repo, "out/g", "a\n")
+	git("add", ".")
+	git("commit", "--quiet", "-m", "first")
+	git("sparse-checkout", "set", "--no-cone", "/in/")
+
+	clean := ReadTree(t.Context(), repo)
+	qt.Assert(t, qt.IsTrue(clean.OK))
+	qt.Check(t, qt.IsFalse(clean.Dirty))
+
+	testutilWrite(t, repo, "in/f", "b\n")
+	qt.Check(t, qt.IsTrue(ReadTree(t.Context(), repo).Dirty))
+}
+
 func TestIndexFlagsSelectsSkipWorktreeAndAssumeUnchanged(t *testing.T) {
 	t.Parallel()
 	in := []byte("H tracked\x00S skip\x00h assume\x00s both\x00C staged\x00")

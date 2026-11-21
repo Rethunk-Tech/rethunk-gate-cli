@@ -384,9 +384,16 @@ func blocksHash(root, p string) bool {
 	return err == nil && fi.Mode()&(os.ModeNamedPipe|os.ModeSocket|os.ModeDevice|os.ModeCharDevice) != 0
 }
 
+// skipNonRegular drops what hash-object cannot read: a path that would block,
+// and one with no file at all. A sparse checkout leaves its excluded paths
+// skip-worktree and absent, and hash-object fails on the first of them, which
+// left a 761k-path repository with no result record.
 func skipNonRegular(root string, paths []string) []string {
 	var kept []string
 	for _, p := range paths {
+		if _, err := os.Lstat(filepath.Join(root, filepath.FromSlash(p))); err != nil {
+			continue
+		}
 		if !blocksHash(root, p) {
 			kept = append(kept, p)
 		}
