@@ -1,2 +1,2 @@
 [deviations]
-go-golangci-lint-00014 = "gosec G703 in tests names t.TempDir() fixture paths, not attacker-controlled input"
+'go-golangci-lint-00014 rules:_test\.go:gosec' = "gosec G703 in tests names t.TempDir() fixture paths, not attacker-controlled input"

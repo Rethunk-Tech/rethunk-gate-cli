@@ -6,6 +6,15 @@ Notable changes to `gate`. The format follows
 
 ## [Unreleased]
 
+### Added
+- The `fuzz` gate has a local wall budget: `GATE_FUZZ_BUDGET` or `fuzz-budget = "8s"` in `.gate.toml` (default 8s, `0` fuzzes every target). Each run fuzzes the targets that fit, least recently fuzzed first, and the line says so, as in `fuzz (6/27 targets, rotating)`. A subset is still a plain pass. Last-fuzzed times and costs sit beside the result record in the state directory. CI fuzzes every target.
+
+### Fixed
+- The `fuzz` gate passes `-parallel` of a quarter of the CPUs to each target. `go test -fuzz` started one worker per CPU per target, 128 on a 32 core machine; peak memory on go-contentpatcher fell from 5.5 GiB to 2.8 GiB.
+- The Go build gate runs `go build -o /dev/null ./...`, so a module whose only package is `main` no longer gets a binary written into the tree.
+- A Yarn berry project (a `packageManager` pin of yarn 2 or newer, `.yarnrc.yml`, or `.yarn/releases`) installs with `yarn install --immutable`. `--frozen-lockfile` made Yarn 4 migrate the project and write `.yarnrc.yml`.
+- A sparse checkout no longer leaves `gate record` with "result record missing". Its excluded paths are skip-worktree and absent from disk, and hashing the first of them failed the whole tree read.
+
 ## [0.10.0] - 2026-11-21
 
 ### Added

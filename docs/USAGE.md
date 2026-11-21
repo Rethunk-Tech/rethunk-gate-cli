@@ -95,7 +95,7 @@ gated.
 
 A bare `gate` or `gate run` first runs the workspace lockfile's frozen install
 once (and one per [CI subdirectory package](#packages-ci-runs-in-a-subdirectory)):
-`bun install --frozen-lockfile`, `yarn install --frozen-lockfile`, `npm ci`, or
+`bun install --frozen-lockfile`, `yarn install --frozen-lockfile` (`--immutable` on Yarn berry), `npm ci`, or
 `pnpm install --frozen-lockfile`. A `uv.lock` (walked separately so it cannot
 hide a Node lockfile) runs `uv sync --locked` in its directory; both run when
 both exist. Prints `gate: install: <command> (in <workspace>)` on stderr. A
@@ -242,7 +242,9 @@ not parsed; the env vars reach a nested tool.
    discards them; a repo that requires SHA pins fails any ref that is not a full
    commit SHA); a bun workspace's `vuln` gate (`audit-bun`, else
    `bun audit`); a Go module's `fuzz` gate (each `Fuzz*` target in the module for
-   `GATE_FUZZTIME`, default `2s`, four at a time; none declared: no gate; a crasher
+   `GATE_FUZZTIME`, default `2s`, four at a time; locally only the targets that fit
+   `GATE_FUZZ_BUDGET` / `fuzz-budget` (default `8s`, `0` = all) run, least recently
+   fuzzed first, and CI runs all; none declared: no gate; a crasher
    fails the gate and `go test` prints its `testdata/fuzz/<Target>/<hash>` path);
    `markdownlint-cli2` where a `.markdownlint-cli2.*` config exists and no
    package script already runs it (bare when the config sets `globs`, else over
@@ -331,7 +333,7 @@ naming a script no role covers, becomes a gate; so does each extra task a
 declined aggregate runs. Multi-line `run`, raw commands, `working-directory`,
 and manual/schedule workflows are not read.
 
-Serial, CI order, build first. Exception: `go build ./...` stays concurrent
+Serial, CI order, build first. Exception: `go build -o /dev/null ./...` stays concurrent
 (it writes nothing a later step can read). Step and job `env` reach the gate
 under `.gate.toml`, plus `CI=true`. `${{ }}` values, or a job that starts
 services (`services:`, `supabase start`, `docker compose up`, `docker run`),
@@ -440,7 +442,7 @@ MDBOOK_VERSION = "0.4"
 ```
 
 Gate keys: `run`, `serial`, `needs`, `timeout`, `dir`, `env`, `allow-failure`, `e2e`, `isolate`.
-Outside: `budget`, `jobs`, `fail-fast`, `trusted-orgs` ([`--trust`](#--trust)), `[detect] exclude`, `[lock] scope` ([`Concurrent runs`](#concurrent-runs)), `[limits] memory` ([Memory cap](#memory-cap)), `[quick] gates` ([`gate quick`](#gate-quick)). `run` is a shell string (`sh` / `cmd`). It runs under `sh -c` without `-e`, so in a multi-line `run` only the last command's status counts: guard earlier lines with `|| exit 1`, or start the string with `set -e`.
+Outside: `budget`, `fuzz-budget`, `jobs`, `fail-fast`, `trusted-orgs` ([`--trust`](#--trust)), `[detect] exclude`, `[lock] scope` ([`Concurrent runs`](#concurrent-runs)), `[limits] memory` ([Memory cap](#memory-cap)), `[quick] gates` ([`gate quick`](#gate-quick)). `run` is a shell string (`sh` / `cmd`). It runs under `sh -c` without `-e`, so in a multi-line `run` only the last command's status counts: guard earlier lines with `|| exit 1`, or start the string with `set -e`.
 `timeout` is the same grammar as `--timeout` (`5m`, `90s`, `1m30s`, `0`).
 `jobs` is an integer >= 1 (no cap when absent, unless the 1-minute loadavg
 exceeds nproc, then nproc/2). `fail-fast` is a bool
