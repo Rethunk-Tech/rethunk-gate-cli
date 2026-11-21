@@ -6,10 +6,12 @@ Notable changes to `gate`. The format follows
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-21
+
 ### Added
 - A `fuzz` gate by convention for a Go module that declares `Fuzz*` targets: each runs for `GATE_FUZZTIME` (default `2s`), four at a time, and a crasher fails the gate with its `testdata/fuzz` path in the log. No targets, no gate. About 9s warm on go-smapi (9 targets) and go-safefs (10).
 - A `windows` gate (`GOOS=windows go build` and `go vet`) in `.gate.toml`, matching the CI Windows job.
-- The `workflows` gate also checks every `uses:` in the workflows, and in the local composite actions they call, against the repo's allowed-actions settings (`gh api repos/O/R/actions/permissions`). A refused action fails the gate. Under `verified_allowed`, an owner is verified when it is an organization with GitHub's verified badge (GraphQL `Organization.isVerified`, cached per owner per day); any other owner fails, and one whose status cannot be read warns as unverifiable. Answers are cached per repo per day; offline or without gh auth the check is skipped with a note.
+- The `workflows` gate also checks every `uses:` in the workflows, and in the local composite actions they call, against the repo's allowed-actions settings (`gh api repos/O/R/actions/permissions`). A refused action fails the gate. Under `verified_allowed`, an action that is not GitHub-owned and matches no `patterns_allowed` entry is a warning naming the owner, since the verified-creator status cannot be checked; it never fails. Actions outside the allowlist under `selected` or `local_only` still fail. Answers are cached per repo per day; offline or without gh auth the check is skipped with a note.
 
 ### Fixed
 - A run that leaves a role out for want of a tool (govulncheck, clippy, rustfmt, cargo-audit, dotnet) writes a partial record, so it is not mistaken for the whole gate passing, and prints one line naming the skipped roles. The exit stays 0.
