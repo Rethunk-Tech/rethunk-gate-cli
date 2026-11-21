@@ -711,7 +711,7 @@ func TestStaleResultIsAFindingAndAFreshOneIsNot(t *testing.T) {
 	qt.Assert(t, qt.IsNil(err))
 	f, ok := findingNamed(findings, "result-not-fresh")
 	qt.Assert(t, qt.IsTrue(ok), qt.Commentf("findings = %v", checkNames(findings)))
-	qt.Check(t, qt.IsTrue(f.Warn))
+	qt.Check(t, qt.IsFalse(f.Warn))
 	qt.Check(t, qt.Equals(f.Fix, "run gate"))
 	qt.Check(t, qt.Not(qt.Equals(f.Why, "")))
 

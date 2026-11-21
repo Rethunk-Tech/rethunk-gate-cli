@@ -146,7 +146,6 @@ func checkResultRecord(ctx context.Context, root string, add func(Finding)) {
 		return
 	}
 	add(Finding{
-		Warn:  true,
 		Check: "result-not-fresh",
 		Where: loaded.Path,
 		What:  "the last result is no longer fresh",

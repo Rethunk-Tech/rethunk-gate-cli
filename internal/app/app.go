@@ -883,6 +883,13 @@ func (st *runState) buildGates(ctx context.Context, proj detect.Project, cfg con
 	if len(roles) == 0 && slices.ContainsFunc(opts.gates, declaresShellcheck) {
 		opts.gates = slices.DeleteFunc(opts.gates, isConventionShellGate)
 	}
+	// A project that calls its formatter fmt has declared one; the convention's
+	// format would be the same check twice.
+	if len(roles) == 0 && slices.ContainsFunc(opts.gates, func(g gateSpec) bool { return g.role == "fmt" }) {
+		opts.gates = slices.DeleteFunc(opts.gates, func(g gateSpec) bool {
+			return g.role == "format" && strings.HasPrefix(g.source, "convention:")
+		})
+	}
 	if len(roles) == 0 && slices.ContainsFunc(opts.gates, declaresCanonVerify) {
 		opts.gates = slices.DeleteFunc(opts.gates, isConventionCanonGate)
 	}

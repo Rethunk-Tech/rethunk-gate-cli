@@ -331,6 +331,13 @@ func rustConventionGates(root string, proj *Project) (gates []Gate, skipped []Sk
 			// lint gate would report something other than a lint result.
 			skipped = append(skipped, Skip{"lint", "clippy not installed; skipping the lint gate (rustup component add clippy)"})
 		}
+		// rustfmt ships with the toolchain but is reached as `cargo fmt`, so the
+		// subcommand's binary is what is probed, as for clippy.
+		if resolve(root, proj, "cargo-fmt") != "" {
+			gates = append(gates, Gate{Name: "format", Argv: []string{"cargo", "fmt", "--check"}, Source: "convention: rust"})
+		} else {
+			skipped = append(skipped, Skip{"format", "rustfmt not installed; skipping the format gate (rustup component add rustfmt)"})
+		}
 		if resolve(root, proj, "cargo-audit") != "" {
 			gates = append(gates, Gate{Name: "vuln", Argv: []string{"cargo", "audit"}, Source: "convention: rust"})
 		} else {
@@ -390,6 +397,11 @@ func pythonConventionGates(root string, proj *Project) (gates []Gate, skipped []
 			skipped = append(skipped, Skip{"test", "pytest not declared and no tests/ or conftest.py; skipping the test gate"})
 		}
 		gates = append(gates, Gate{Name: "lint", Argv: []string{"uv", "run", "ruff", "check", "."}, Source: "convention: python"})
+		// ruff declared means its formatter is the project's, and the lint
+		// gate above already assumes ruff; `--check` reports, never rewrites.
+		if declaresRuff(root) {
+			gates = append(gates, Gate{Name: "format", Argv: []string{"uv", "run", "ruff", "format", "--check", "."}, Source: "convention: python"})
+		}
 		// pyrefly (99 uses) against mypy (4): the fleet has already moved,
 		// so the newer checker leads and mypy is the fallback.
 		//
@@ -1034,6 +1046,12 @@ func tsconfigHasProjectReferences(root string) bool {
 // declaresPytest reports whether a Python project has asked for pytest: named
 // in a manifest (a dependency, a plugin, or its own config table), or given the
 // layout pytest discovers. Textual, like every other manifest read here.
+// declaresRuff is whether pyproject.toml configures ruff or lists it as a dependency.
+func declaresRuff(root string) bool {
+	data, err := os.ReadFile(filepath.Clean(filepath.Join(root, "pyproject.toml")))
+	return err == nil && strings.Contains(string(data), "ruff")
+}
+
 func declaresPytest(root string) bool {
 	for _, name := range []string{"pytest.ini", "conftest.py", "tests", "test"} {
 		if exists(filepath.Join(root, name)) {

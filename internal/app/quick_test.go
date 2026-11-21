@@ -214,3 +214,18 @@ func TestQuickWithNoQuickGateSaysSoAndSucceeds(t *testing.T) {
 	qt.Check(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
 	qt.Check(t, qt.StringContains(stderr, "no format, lint or typecheck gate here"))
 }
+
+func TestFormatConventionsGetQuickWriteModesAndYieldToFmt(t *testing.T) {
+	t.Parallel()
+	ruff := []gateSpec{{role: "format", argv: []string{"uv", "run", "ruff", "format", "--check", "."}}}
+	got := scopeQuick(ensureQuickFormat(ruff), []string{"a.py"}, false)
+	qt.Assert(t, qt.HasLen(got, 1))
+	qt.Check(t, qt.DeepEquals(got[0].argv, []string{"uv", "run", "ruff", "format", "a.py"}))
+
+	root := timeoutProject(t, "[gates.fmt]\nrun = \"echo fmt\"\n")
+	testutil.Write(t, root, "pyproject.toml", "[project]\nname = \"x\"\n\n[tool.ruff]\n")
+	stdout, _, code := runGateTest(t, "-C", root, "--list")
+	qt.Assert(t, qt.Equals(code, Success))
+	qt.Check(t, qt.Not(qt.StringContains(stdout, "ruff format")), qt.Commentf("%s", stdout))
+	qt.Check(t, qt.StringContains(stdout, "echo fmt"))
+}

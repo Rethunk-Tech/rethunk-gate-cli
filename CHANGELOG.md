@@ -10,6 +10,7 @@ Notable changes to `gate`. The format follows
 - `gate push`: `rgit land` is the ship command and runs the gate itself.
 
 ### Added
+- A format gate by convention: `uv run ruff format --check .` for a Python project that declares ruff, `cargo fmt --check` for a Cargo project with rustfmt installed. `gate quick` runs them in write mode (`ruff format <files>`, `cargo fmt`). A project that declares its own `format` or `fmt` gate keeps only that one.
 - A bun workspace gets a `vuln` gate from its lockfile: `bun <gh-actions>/audit-bun/audit.ts` where audit-bun is checked out (it fails only on advisories whose fix has shipped and reads `.bun-audit-ignore`), plain `bun audit` otherwise. `gate doctor`'s `bun-no-audit` now names the `[gates.vuln]` line and `gate fix` writes it into `.gate.toml`. A package's own bun audit is not added to a CI-run package gate.
 - A named command that is the project's whole CI (`bun run ci`, `npm run check`, `make check`, ...) writes a full (not partial) result record; any other named command still writes none.
 
@@ -25,6 +26,7 @@ Notable changes to `gate`. The format follows
 - Logs in gate's own directory are kept **7 days** rather than 14, and the sweep runs once per run instead of once per day.
 
 ### Fixed
+- `gate doctor`'s `result-not-fresh` is information, not a warning.
 
 - `gate` as the direct command of `systemd-run --user --scope` no longer fails with "already loaded": its own scope gets a unit name of its own.
 - A passing partial run (`gate quick`, `gate run <name>`) no longer replaces a fresh full-pass record for the same tree, so the next bare `gate` is not forced to rerun everything.
