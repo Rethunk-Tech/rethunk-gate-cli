@@ -36,10 +36,10 @@ func runActionsAllowed(ctx context.Context, dir string, args []string, stdout, s
 		fmt.Fprintf(stderr, "gate: %v\n", err)
 		return Fatal
 	}
-	return checkAllowedActions(ctx, dir, ghFetch(ctx, dir), time.Now().UTC().Format(time.DateOnly), stderr)
+	return checkAllowedActions(ctx, dir, ghFetch(ctx, dir), ghOwner(ctx, dir), time.Now().UTC().Format(time.DateOnly), stderr)
 }
 
-func checkAllowedActions(ctx context.Context, dir string, fetch allowed.Fetcher, today string, stderr io.Writer) Code {
+func checkAllowedActions(ctx context.Context, dir string, fetch allowed.Fetcher, ownerFetch func(string) ([]byte, error), today string, stderr io.Writer) Code {
 	skip := func(why string) Code {
 		fmt.Fprintf(stderr, "gate: allowed-actions check skipped: %s\n", why)
 		return Success
@@ -58,12 +58,13 @@ func checkAllowedActions(ctx context.Context, dir string, fetch allowed.Fetcher,
 	if err != nil {
 		return skip(err.Error())
 	}
-	s, err := allowed.Load(m[1], filepath.Join(state, "gate", "actions-allowed"), today, fetch)
+	cacheDir := filepath.Join(state, "gate", "actions-allowed")
+	s, err := allowed.Load(m[1], cacheDir, today, fetch)
 	if err != nil {
 		return skip("cannot read " + m[1] + " settings: " + err.Error())
 	}
 	code := Success
-	for _, f := range allowed.Check(uses, s) {
+	for _, f := range allowed.Check(uses, s, allowed.OwnerVerifier(cacheDir, today, ownerFetch)) {
 		fmt.Fprintf(stderr, "gate: %s\n", f)
 		if f.Fail {
 			code = Code(1)
@@ -81,5 +82,15 @@ func ghFetch(ctx context.Context, dir string) allowed.Fetcher {
 			return nil, fmt.Errorf("gh api %s: %s", path, strings.TrimSpace(string(ee.Stderr)))
 		}
 		return out, err
+	}
+}
+
+const ownerQuery = `query($l:String!){repositoryOwner(login:$l){__typename ... on Organization{isVerified}}}`
+
+func ghOwner(ctx context.Context, dir string) func(string) ([]byte, error) {
+	return func(owner string) ([]byte, error) {
+		cmd := exec.CommandContext(ctx, "gh", "api", "graphql", "-f", "query="+ownerQuery, "-f", "l="+owner) //nolint:gosec // fixed argv, owner is a parsed uses: owner
+		cmd.Dir = dir
+		return cmd.Output()
 	}
 }

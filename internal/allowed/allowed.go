@@ -105,7 +105,10 @@ func scan(root, path string) ([]Use, error) {
 
 // Check judges each use against s. Local (./) and docker:// references are not
 // governed by the allowlist.
-func Check(uses []Use, s Settings) []Finding {
+//
+// verified reports whether an action owner is a verified creator; known is
+// false when that could not be determined, which warns instead of failing.
+func Check(uses []Use, s Settings, verified Verifier) []Finding {
 	var out []Finding
 	for _, u := range uses {
 		if strings.HasPrefix(u.Ref, "./") || strings.HasPrefix(u.Ref, "docker://") {
@@ -115,7 +118,7 @@ func Check(uses []Use, s Settings) []Finding {
 		case "local_only":
 			out = append(out, Finding{u, true, "only local actions are allowed"})
 		case "selected":
-			if f, bad := checkSelected(u, s); bad {
+			if f, bad := checkSelected(u, s, verified); bad {
 				out = append(out, f)
 			}
 		}
@@ -123,7 +126,7 @@ func Check(uses []Use, s Settings) []Finding {
 	return out
 }
 
-func checkSelected(u Use, s Settings) (Finding, bool) {
+func checkSelected(u Use, s Settings, verified Verifier) (Finding, bool) {
 	ref := strings.ToLower(u.Ref)
 	owner, _, _ := strings.Cut(ref, "/")
 	excluded, matched := false, false
@@ -141,7 +144,14 @@ func checkSelected(u Use, s Settings) (Finding, bool) {
 	case matched, s.GithubOwnedAllowed && (owner == "actions" || owner == "github"):
 		return Finding{}, false
 	case s.VerifiedAllowed:
-		return Finding{u, false, "allowed only if its creator is a verified Marketplace creator"}, true
+		ok, known := verified(owner)
+		switch {
+		case ok:
+			return Finding{}, false
+		case known:
+			return Finding{u, true, owner + " is not a verified creator and matches no patterns_allowed entry"}, true
+		}
+		return Finding{u, false, "verified-creator status of " + owner + " could not be read"}, true
 	}
 	return Finding{u, true, "not GitHub-owned and matches no patterns_allowed entry"}, true
 }
@@ -199,4 +209,46 @@ func Load(repo, cacheDir, today string, fetch Fetcher) (Settings, error) {
 		_ = os.WriteFile(cache, data, 0o600)
 	}
 	return s, nil
+}
+
+// Verifier reports whether owner is a verified creator, and whether that is
+// known.
+type Verifier func(owner string) (verified, known bool)
+
+// OwnerVerifier answers from GitHub's Organization.isVerified (the verified
+// badge); a user account is never verified. Answers are cached per owner per
+// day in cacheDir. fetch returns the JSON body for owner, shaped like
+// {"data":{"repositoryOwner":{"__typename":"Organization","isVerified":true}}}.
+func OwnerVerifier(cacheDir, today string, fetch func(owner string) ([]byte, error)) Verifier {
+	file := filepath.Join(cacheDir, "owners-"+today+".json")
+	cached := map[string]bool{}
+	if data, err := os.ReadFile(filepath.Clean(file)); err == nil {
+		_ = json.Unmarshal(data, &cached)
+	}
+	return func(owner string) (bool, bool) {
+		owner = strings.ToLower(owner)
+		if v, ok := cached[owner]; ok {
+			return v, true
+		}
+		body, err := fetch(owner)
+		if err != nil {
+			return false, false
+		}
+		var r struct {
+			Data struct {
+				RepositoryOwner *struct {
+					Typename   string `json:"__typename"`
+					IsVerified bool   `json:"isVerified"`
+				} `json:"repositoryOwner"`
+			} `json:"data"`
+		}
+		if json.Unmarshal(body, &r) != nil || r.Data.RepositoryOwner == nil {
+			return false, false
+		}
+		cached[owner] = r.Data.RepositoryOwner.IsVerified
+		if data, err := json.Marshal(cached); err == nil && os.MkdirAll(cacheDir, 0o750) == nil {
+			_ = os.WriteFile(file, data, 0o600)
+		}
+		return cached[owner], true
+	}
 }

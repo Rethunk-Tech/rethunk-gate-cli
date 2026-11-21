@@ -67,13 +67,13 @@ func TestCheck(t *testing.T) {
 			AllowedActions: "selected", GithubOwnedAllowed: true, VerifiedAllowed: true,
 			PatternsAllowed: []string{"org/*"},
 		}, map[string]bool{
-			"EndBug/label-sync@v2": false, "evil/x@v1": false,
+			"EndBug/label-sync@v2": true, "evil/x@v1": false,
 		}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			got := map[string]bool{}
-			for _, f := range Check(uses, c.s) {
+			for _, f := range Check(uses, c.s, func(o string) (bool, bool) { return false, o == "endbug" }) {
 				got[f.Use.Ref] = f.Fail
 			}
 			qt.Check(t, qt.DeepEquals(got, c.want))
@@ -100,4 +100,33 @@ func TestLoadFetchesOncePerDay(t *testing.T) {
 	qt.Check(t, qt.Equals(calls, 2))
 	_, err = Load("o/r", dir, "2026-11-22", func(string) ([]byte, error) { return nil, errors.New("offline") })
 	qt.Check(t, qt.IsNotNil(err))
+}
+
+func TestOwnerVerifier(t *testing.T) {
+	dir := t.TempDir()
+	bodies := map[string]string{
+		"google":  `{"data":{"repositoryOwner":{"__typename":"Organization","isVerified":true}}}`,
+		"endbug":  `{"data":{"repositoryOwner":{"__typename":"User"}}}`,
+		"missing": `{"data":{"repositoryOwner":null}}`,
+	}
+	calls := 0
+	v := OwnerVerifier(dir, "2026-11-21", func(o string) ([]byte, error) {
+		calls++
+		if b, ok := bodies[o]; ok {
+			return []byte(b), nil
+		}
+		return nil, errors.New("offline")
+	})
+	ok, known := v("Google")
+	qt.Check(t, qt.IsTrue(ok && known))
+	ok, known = v("EndBug")
+	qt.Check(t, qt.IsTrue(!ok && known))
+	_, known = v("missing")
+	qt.Check(t, qt.IsFalse(known))
+	_, known = v("nobody")
+	qt.Check(t, qt.IsFalse(known))
+	v2 := OwnerVerifier(dir, "2026-11-21", func(string) ([]byte, error) { return nil, errors.New("offline") })
+	ok, known = v2("google")
+	qt.Check(t, qt.IsTrue(ok && known))
+	qt.Check(t, qt.Equals(calls, 4))
 }

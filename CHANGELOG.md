@@ -7,7 +7,7 @@ Notable changes to `gate`. The format follows
 ## [Unreleased]
 
 ### Added
-- The `workflows` gate also checks every `uses:` in the workflows, and in the local composite actions they call, against the repo's allowed-actions settings (`gh api repos/O/R/actions/permissions`). A refused action fails the gate; one under `verified_allowed` warns as unverifiable. Answers are cached per repo per day; offline or without gh auth the check is skipped with a note.
+- The `workflows` gate also checks every `uses:` in the workflows, and in the local composite actions they call, against the repo's allowed-actions settings (`gh api repos/O/R/actions/permissions`). A refused action fails the gate. Under `verified_allowed`, an owner is verified when it is an organization with GitHub's verified badge (GraphQL `Organization.isVerified`, cached per owner per day); any other owner fails, and one whose status cannot be read warns as unverifiable. Answers are cached per repo per day; offline or without gh auth the check is skipped with a note.
 
 ### Fixed
 - The interrupted-gate test could fail under load: it raced a 0.2s sleep against the cancel. It now checks the background child by pid.
