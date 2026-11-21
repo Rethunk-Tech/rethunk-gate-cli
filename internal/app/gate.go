@@ -1249,9 +1249,9 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 	if !killBy.IsZero() {
 		killProcessGroupBy(cmd, killBy)
 	}
-	killOrphans(runEntry)
 	res.elapsed = time.Since(started)
 	res.started = true
+	killOrphans(runEntry)
 
 	// Whether the command left a partial last line has to be read before
 	// close finalises it, so the trailer below starts on a line of its own
