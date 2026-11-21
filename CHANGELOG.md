@@ -31,6 +31,7 @@ Notable changes to `gate`. The format follows
 - A `check`, `ci`, `verify` or `validate` package script that runs commands of its own (`astro check`) is a gate. Only a script that just calls other scripts is declined as an aggregate, and the parts of a mixed chain that are not script calls run as a gate.
 - `gate quick` reads a package script or `run = "..."` string that is one plain `biome`, `ruff`, `gofmt`, `golangci-lint` or `cargo fmt` command, so path scoping and write mode apply to it; before, only a gate whose argv named the tool was scoped. A gate named `fmt` counts as format (37 fleet repos use that name), and `golangci-lint fmt --diff` and `cargo fmt --check` get write modes.
 - A run during which the memory cap killed anything ends with `gate: N OOM kill(s) under the X cap during this run`, whatever the exit code; a kill under `sh -c`, `make` or `go test` used to look like a plain failure.
+- Where no cgroup memory controller is visible, gate says `memory cap <SIZE> unused: no cgroup memory controller visible` instead of staying silent about a cap that is not in force.
 
 ## [0.8.0] - 2026-11-13
 

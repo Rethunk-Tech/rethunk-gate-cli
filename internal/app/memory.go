@@ -98,6 +98,9 @@ func memoryNote(size string) string {
 		return ""
 	}
 	if limit, capped := cgroupLimit(); capped {
+		if limit == 0 {
+			return "memory cap " + size + " unused: no cgroup memory controller visible"
+		}
 		// Only a looser cap in force loses protection; a stricter one is noise.
 		if want, ok := parseSizeBytes(size); ok && limit > 0 && want < limit {
 			return "memory cap " + size + " not applied: already under a " + formatSize(limit) + " cap"

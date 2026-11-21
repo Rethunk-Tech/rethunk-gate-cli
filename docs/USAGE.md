@@ -609,7 +609,9 @@ unused: systemd-run --user is unavailable` line; that is not a failure. A gate
 started directly in a systemd service's cgroup is not re-exec'd, so
 `systemctl stop` still reaches it, and says so. Under an existing memory cap on
 the process's cgroup or an ancestor, gate adds none, and prints a note when
-`<SIZE>` differs from the cap in force.
+`<SIZE>` differs from the cap in force. Where no cgroup memory controller is
+visible (no cgroup v2, or a container that hides it) it prints `gate: memory
+cap <SIZE> unused: no cgroup memory controller visible`.
 
 A command the cap kills (exit 137 and the cgroup's `oom_kill` count rose during
 the run) is reported `killed: memory cap <SIZE>`, not `FAIL exit 137`.

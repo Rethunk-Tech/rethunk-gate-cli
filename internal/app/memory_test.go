@@ -204,7 +204,7 @@ func TestMemoryNoteNamesWhyTheCapIsNotTheRequestedOne(t *testing.T) {
 		{"same cap in force", "24G", 24 * g, true, "", true, ""},
 		{"smaller request under a larger cap", "8G", 30 * g, true, "", true, "memory cap 8G not applied: already under a 30G cap"},
 		{"larger request under a smaller cap", "24G", 8 * g, true, "", true, ""},
-		{"cap of unknown size", "8G", 0, true, "", true, ""},
+		{"no memory controller visible", "8G", 0, true, "", true, "memory cap 8G unused: no cgroup memory controller visible"},
 		{"started by a unit", "24G", 0, false, "abc", true, "memory cap 24G unused: started by a systemd unit, whose own limits apply"},
 		{"no user systemd", "24G", 0, false, "", false, "memory cap 24G unused: systemd-run --user is unavailable"},
 		{"disabled", "0", 8 * g, true, "", true, ""},
