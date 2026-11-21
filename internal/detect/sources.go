@@ -280,6 +280,7 @@ func goConventionGates(root string, proj *Project) (gates []Gate, skipped []Skip
 			// `go test -race ./...`, and a plain run passes data races CI fails.
 			Gate{Name: "test", Argv: []string{"go", "test", "-race", "./..."}, Source: "convention: go"},
 		)
+		gates = append(gates, fuzzGates(root)...)
 		// golangci-lint (153 uses) subsumes go vet (220), so it wins where
 		// it is installed and vet is the fallback rather than both running.
 		if bin := resolve(root, proj, "golangci-lint"); bin != "" {

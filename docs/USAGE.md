@@ -241,7 +241,9 @@ not parsed; the env vars reach a nested tool.
    skips when offline; answers are cached per UTC day, and `GATE_ACTIONS_REFRESH=1`
    discards them; a repo that requires SHA pins fails any ref that is not a full
    commit SHA); a bun workspace's `vuln` gate (`audit-bun`, else
-   `bun audit`);
+   `bun audit`); a Go module's `fuzz` gate (each `Fuzz*` target in the module for
+   `GATE_FUZZTIME`, default `2s`, four at a time; none declared: no gate; a crasher
+   fails the gate and `go test` prints its `testdata/fuzz/<Target>/<hash>` path);
    `markdownlint-cli2` where a `.markdownlint-cli2.*` config exists and no
    package script already runs it (bare when the config sets `globs`, else over
    `**/*.md`); `shellcheck` over the project's `.sh` files; `canon verify .`
@@ -251,14 +253,14 @@ not parsed; the env vars reach a nested tool.
 No Rust typecheck gate: `cargo build` already type-checks.
 
 Roles: `build`, `format`, `typecheck`, `lint`, `knip`, `workflows`, `markdown`, `shell`,
-`canon`, `test`, `vuln`. Aggregates `ci`, `check`, `verify`, `validate` (that
+`canon`, `test`, `fuzz`, `vuln`. Aggregates `ci`, `check`, `verify`, `validate` (that
 precedence) are not roles. `all` is a build target, never an aggregate.
 
 - **Declined** if any aggregated role was claimed (`build`, `typecheck`,
   `lint`, `test`, `vuln`).
 - **Run**, appended, if none were.
 
-A note says which. `knip`, `workflows`, `markdown`, `shell`, `canon` are not aggregated.
+A note says which. `knip`, `workflows`, `markdown`, `shell`, `canon`, `fuzz` are not aggregated.
 
 ### Leaving a directory out
 
