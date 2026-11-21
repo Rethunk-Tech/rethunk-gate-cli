@@ -161,3 +161,18 @@ func TestAReaderThatClosesEarlyStillGetsALogWithATrailer(t *testing.T) {
 	qt.Check(t, qt.Equals(strings.Count(body, "[gate]"), 1), qt.Commentf("log = %q", body))
 	qt.Check(t, qt.IsTrue(strings.HasSuffix(body, "-- sh -c "+script)), qt.Commentf("log = %q", body))
 }
+
+// gate as the direct command of an outer scope re-execs under its own scope;
+// the two must not claim systemd-run's pid-derived default unit name.
+func TestGateAsTheCommandOfAScopeStillRuns(t *testing.T) {
+	t.Parallel()
+	if err := exec.CommandContext(t.Context(), "systemd-run", "--user", "--scope", "-q", "--collect", "--", "true").Run(); err != nil {
+		t.Skip("no user systemd scope available")
+	}
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "gate")
+	out, err := exec.CommandContext(t.Context(), "go", "build", "-o", bin, ".").CombinedOutput() //nolint:gosec // bin is under t.TempDir()
+	qt.Assert(t, qt.IsNil(err), qt.Commentf("%s", out))
+	out, err = exec.CommandContext(t.Context(), "systemd-run", "--user", "--scope", "-q", "--collect", "--", bin, "-C", dir, "--log", filepath.Join(dir, "g.log"), "--", "true").CombinedOutput() //nolint:gosec // binary built above
+	qt.Check(t, qt.IsNil(err), qt.Commentf("%s", out))
+}

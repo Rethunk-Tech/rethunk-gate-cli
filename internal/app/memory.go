@@ -3,10 +3,12 @@ package app
 import (
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -153,7 +155,17 @@ func scopeRun(size string) {
 		return
 	}
 	argv := memoryArgv(size, true, append([]string{exe}, os.Args[1:]...))
+	// systemd-run names a scope after its pid; gate is that pid after the
+	// exec, so when gate itself is the command of an outer scope the default
+	// name is taken. A unit name of our own cannot clash.
+	if i := slices.Index(argv, "--"); i > 0 {
+		argv = slices.Insert(argv, i, "--unit="+scopeUnitName())
+	}
 	_ = execReplace(path, argv, os.Environ())
+}
+
+func scopeUnitName() string {
+	return fmt.Sprintf("gate-%d-%08x", os.Getpid(), rand.Uint32()) //nolint:gosec // a unit name, not a secret
 }
 
 // Where the cgroup v2 tree and this process's path in it are read from;
