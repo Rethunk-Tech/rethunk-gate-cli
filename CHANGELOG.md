@@ -6,6 +6,9 @@ Notable changes to `gate`. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- The interrupted-gate test could fail under load: it raced a 0.2s sleep against the cancel. It now checks the background child by pid.
+
 ## [0.9.0] - 2026-11-21
 
 ### Removed
