@@ -550,7 +550,9 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		return code
 	}
 	if len(command) > 0 {
-		st.wholeCI, _ = detect.WholeCIRoot(dir, command)
+		if root, ok := detect.WholeCIRoot(dir, command); ok {
+			st.wholeCI = root
+		}
 		opts.gates = append(opts.gates, gateSpec{
 			argv:    command,
 			display: strings.Join(command, " "),

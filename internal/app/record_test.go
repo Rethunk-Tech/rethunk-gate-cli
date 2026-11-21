@@ -242,6 +242,20 @@ func TestNamedWholeCIWritesAFullRecord(t *testing.T) {
 	qt.Check(t, qt.Equals(code, Success))
 }
 
+// `make check` that only a catch-all rule answers is not the project's CI, so
+// the pass is partial.
+func TestNamedAggregateTheProjectLacksWritesAPartialRecord(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "test:\n\tfalse\n%:\n\ttrue\n")
+	committedRepo(t, root)
+
+	_, _, code := runGateTest(t, "-C", root, "make", "check")
+	qt.Assert(t, qt.Equals(code, Success))
+	_, _, code = runGateTest(t, "-C", root, "record")
+	qt.Check(t, qt.Not(qt.Equals(code, Success)))
+}
+
 // Two dirty trees at one HEAD must not share a hash. A clean tree is the hash
 // of empty status and an empty diff; an untracked file, and a second content
 // for that file, each move it.
