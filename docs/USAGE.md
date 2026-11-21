@@ -245,7 +245,7 @@ not parsed; the env vars reach a nested tool.
    `GATE_FUZZTIME`, default `2s`, four at a time; locally only the targets that fit
    `GATE_FUZZ_BUDGET` / `fuzz-budget` (default `8s`, `0` = all) run, least recently
    fuzzed first, and CI runs all; none declared: no gate; a crasher
-   fails the gate and `go test` prints its `testdata/fuzz/<Target>/<hash>` path);
+   fails the gate and `go test` prints its `testdata/fuzz/<Target>/<hash>` path; with no `--timeout` or `timeout` key the gate's limit is `ceil(targets/4)` x (fuzztime + 60s), at least 1m, counting the targets that run);
    `markdownlint-cli2` where a `.markdownlint-cli2.*` config exists and no
    package script already runs it (bare when the config sets `globs`, else over
    `**/*.md`); `shellcheck` over the project's `.sh` files; `canon verify .`

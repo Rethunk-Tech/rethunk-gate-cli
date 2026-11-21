@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 )
 
 // Gate is one runnable check.
@@ -63,6 +64,10 @@ type Gate struct {
 	// Env is what a CI step sets for the script it runs, carried so the
 	// gate runs it the way CI does.
 	Env map[string]string
+
+	// Timeout is a default for this gate where the global one cannot fit what
+	// it runs; zero keeps the global. A flag or a .gate.toml key still wins.
+	Timeout time.Duration
 }
 
 // Display is the command as a reader would type it, or the gate's own summary

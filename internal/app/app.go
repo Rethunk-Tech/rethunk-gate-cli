@@ -1028,6 +1028,9 @@ func detectedSpec(g detect.Gate, cfg config.Config, root string) (gateSpec, erro
 	if g.Dir != "" {
 		spec.dir, spec.hasDir = g.Dir, true
 	}
+	if g.Timeout > 0 {
+		spec.timeout, spec.hasTimeout = g.Timeout, true
+	}
 	// Config overrides a detected gate; it never removes one, and the
 	// detected source stays on the line so --list still says where
 	// the gate came from as well as what changed it.

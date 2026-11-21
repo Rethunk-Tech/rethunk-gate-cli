@@ -107,3 +107,14 @@ func RotateFuzz(g Gate, budget, fuzztime time.Duration, state map[string]FuzzSta
 	}
 	return out
 }
+
+// fuzzCompile is what each target may cost beyond its -fuzztime in a gate
+// timeout: the instrumented build, with one worker on a small runner.
+const fuzzCompile = 60 * time.Second
+
+// FuzzTimeout is the time n targets need across the four lanes, each target
+// taking its fuzztime plus a compile allowance, never under floor.
+func FuzzTimeout(n int, fuzztime, floor time.Duration) time.Duration {
+	waves := (n + fuzzLanes - 1) / fuzzLanes
+	return max(floor, time.Duration(waves)*(fuzztime+fuzzCompile))
+}

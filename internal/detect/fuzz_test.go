@@ -75,3 +75,9 @@ func TestLoadFuzzStateKeepsTheLatestLinePerTarget(t *testing.T) {
 	qt.Check(t, qt.DeepEquals(got, map[string]FuzzStat{"./a:FuzzX": {At: 20, Cost: 3 * time.Second}}))
 	qt.Check(t, qt.IsNil(LoadFuzzState(filepath.Join(t.TempDir(), "none"))))
 }
+
+func TestFuzzTimeoutCountsWavesAndKeepsTheFloor(t *testing.T) {
+	qt.Check(t, qt.Equals(FuzzTimeout(3, 2*time.Second, time.Minute), 62*time.Second))
+	qt.Check(t, qt.Equals(FuzzTimeout(5, 2*time.Second, time.Minute), 124*time.Second))
+	qt.Check(t, qt.Equals(FuzzTimeout(1, time.Second, 5*time.Minute), 5*time.Minute))
+}

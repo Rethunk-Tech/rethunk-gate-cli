@@ -6,6 +6,11 @@ Notable changes to `gate`. The format follows
 
 ## [Unreleased]
 
+## [0.10.2] - 2026-11-21
+
+### Fixed
+- The `fuzz` gate no longer dies at the 1m default on a small CI runner. With no `--timeout` and no `timeout` in `.gate.toml`, it gets one wave per four targets of `GATE_FUZZTIME` plus 60s for the build, never under 1m. Locally the figure covers only the targets the fuzz budget lets run.
+
 ## [0.10.1] - 2026-11-21
 
 ### Added
