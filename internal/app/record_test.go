@@ -965,3 +965,13 @@ func TestUnchangedTreePartialAndFailedRun(t *testing.T) {
 	qt.Assert(t, qt.Equals(code, Code(3)), qt.Commentf("stderr = %q", stderr))
 	qt.Check(t, qt.Equals(markerHits(t, marker, "ran"), failedHits+1), qt.Commentf("a failed record was skipped"))
 }
+
+func TestRecordTextPadsToTheLongestGateName(t *testing.T) {
+	t.Parallel()
+	var out strings.Builder
+	rec := record{Gates: []result{{Name: "typecheck-extra", Status: "ok"}, {Name: "lint", Status: "ok"}}}
+	qt.Assert(t, qt.IsNil(writeRecordText(&out, rec)))
+	qt.Check(t, qt.StringContains(out.String(), "typecheck-extra ok\n"))
+	qt.Check(t, qt.StringContains(out.String(), "lint            ok\n"))
+	qt.Check(t, qt.StringContains(out.String(), "schema          0\n"))
+}

@@ -32,6 +32,7 @@ Notable changes to `gate`. The format follows
 - `gate quick` reads a package script or `run = "..."` string that is one plain `biome`, `ruff`, `gofmt`, `golangci-lint` or `cargo fmt` command, so path scoping and write mode apply to it; before, only a gate whose argv named the tool was scoped. A gate named `fmt` counts as format (37 fleet repos use that name), and `golangci-lint fmt --diff` and `cargo fmt --check` get write modes.
 - A run during which the memory cap killed anything ends with `gate: N OOM kill(s) under the X cap during this run`, whatever the exit code; a kill under `sh -c`, `make` or `go test` used to look like a plain failure.
 - Where no cgroup memory controller is visible, gate says `memory cap <SIZE> unused: no cgroup memory controller visible` instead of staying silent about a cap that is not in force.
+- Quieter and clearer output: the sweep line prints only when it removed something; `gate record` pads its column to the longest gate name; `gate doctor` keeps an absolute path where the relative one would climb out with `..`; a serial run's `ok` line shows the total time rather than the longest gate; the failure footer names the role (`gate: failed: b (gate run b) -> <log>`) and the duplicate `full log` line is gone; `gate quick` in a project with no format, lint or typecheck gate says so and exits 0 like `--list quick`; `--version` shows the memory cap.
 
 ## [0.8.0] - 2026-11-13
 

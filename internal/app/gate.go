@@ -958,14 +958,25 @@ func report(results []gateResult, opts options, stdout, stderr io.Writer) Code {
 	}
 	writeFailedSteps(stderr, results)
 	if collapse && aggregate == Success {
-		var longest time.Duration
-		for _, res := range results {
-			longest = max(longest, res.elapsed)
-		}
+		longest := runSpan(results, opts.serial)
 		fmt.Fprintf(stdout, "gate: ok  %d gates  %s  logs %s\n",
 			len(results), longest.Round(time.Millisecond), filepath.Dir(results[0].logPath))
 	}
 	return aggregate
+}
+
+// runSpan is how long the gates took: the slowest when they ran concurrently,
+// the sum when one ran after another.
+func runSpan(results []gateResult, serial bool) time.Duration {
+	var span time.Duration
+	for _, res := range results {
+		if serial {
+			span += res.elapsed
+		} else {
+			span = max(span, res.elapsed)
+		}
+	}
+	return span
 }
 
 // allPassed reports whether every gate ran and exited 0 with a log, the only
@@ -1007,6 +1018,9 @@ func failedStep(res gateResult) (name, log string) {
 	name = res.spec.short()
 	if name == "" {
 		name = res.spec.role
+	}
+	if res.spec.role != "" {
+		name += " (gate run " + res.spec.role + ")"
 	}
 	return name, res.logPath
 }
@@ -1084,13 +1098,11 @@ func reportRan(res gateResult, opts options, quote func(io.Writer, *lineTracker)
 		fmt.Fprintf(stderr, "gate: FAIL%s %s  %s  %s\n",
 			allowed, "killed: memory cap "+res.memory, res.spec.short(), res.elapsed.Round(time.Millisecond))
 		quote(stderr, res.tracker)
-		fmt.Fprintf(stderr, "gate: full log  %s\n", res.logPath)
 		return
 	}
 	fmt.Fprintf(stderr, "gate: FAIL%s exit %d  %s  %s\n",
 		allowed, int(res.code), res.spec.short(), res.elapsed.Round(time.Millisecond))
 	quote(stderr, res.tracker)
-	fmt.Fprintf(stderr, "gate: full log  %s\n", res.logPath)
 }
 
 // writeTimeoutRemedy names the fix for a gate the limit killed.

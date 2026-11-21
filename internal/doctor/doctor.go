@@ -97,7 +97,7 @@ func RunProject(ctx context.Context, proj detect.Project, cfg config.Config) []F
 	var findings []Finding
 	add := func(f Finding) {
 		f.Path = f.Where
-		if rel, err := filepath.Rel(base, f.Where); err == nil {
+		if rel, err := filepath.Rel(base, f.Where); err == nil && !strings.HasPrefix(rel, "..") {
 			f.Where = rel
 		}
 		findings = append(findings, f)

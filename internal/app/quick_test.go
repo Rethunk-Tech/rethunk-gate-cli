@@ -201,3 +201,11 @@ func TestQuickResolvesScriptAndShellGatesAndFmt(t *testing.T) {
 	qt.Check(t, qt.HasLen(scopeQuick(ensureQuickFormat(cargo), []string{"a.go"}, false), 0))
 	qt.Check(t, qt.HasLen(scopeQuick(ensureQuickFormat(cargo), []string{"a.rs"}, false), 1))
 }
+
+func TestQuickWithNoQuickGateSaysSoAndSucceeds(t *testing.T) {
+	t.Parallel()
+	root := timeoutProject(t, "[gates.test]\nrun = \"echo test\"\n")
+	_, stderr, code := runGateTest(t, "-C", root, "quick")
+	qt.Check(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.StringContains(stderr, "no format, lint or typecheck gate here"))
+}

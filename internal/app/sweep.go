@@ -54,7 +54,7 @@ func sweepOrphans() (runs, builds, logs int) {
 // leftovers still go.
 func reportSweep(w io.Writer, quiet bool) {
 	runs, builds, logs := sweepOrphans()
-	if quiet {
+	if quiet || runs+builds+logs == 0 {
 		return
 	}
 	fmt.Fprintf(w, "gate: removed %d dead run dir(s), %d go-build dir(s), %d log(s) older than %d days\n",

@@ -39,6 +39,16 @@ func quickRoles(cfg config.Config) []string {
 	return roles
 }
 
+// quickRoleWords is "format, lint or typecheck" for the roles a quick run
+// selects, leaving out fmt, which is only format's other spelling.
+func quickRoleWords(roles []string) string {
+	words := slices.DeleteFunc(slices.Clone(roles), func(r string) bool { return r == "fmt" })
+	if len(words) < 2 {
+		return strings.Join(words, "")
+	}
+	return strings.Join(words[:len(words)-1], ", ") + " or " + words[len(words)-1]
+}
+
 func ensureQuickFormat(gates []gateSpec) []gateSpec {
 	for i := range gates {
 		if gates[i].role == "format" {

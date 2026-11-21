@@ -531,7 +531,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	// `gate --timeout 5m --version` reports 5m instead of the default it
 	// would have printed had it exited on sight.
 	if st.showVersion {
-		writeVersion(stdout, version, st.timeout, st.budget)
+		writeVersion(stdout, version, st.timeout, st.budget, st.opts.memory)
 		return Success
 	}
 	if code, ok := st.finalizeFlags(stderr); !ok {
@@ -809,6 +809,10 @@ func (st *runState) detectGates(ctx context.Context, dir string, roles []string,
 	project, code, ok = st.buildGates(ctx, proj, cfg, roles, stderr)
 	if ok && st.opts.quick {
 		had := len(st.opts.gates)
+		if had == 0 && !st.opts.list && !st.opts.jsonList {
+			fmt.Fprintf(stderr, "gate: no %s gate here\n", quickRoleWords(quickRoles(cfg)))
+			return project, cfg, Success, false
+		}
 		st.opts.gates = applyQuick(ctx, st.opts.gates, cfg, project.Root, st.opts.quickAll)
 		st.opts.serial = true
 		if had > 0 && len(st.opts.gates) == 0 {

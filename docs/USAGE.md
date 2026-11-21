@@ -657,10 +657,10 @@ Filename is command plus a random suffix. **0600 in a 0700 directory**.
 caller's (0755 if created, never 0700, never swept).
 
 When any step failed, the report ends with one line per failure,
-`gate: failed: <name> -> <full log path>`, after the summary, so
+`gate: failed: <name> (gate run <role>) -> <full log path>`, after the summary, so
 `tail -3` names what failed and where.
 
-`--version` names timeout, budget, log directory, retention.
+`--version` names timeout, budget, memory cap, log directory, retention.
 
 ## Temporary files
 

@@ -142,8 +142,8 @@ func TestSweepRemovesADeadRunsTempDirAndKeepsALiveOne(t *testing.T) {
 	qt.Check(t, qt.IsTrue(exists(freshBuild)), qt.Commentf("a go-build dir inside the day was removed"))
 }
 
-// The line has to appear on a run that removed nothing, or an operator cannot
-// tell a working sweep from one that never ran.
+// A sweep that removed nothing says nothing: the line was on every run, and
+// 491 of those in a log are noise.
 func TestSweepReportsItsCounts(t *testing.T) {
 	base := t.TempDir()
 	t.Setenv("GATE_TMPDIR", base)
@@ -151,7 +151,14 @@ func TestSweepReportsItsCounts(t *testing.T) {
 
 	var out strings.Builder
 	reportSweep(&out, false)
-	qt.Check(t, qt.StringContains(out.String(), "removed 0"), qt.Commentf("line = %q", out.String()))
+	qt.Check(t, qt.Equals(out.String(), ""))
+
+	stale := filepath.Join(base, "go-build123")
+	qt.Assert(t, qt.IsNil(os.Mkdir(stale, 0o750)))
+	old := time.Now().Add(-48 * time.Hour)
+	qt.Assert(t, qt.IsNil(os.Chtimes(stale, old, old)))
+	reportSweep(&out, false)
+	qt.Check(t, qt.StringContains(out.String(), "1 go-build dir(s)"), qt.Commentf("line = %q", out.String()))
 	qt.Check(t, qt.StringContains(out.String(), "7 days"), qt.Commentf("line = %q", out.String()))
 
 	// --quiet's contract is that a passing run prints nothing at all.

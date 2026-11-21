@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -13,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -123,7 +125,14 @@ func loadRecord(root string) (record, error) {
 }
 
 func writeRecordText(w io.Writer, rec record) error {
+	// The key column is as wide as the longest gate name, and never narrower
+	// than the longest header ("finished").
+	pad := 9
+	for _, g := range rec.Gates {
+		pad = max(pad, len(cmp.Or(g.Name, g.Display))+1)
+	}
 	write := func(format string, args ...any) error {
+		format = strings.Replace(format, "%-9s", "%-"+strconv.Itoa(pad)+"s", 1)
 		_, err := fmt.Fprintf(w, format, args...)
 		return err
 	}

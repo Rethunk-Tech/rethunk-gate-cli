@@ -275,7 +275,7 @@ func TestAMultiLineRunKeepsOneTrailerAndOneVerdict(t *testing.T) {
 	body := readLog(t, logs[0])
 	qt.Check(t, qt.Equals(strings.Count(body, trailerPrefix), 1), qt.Commentf("log = %q", body))
 	qt.Check(t, qt.IsTrue(strings.HasSuffix(strings.TrimSuffix(body, "\n"), "exit 3")), qt.Commentf("log = %q", body))
-	qt.Check(t, qt.StringContains(lines[len(lines)-1], "gate: failed: echo one echo two exit 3 -> "))
+	qt.Check(t, qt.StringContains(lines[len(lines)-1], "gate: failed: echo one echo two exit 3 (gate run test) -> "))
 }
 
 func TestFailedStepsAreNamedLast(t *testing.T) {
@@ -285,8 +285,8 @@ func TestFailedStepsAreNamedLast(t *testing.T) {
 	qt.Assert(t, qt.Equals(code, Code(3)), qt.Commentf("stderr = %q", stderr))
 	lines := strings.Split(strings.TrimSuffix(stderr, "\n"), "\n")
 	qt.Assert(t, qt.IsTrue(len(lines) >= 2), qt.Commentf("stderr = %q", stderr))
-	qt.Check(t, qt.StringContains(lines[len(lines)-2], "gate: failed: exit 3 -> "))
-	qt.Check(t, qt.StringContains(lines[len(lines)-1], "gate: failed: exit 5 -> "))
+	qt.Check(t, qt.StringContains(lines[len(lines)-2], "gate: failed: exit 3 (gate run g0) -> "))
+	qt.Check(t, qt.StringContains(lines[len(lines)-1], "gate: failed: exit 5 (gate run g1) -> "))
 }
 
 // The guarantee the whole tool rests on. The summary is deliberately bounded

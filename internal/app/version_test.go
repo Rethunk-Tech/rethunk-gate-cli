@@ -12,7 +12,7 @@ import (
 // version renders the version output for one set of settings.
 func version(ldflags string, timeout, budget time.Duration) string {
 	var out bytes.Buffer
-	writeVersion(&out, ldflags, timeout, budget)
+	writeVersion(&out, ldflags, timeout, budget, defaultMemory)
 	return out.String()
 }
 
@@ -78,6 +78,14 @@ func TestResolveVersionPrefersLdflagsAndIsNeverEmpty(t *testing.T) {
 func TestVersionNamesLogRetention(t *testing.T) {
 	t.Parallel()
 	var out bytes.Buffer
-	writeVersion(&out, "v1.2.3", time.Minute, defaultBudget)
+	writeVersion(&out, "v1.2.3", time.Minute, defaultBudget, defaultMemory)
 	qt.Check(t, qt.StringContains(out.String(), "kept 7 days"), qt.Commentf("version = %q", out.String()))
+}
+
+func TestVersionNamesTheMemoryCap(t *testing.T) {
+	t.Parallel()
+	qt.Check(t, qt.StringContains(version("v1.2.3", defaultTimeout, defaultBudget), "memory "+defaultMemory+","))
+	var out bytes.Buffer
+	writeVersion(&out, "v1.2.3", defaultTimeout, defaultBudget, "0")
+	qt.Check(t, qt.StringContains(out.String(), "memory off,"))
 }
