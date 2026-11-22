@@ -54,8 +54,8 @@ func TestQuickPathScopingPerTool(t *testing.T) {
 	}
 	got := scopeQuick(gates, files, false)
 	qt.Assert(t, qt.HasLen(got, 3))
-	qt.Check(t, qt.DeepEquals(got[0].argv, []string{"biome", "check", "--write", "src/a.ts"}))
-	qt.Check(t, qt.DeepEquals(got[1].argv, []string{"biome", "check", "src/a.ts"}))
+	qt.Check(t, qt.DeepEquals(got[0].argv, []string{"biome", "check", "--write", "--no-errors-on-unmatched", "src/a.ts"}))
+	qt.Check(t, qt.DeepEquals(got[1].argv, []string{"biome", "check", "--no-errors-on-unmatched", "src/a.ts"}))
 	qt.Check(t, qt.DeepEquals(got[2].argv, []string{"tsc", "--noEmit"}))
 
 	goGates := []gateSpec{
@@ -72,7 +72,7 @@ func TestQuickPathScopingPerTool(t *testing.T) {
 	ruff := []gateSpec{{role: "lint", argv: []string{"uv", "run", "ruff", "check", "."}, display: "uv run ruff check ."}}
 	got = scopeQuick(ruff, files, false)
 	qt.Assert(t, qt.HasLen(got, 1))
-	qt.Check(t, qt.DeepEquals(got[0].argv, []string{"uv", "run", "ruff", "check", "app.py"}))
+	qt.Check(t, qt.DeepEquals(got[0].argv, []string{"uv", "run", "ruff", "check", "--force-exclude", "app.py"}))
 
 	got = scopeQuick(gates, files, true)
 	qt.Check(t, qt.DeepEquals(got[0].argv, []string{"biome", "check", "--write", "."}))
@@ -148,17 +148,27 @@ func TestChangedFilesSkipsDeletedAndIsRelativeToTheProject(t *testing.T) {
 }
 
 func TestQuickWriteModeAndScoping(t *testing.T) {
-	t.Parallel()
 	qt.Check(t, qt.DeepEquals(writeModeArgv([]string{"ruff", "check", "."}), []string{"ruff", "format", "."}))
 	qt.Check(t, qt.DeepEquals(writeModeArgv([]string{"ruff", "format", "--check", "."}), []string{"ruff", "format", "."}))
 	qt.Check(t, qt.DeepEquals(writeModeArgv([]string{"dotnet", "format", "--verify-no-changes"}), []string{"dotnet", "format"}))
 	// A lint-only golangci-lint project formats the whole tree with --all and
 	// only the changed files otherwise.
+	orig := golangciV2
+	t.Cleanup(func() { golangciV2 = orig })
+	golangciV2 = func([]string) bool { return false }
 	format, ok := formatFromLint([]string{"golangci-lint", "run"})
 	qt.Assert(t, qt.IsTrue(ok))
 	qt.Check(t, qt.DeepEquals(format, []string{"gofmt", "-w", "."}))
 	got := scopeQuick([]gateSpec{{role: "format", argv: format}}, []string{"a.go"}, false)
 	qt.Check(t, qt.DeepEquals(got[0].argv, []string{"gofmt", "-w", "a.go"}))
+
+	// v2 formats with the configured formatters, scoped to the changed files.
+	golangciV2 = func([]string) bool { return true }
+	format, ok = formatFromLint([]string{"go", "tool", "golangci-lint", "run", "./..."})
+	qt.Assert(t, qt.IsTrue(ok))
+	qt.Check(t, qt.DeepEquals(format, []string{"go", "tool", "golangci-lint", "fmt", "."}))
+	got = scopeQuick([]gateSpec{{role: "format", argv: format}}, []string{"a.go"}, false)
+	qt.Check(t, qt.DeepEquals(got[0].argv, []string{"go", "tool", "golangci-lint", "fmt", "a.go"}))
 }
 
 func TestQuickWithNothingChangedPrintsAndSucceeds(t *testing.T) {
@@ -194,7 +204,7 @@ func TestQuickResolvesScriptAndShellGatesAndFmt(t *testing.T) {
 	scoped := scopeQuick(got[:2], []string{"a.go", "b.ts"}, false)
 	qt.Assert(t, qt.HasLen(scoped, 2))
 	qt.Check(t, qt.DeepEquals(scoped[0].argv, []string{"golangci-lint", "fmt", "a.go"}))
-	qt.Check(t, qt.DeepEquals(scoped[1].argv, []string{"bun", "run", "biome", "check", "--error-on-warnings", "b.ts"}))
+	qt.Check(t, qt.DeepEquals(scoped[1].argv, []string{"bun", "run", "biome", "check", "--error-on-warnings", "--no-errors-on-unmatched", "b.ts"}))
 
 	env := resolveQuickTool(gateSpec{role: "lint", argv: shellArgv("GOGC=400 go tool golangci-lint run ./..."), env: map[string]string{"A": "1"}})
 	qt.Check(t, qt.DeepEquals(env.argv, []string{"go", "tool", "golangci-lint", "run", "./..."}))

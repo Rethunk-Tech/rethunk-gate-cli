@@ -81,9 +81,20 @@ func formatFromLint(argv []string) ([]string, bool) {
 	case argvHas(argv, "biome"), argvHas(argv, "ruff"), argvHas(argv, "gofmt"):
 		return writeModeArgv(argv), true
 	case argvHas(argv, "golangci-lint"):
+		// v2 formats with the formatters the project configured (gofumpt,
+		// goimports); v1 has no fmt, so plain gofmt is all there is.
+		if i := slices.Index(argv, "run"); i > 0 && golangciV2(argv[:i]) {
+			return append(slices.Clone(argv[:i]), "fmt", "."), true
+		}
 		return []string{"gofmt", "-w", "."}, true
 	}
 	return nil, false
+}
+
+// golangciV2 reports whether the golangci-lint that prefix invokes is v2.
+var golangciV2 = func(prefix []string) bool {
+	out, err := exec.Command(prefix[0], append(slices.Clone(prefix[1:]), "--version")...).Output() //nolint:gosec // the lint gate's own tool, already on this run's argv
+	return err == nil && strings.Contains(string(out), "version 2.")
 }
 
 func writeModeArgv(argv []string) []string {
@@ -133,13 +144,13 @@ func scopeGate(g gateSpec, files []string) (gateSpec, bool) {
 		if len(matched) == 0 {
 			return g, true
 		}
-		g.argv = replacePathArgs(g.argv, matched)
+		g.argv = scopedArgv(g.argv, "--no-errors-on-unmatched", matched)
 	case "ruff":
 		matched := filterExt(files, []string{".py", ".pyi"})
 		if len(matched) == 0 {
 			return g, true
 		}
-		g.argv = replacePathArgs(g.argv, matched)
+		g.argv = scopedArgv(g.argv, "--force-exclude", matched)
 	case "gofmt":
 		matched := filterExt(files, []string{".go"})
 		if len(matched) == 0 {
@@ -235,6 +246,16 @@ func replacePathArgs(argv, files []string) []string {
 		case ".", "./...":
 			out = out[:n-1]
 		}
+	}
+	return append(out, files...)
+}
+
+// scopedArgv is argv narrowed to files, with flag so the tool honours its own
+// excludes for a file named on the command line.
+func scopedArgv(argv []string, flag string, files []string) []string {
+	out := replacePathArgs(argv, nil)
+	if !slices.Contains(out, flag) {
+		out = append(out, flag)
 	}
 	return append(out, files...)
 }
