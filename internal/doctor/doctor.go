@@ -579,26 +579,34 @@ func checkWorkflows(proj detect.Project, add func(Finding)) {
 		{
 			action: "gh-actions/setup-go", markers: []string{"go.mod", "go.work"},
 			input: "run-govulncheck", check: "ci-govulncheck-off", short: "setup-go",
-			effect:  "checks for known vulnerabilities",
-			enabled: func(body string) bool { return strings.Contains(body, "run-govulncheck") },
+			effect: "checks for known vulnerabilities",
+			enabled: func(body string) bool {
+				return strings.Contains(body, "run-govulncheck") || runsCommand(body, "govulncheck")
+			},
 		},
 		{
 			action: "gh-actions/setup-python", markers: []string{"pyproject.toml", "uv.lock", "requirements.txt"},
 			input: "run-audit", check: "ci-python-audit-off", short: "setup-python",
-			effect:  "runs uv audit",
-			enabled: func(body string) bool { return stepMentionsInput(body, "gh-actions/setup-python", "run-audit") },
+			effect: "runs uv audit",
+			enabled: func(body string) bool {
+				return stepMentionsInput(body, "gh-actions/setup-python", "run-audit") || runsCommand(body, "uv audit")
+			},
 		},
 		{
 			action: "gh-actions/setup-rust", markers: []string{"Cargo.toml"},
 			input: "run-clippy", check: "ci-clippy-off", short: "setup-rust",
-			effect:  "runs clippy",
-			enabled: func(body string) bool { return strings.Contains(body, "run-clippy") },
+			effect: "runs clippy",
+			enabled: func(body string) bool {
+				return strings.Contains(body, "run-clippy") || runsCommand(body, "cargo clippy")
+			},
 		},
 		{
 			action: "gh-actions/setup-bun", markers: []string{"bun.lock", "bun.lockb", "package.json"},
 			input: "run-audit", check: "ci-bun-audit-off", short: "setup-bun",
-			effect:  "runs audit-bun",
-			enabled: func(body string) bool { return stepMentionsInput(body, "gh-actions/setup-bun", "run-audit") },
+			effect: "runs audit-bun",
+			enabled: func(body string) bool {
+				return stepMentionsInput(body, "gh-actions/setup-bun", "run-audit") || runsCommand(body, "bun audit", "audit-bun")
+			},
 		},
 	}
 
@@ -629,8 +637,37 @@ type setupTool struct {
 	markers                             []string
 	enabled                             func(body string) bool
 
-	used, on bool
-	where    string
+	used, on   bool
+	where      string
+	whereGates bool
+}
+
+// runsCommand is whether a workflow has a run step invoking one of cmds, or
+// running gate itself, which carries the project's own lint and audit gates.
+func runsCommand(body string, cmds ...string) bool {
+	for line := range strings.SplitSeq(body, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "#") || strings.Contains(line, "uses:") {
+			continue
+		}
+		if ciRunsGate.MatchString(line) {
+			return true
+		}
+		for _, c := range cmds {
+			if strings.Contains(line, c) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+var ciRunsGate = regexp.MustCompile(`^(- )?run:\s*gate(\s|$)`)
+
+// runsOnChanges is whether a workflow runs on push or pull requests rather than
+// only on a schedule or by hand.
+func runsOnChanges(body string) bool {
+	return strings.Contains(body, "pull_request") || strings.Contains(body, "push:") || strings.Contains(body, "merge_group")
 }
 
 func (t *setupTool) observe(body, path string, bases []string) {
@@ -638,8 +675,10 @@ func (t *setupTool) observe(body, path string, bases []string) {
 		return
 	}
 	t.used = true
-	if t.where == "" {
-		t.where = path
+	// The fix lands where CI gates changes, not in a scheduled audit that
+	// happened to sort first.
+	if gating := runsOnChanges(body); t.where == "" || gating && !t.whereGates {
+		t.where, t.whereGates = path, gating
 	}
 	if t.enabled(body) {
 		t.on = true

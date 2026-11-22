@@ -957,3 +957,33 @@ func TestCorepackBesideSetupBunIsFlaggedOnlyForBunProjects(t *testing.T) {
 	qt.Check(t, qt.IsFalse(corepackFightsBun("jobs:\n  a:\n    steps:\n      - uses: x/setup-bun@v1\n  b:\n    steps:\n      - run: corepack enable\n")))
 	qt.Check(t, qt.IsTrue(corepackFightsBun("jobs:\n  a:\n    steps:\n      - uses: x/setup-bun@v1\n      - run: corepack enable\n")))
 }
+
+// A direct cargo clippy step is clippy running, and when the opt-in input is
+// really missing the finding points at the workflow that gates changes, not the
+// scheduled one that sorts first.
+func TestClippyOffCountsADirectStepAndPrefersTheGatingWorkflow(t *testing.T) {
+	isolatePath(t)
+	dir := t.TempDir()
+	testutil.BunWorkflow(t, dir)
+	testutil.Write(t, dir, "Cargo.toml", "[package]\nname = \"demo\"\n")
+	data, err := os.ReadFile(filepath.Clean(filepath.Join(dir, ".github/workflows/ci.yml")))
+	qt.Assert(t, qt.IsNil(err))
+	rust := strings.ReplaceAll(string(data), "setup-bun", "setup-rust")
+	testutil.Write(t, dir, ".github/workflows/audit.yml", "on:\n  schedule:\n    - cron: '0 0 * * 1'\n"+rust)
+	testutil.Write(t, dir, ".github/workflows/ci.yml", "on:\n  push:\n"+rust)
+
+	findings, err := Run(t.Context(), dir)
+	qt.Assert(t, qt.IsNil(err))
+	var got Finding
+	for _, f := range findings {
+		if f.Check == "ci-clippy-off" {
+			got = f
+		}
+	}
+	qt.Assert(t, qt.StringContains(got.Where, "ci.yml"), qt.Commentf("%v", checkNames(findings)))
+
+	testutil.Write(t, dir, ".github/workflows/ci.yml", "on:\n  push:\n"+rust+"      - run: cargo clippy --locked -- -D warnings\n")
+	findings, err = Run(t.Context(), dir)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsFalse(reported(findings, "ci-clippy-off")), qt.Commentf("%v", checkNames(findings)))
+}
