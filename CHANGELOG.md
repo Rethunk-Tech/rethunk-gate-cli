@@ -6,6 +6,11 @@ Notable changes to `gate`. The format follows
 
 ## [Unreleased]
 
+## [0.10.6] - 2026-11-21
+
+### Fixed
+- A data race between the start-of-run fingerprint read and the end-of-run partial-pass note, which the race detector flagged in CI.
+
 ## [0.10.5] - 2026-11-21
 
 ### Fixed
