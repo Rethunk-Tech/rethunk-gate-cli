@@ -6,6 +6,8 @@ Notable changes to `gate`. The format follows
 
 ## [Unreleased]
 
+## [0.10.4] - 2026-11-21
+
 ### Fixed
 - `gate --failed` also reruns gates whose last status was `interrupted` or `not-found`.
 - `--isolate` no longer passes `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_*`, `GIT_CONFIG_VALUE_*` or `GIT_CONFIG_PARAMETERS` through, which carried the caller's git identity into the isolated run.
