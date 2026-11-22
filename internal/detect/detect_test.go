@@ -1572,3 +1572,18 @@ func TestNestedProjectNoWorkflowNamedIsNotLabelledCI(t *testing.T) {
 	testutil.Write(t, root, "sub/go.mod", "module sub\n\ngo 1.22\n")
 	qt.Check(t, qt.StringContains(gateNamed(t, detect(t, root), "sub").Source, "nested project sub"))
 }
+
+func TestTestLikeScriptsRunAsTestWhenNoPlainTestExists(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, "package.json", `{"scripts":{"test:unit":"x","tests":"y","pretest":"z"}}`)
+	proj := detect(t, root)
+	g := gateNamed(t, proj, "test")
+	qt.Check(t, qt.StringContains(strings.Join(g.Argv, " "), "test:unit"))
+	qt.Check(t, qt.StringContains(strings.Join(g.Argv, " "), "tests"))
+
+	root = t.TempDir()
+	testutil.Write(t, root, "Makefile", "tests:\n\ttrue\n")
+	g = gateNamed(t, detect(t, root), "test")
+	qt.Check(t, qt.DeepEquals(g.Argv, []string{"make", "tests"}))
+}

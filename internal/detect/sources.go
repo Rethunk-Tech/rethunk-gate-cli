@@ -105,7 +105,47 @@ func makefileGates(root string) []Gate {
 			Declared: true,
 		})
 	}
+	if names := fallbackTests(root, false); len(names) > 0 {
+		cmds := make([]string, len(names))
+		for i, n := range names {
+			cmds[i] = "make " + shellJoin([]string{n})
+		}
+		gates = append(gates, fallbackTestGate("Makefile targets ", names, cmds))
+	}
 	return gates
+}
+
+// fallbackTests are the test-like scripts (fromPackage) or Makefile targets
+// that stand in for the test role when the project declares no plain `test`
+// anywhere. With one, they stay unreached and noted.
+func fallbackTests(root string, fromPackage bool) []string {
+	pkg, _ := readPackageJSON(filepath.Join(root, "package.json"))
+	targets := makefileTargets(root)
+	if _, ok := pkg.Scripts["test"]; ok || targets["test"] {
+		return nil
+	}
+	var names []string
+	for _, n := range unreachedTests(root) {
+		if _, isScript := pkg.Scripts[n]; isScript == fromPackage || (!fromPackage && targets[n]) {
+			names = append(names, n)
+		}
+	}
+	// A script wins over a same-named target, so a Makefile never repeats it.
+	if !fromPackage {
+		names = slices.DeleteFunc(names, func(n string) bool { _, ok := pkg.Scripts[n]; return ok })
+	}
+	return names
+}
+
+func fallbackTestGate(what string, names, cmds []string) Gate {
+	g := Gate{Name: "test", Source: what + strings.Join(names, ", ") + " (no plain test)", Declared: true}
+	if len(cmds) == 1 {
+		g.Argv = strings.Fields(cmds[0])
+		return g
+	}
+	g.Summary = strings.Join(cmds, " && ")
+	g.Argv = []string{"sh", "-c", g.Summary}
+	return g
 }
 
 // makefileTargets are the targets the Makefile at root declares.
@@ -209,6 +249,13 @@ func packageJSONGates(root, workspace string) []Gate {
 			Source:   packageSource + name + " (" + body + ")",
 			Declared: true,
 		})
+	}
+	if names := fallbackTests(root, true); len(names) > 0 {
+		cmds := make([]string, len(names))
+		for i, n := range names {
+			cmds[i] = shellJoin(append(slices.Clone(runner), n))
+		}
+		gates = append(gates, fallbackTestGate("package.json scripts ", names, cmds))
 	}
 	return gates
 }

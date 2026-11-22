@@ -7,6 +7,7 @@ Notable changes to `gate`. The format follows
 ## [Unreleased]
 
 ### Fixed
+- With no plain `test` script or Makefile target, the `test` role runs the test-like ones (`test:unit`, `tests`) instead of only listing them as not run.
 - A crate the root `Cargo.toml` `[workspace]` lists in `exclude` is gated as a nested project; `--workspace` never reached it.
 
 ## [0.10.4] - 2026-11-21
