@@ -660,9 +660,76 @@ func (t *setupTool) report(add func(Finding)) {
 	})
 }
 
+// corepackFightsBun is whether one job installs bun and then enables corepack
+// for a project that is not yarn or pnpm: those need corepack's shims, which
+// bun does not provide.
+func corepackFightsBun(body string, roots ...string) bool {
+	for _, job := range workflowJobs(body) {
+		if !strings.Contains(job, "setup-bun") || !strings.Contains(job, "corepack enable") {
+			continue
+		}
+		if strings.Contains(job, "yarn") || strings.Contains(job, "pnpm") || usesYarnOrPnpm(roots) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+// usesYarnOrPnpm is whether a project root carries a yarn or pnpm lockfile or
+// pins one in package.json's packageManager.
+func usesYarnOrPnpm(roots []string) bool {
+	for _, root := range roots {
+		for _, lock := range []string{"yarn.lock", "pnpm-lock.yaml"} {
+			if _, err := os.Stat(filepath.Join(root, lock)); err == nil {
+				return true
+			}
+		}
+		var pkg struct {
+			PackageManager string `json:"packageManager"`
+		}
+		if json.Unmarshal([]byte(readFile(filepath.Join(root, "package.json"))), &pkg) == nil &&
+			(strings.HasPrefix(pkg.PackageManager, "yarn@") || strings.HasPrefix(pkg.PackageManager, "pnpm@")) {
+			return true
+		}
+	}
+	return false
+}
+
+// workflowJobs splits a workflow into its jobs: each key one level under
+// jobs:, with its body. A file with no jobs: key is one job.
+func workflowJobs(body string) []string {
+	var jobs []string
+	var cur []string
+	inJobs := false
+	for line := range strings.SplitSeq(body, "\n") {
+		switch {
+		case strings.HasPrefix(line, "jobs:"):
+			inJobs = true
+		case inJobs && line != "" && line[0] != ' ' && line[0] != '#':
+			inJobs = false
+		case inJobs && len(line) > 2 && line[:2] == "  " && line[2] != ' ' && line[2] != '#':
+			if cur != nil {
+				jobs = append(jobs, strings.Join(cur, "\n"))
+			}
+			cur = nil
+		}
+		if inJobs {
+			cur = append(cur, line)
+		}
+	}
+	if cur != nil {
+		jobs = append(jobs, strings.Join(cur, "\n"))
+	}
+	if len(jobs) == 0 {
+		return []string{body}
+	}
+	return jobs
+}
+
 // checkWorkflowFile reports the gaps one workflow file has on its own.
 func checkWorkflowFile(body, path, root string, proj detect.Project, add func(Finding)) {
-	if strings.Contains(body, "setup-bun") && strings.Contains(body, "corepack enable") {
+	if corepackFightsBun(body, root, proj.Root) {
 		add(Finding{
 			Warn:  true,
 			Check: "corepack-with-setup-bun",

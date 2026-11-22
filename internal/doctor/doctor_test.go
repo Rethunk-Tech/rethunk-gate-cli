@@ -936,3 +936,24 @@ func TestStaleRefIsOneFindingPerFileAndRef(t *testing.T) {
 	qt.Assert(t, qt.HasLen(stale, 1), qt.Commentf("%v", checkNames(findings)))
 	qt.Check(t, qt.StringContains(stale[0].Why, "3 use(s)"))
 }
+
+// A yarn or pnpm project needs corepack's shims even beside setup-bun, and a
+// corepack step in one job says nothing about bun in another.
+func TestCorepackBesideSetupBunIsFlaggedOnlyForBunProjects(t *testing.T) {
+	isolatePath(t)
+	bun := t.TempDir()
+	testutil.BunWorkflow(t, bun)
+	findings, err := Run(t.Context(), bun)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsTrue(reported(findings, "corepack-with-setup-bun")))
+
+	yarn := t.TempDir()
+	testutil.BunWorkflow(t, yarn)
+	testutil.Write(t, yarn, "package.json", `{"name":"demo","packageManager":"yarn@4.1.0"}`)
+	findings, err = Run(t.Context(), yarn)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsFalse(reported(findings, "corepack-with-setup-bun")), qt.Commentf("%v", checkNames(findings)))
+
+	qt.Check(t, qt.IsFalse(corepackFightsBun("jobs:\n  a:\n    steps:\n      - uses: x/setup-bun@v1\n  b:\n    steps:\n      - run: corepack enable\n")))
+	qt.Check(t, qt.IsTrue(corepackFightsBun("jobs:\n  a:\n    steps:\n      - uses: x/setup-bun@v1\n      - run: corepack enable\n")))
+}
