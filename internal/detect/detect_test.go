@@ -1535,3 +1535,26 @@ func TestYarnBerryInstallsImmutable(t *testing.T) {
 		qt.Check(t, qt.DeepEquals(frozenInstall(ws), want), qt.Commentf("%s", name))
 	}
 }
+
+func TestNestedModulesBeyondTheDepthCapAndRoleNamedDirsAreGated(t *testing.T) {
+	root := t.TempDir()
+	testutil.Write(t, root, "go.mod", "module root\n\ngo 1.22\n")
+	testutil.Write(t, root, "go.work", "go 1.22\n\nuse (\n\t. // root\n\t./a/b/c\n)\n")
+	testutil.Write(t, root, "a/b/c/go.mod", "module deep\n\ngo 1.22\n")
+	testutil.Write(t, root, "test/go.mod", "module roledir\n\ngo 1.22\n")
+	proj := detect(t, root)
+	qt.Check(t, qt.Equals(gateNamed(t, proj, "a/b/c").Dir, filepath.Join(root, "a/b/c")))
+	qt.Check(t, qt.Equals(gateNamed(t, proj, "test-dir").Dir, filepath.Join(root, "test")))
+}
+
+func TestNestedProjectsKeepFormatAndTheirSkippedRoles(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	root := t.TempDir()
+	testutil.Write(t, root, "go.mod", "module root\n\ngo 1.22\n")
+	testutil.Write(t, root, "rs/Cargo.toml", "[package]\nname = \"x\"\nversion = \"0.0.0\"\n")
+	testutil.WriteExecutable(t, root, "rs/node_modules/.bin/cargo-fmt")
+	proj := detect(t, root)
+	qt.Check(t, qt.StringContains(gateNamed(t, proj, "rs").Summary, "cargo fmt --check"))
+	qt.Check(t, qt.IsTrue(slices.ContainsFunc(proj.Skipped, func(s Skip) bool { return s.Role == "lint" || s.Role == "vuln" })),
+		qt.Commentf("skipped = %v", proj.Skipped))
+}

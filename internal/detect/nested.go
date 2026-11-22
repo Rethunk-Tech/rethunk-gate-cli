@@ -30,12 +30,44 @@ var nestedManifests = []string{"go.mod", "pyproject.toml", "Cargo.toml"}
 // nestedSkipped.
 func nestedCandidates(ctx context.Context, root string) []string {
 	dirs := ciPackageDirs(root)
-	for _, rel := range discoverNested(ctx, root) {
+	for _, rel := range append(discoverNested(ctx, root), goWorkUses(root)...) {
 		if !slices.Contains(dirs, rel) {
 			dirs = append(dirs, rel)
 		}
 	}
 	slices.Sort(dirs)
+	return dirs
+}
+
+// goWorkUses are the directories go.work's use directives name, at any depth:
+// they are modules the root's ./... never reaches. A go.work git ignores is
+// still read, since go itself honours it.
+func goWorkUses(root string) []string {
+	data, err := os.ReadFile(filepath.Clean(filepath.Join(root, "go.work")))
+	if err != nil {
+		return nil
+	}
+	var dirs []string
+	inBlock := false
+	for line := range strings.SplitSeq(string(data), "\n") {
+		line, _, _ = strings.Cut(line, "//")
+		line = strings.TrimSpace(line)
+		var arg string
+		switch {
+		case inBlock && line == ")":
+			inBlock = false
+		case inBlock:
+			arg = line
+		case strings.HasPrefix(line, "use") && strings.TrimSpace(strings.TrimPrefix(line, "use")) == "(":
+			inBlock = true
+		case strings.HasPrefix(line, "use "):
+			arg = strings.TrimSpace(strings.TrimPrefix(line, "use"))
+		}
+		rel := filepath.ToSlash(filepath.Clean(strings.Trim(arg, "\"`")))
+		if arg != "" && rel != "." && !strings.HasPrefix(rel, "../") && !filepath.IsAbs(rel) && nestedAllowed(rel) {
+			dirs = append(dirs, rel)
+		}
+	}
 	return dirs
 }
 

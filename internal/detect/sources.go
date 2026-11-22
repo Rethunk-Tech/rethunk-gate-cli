@@ -1163,9 +1163,11 @@ func ciPackageGate(ctx context.Context, proj *Project, rel string) {
 		return
 	}
 	name := filepath.ToSlash(rel)
+	// A directory named like a role would shadow that role's own gate, so
+	// its gate takes another name rather than going unrun.
+	gateName := name
 	if IsRole(name) || slices.Contains(aggregateNames, name) {
-		proj.Notes = append(proj.Notes, "CI runs "+name+"/, but its name is a gate role; not run")
-		return
+		gateName = name + "-dir"
 	}
 	entered, enteredBy := enteringText(proj, name)
 	// A Go module is outside the root's ./..., so what a root gate that
@@ -1185,13 +1187,21 @@ func ciPackageGate(ctx context.Context, proj *Project, rel string) {
 		if g.Name == "vuln" && strings.HasPrefix(g.Source, "convention: bun") {
 			continue
 		}
-		if slices.Contains(declaredNames, g.Name) && (entered == "" || !strings.Contains(entered, toolKey(g.Argv))) {
+		if (slices.Contains(declaredNames, g.Name) || g.Name == "format") && (entered == "" || !strings.Contains(entered, toolKey(g.Argv))) {
 			parts = append(parts, g)
 		}
 	}
 	if entered != "" && len(parts) == 0 {
 		proj.Notes = append(proj.Notes, "CI runs "+name+"/, and "+enteredBy+" already enters it; not gated twice")
 		return
+	}
+	// A role left empty there for want of a tool was never judged, so the
+	// pass is not the whole gate passing.
+	for _, sk := range sub.Skipped {
+		if slices.Contains(declaredNames, sk.Role) || sk.Role == "format" {
+			proj.Skipped = append(proj.Skipped, sk)
+			proj.Notes = append(proj.Notes, name+"/: "+sk.Note)
+		}
 	}
 	if len(parts) == 0 {
 		proj.Notes = append(proj.Notes, "CI runs "+name+"/, but gate found no gates there; not run")
@@ -1208,7 +1218,7 @@ func ciPackageGate(ctx context.Context, proj *Project, rel string) {
 			proj.Installs = append(proj.Installs, in)
 		}
 	}
-	proj.Gates = append(proj.Gates, packageGate(name, dir, parts))
+	proj.Gates = append(proj.Gates, packageGate(gateName, dir, parts))
 }
 
 // enteringText is the text of every root gate that changes into the package
