@@ -86,3 +86,30 @@ func TestGhFetchCallsGh(t *testing.T) {
 	_, err = ghFetch(t.Context(), t.TempDir())("fail")
 	qt.Check(t, qt.ErrorMatches(err, "gh api fail: denied"))
 }
+
+func TestActionsAllowedSkipMakesTheRunPartial(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
+	testutil.Write(t, root, ".gate.toml", "[gates.g0]\nrun = \"echo 'allowed-actions check skipped: no auth' >> \\\"$GATE_PARTIAL_FILE\\\"\"\n")
+	committedRepo(t, root)
+	stdout, stderr, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.StringContains(stdout, "partial pass, allowed-actions check skipped: no auth"))
+	rec, err := loadRecord(root)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsTrue(rec.Partial))
+}
+
+func TestReportPartialWritesToTheParentsFile(t *testing.T) {
+	dir := actionsRepo(t, "https://github.com/o/r")
+	file := filepath.Join(t.TempDir(), "p")
+	testutil.Write(t, filepath.Dir(file), "p", "")
+	t.Setenv(partialFileVar, file)
+	offline := func(string) ([]byte, error) { return nil, errors.New("not logged in") }
+	var stderr bytes.Buffer
+	qt.Check(t, qt.Equals(checkAllowedActions(t.Context(), dir, offline, "2026-11-21", &stderr), Success))
+	data, err := os.ReadFile(file) //nolint:gosec // test temp file
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.StringContains(string(data), "allowed-actions check skipped"))
+}

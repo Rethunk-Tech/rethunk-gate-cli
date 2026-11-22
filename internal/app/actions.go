@@ -20,6 +20,23 @@ import (
 // owner answers so a run reads GitHub's current policy.
 const actionsRefreshVar = "GATE_ACTIONS_REFRESH"
 
+// partialFileVar names a file the running gate appends a line to when it
+// passed without judging something; the parent then records a partial pass.
+const partialFileVar = "GATE_PARTIAL_FILE"
+
+func reportPartial(why string) {
+	path := os.Getenv(partialFileVar)
+	if path == "" {
+		return
+	}
+	f, err := os.OpenFile(filepath.Clean(path), os.O_APPEND|os.O_WRONLY, 0o600) //nolint:gosec // the parent gate's own temp file
+	if err != nil {
+		return
+	}
+	_, _ = fmt.Fprintln(f, why)
+	_ = f.Close()
+}
+
 var githubRemote = regexp.MustCompile(`github\.com[:/]([^/\s]+/[^/\s]+?)(?:\.git)?/?$`)
 
 // runActionsAllowed is the workflows gate's body: actionlint, then the
@@ -69,6 +86,7 @@ func checkAllowedActions(ctx context.Context, dir string, fetch allowed.Fetcher,
 	}
 	s, err := allowed.Load(m[1], cacheDir, today, fetch)
 	if err != nil {
+		reportPartial("allowed-actions check skipped: cannot read " + m[1] + " settings")
 		return skip("cannot read " + m[1] + " settings: " + err.Error())
 	}
 	code := Success

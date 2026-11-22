@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"errors"
@@ -190,6 +191,11 @@ type options struct {
 	// unreachedTests names test-like scripts and targets no gate runs, so a
 	// full pass does not read as having tested them.
 	unreachedTests []string
+
+	// partialFile is where a gate reports a check it skipped; partialWhy is
+	// what it wrote, read after the gates finish.
+	partialFile string
+	partialWhy  []string
 
 	// failed re-runs only the gates whose last record status was fail,
 	// timeout, or error. Detection still runs; this only narrows selection.
@@ -483,6 +489,31 @@ func (r gateResult) excused() bool {
 	return false
 }
 
+// writePartialWhy names the checks gates skipped without failing.
+func writePartialWhy(w io.Writer, opts options) {
+	if len(opts.partialWhy) > 0 && !opts.quiet {
+		fmt.Fprintf(w, "gate: partial pass, %s\n", strings.Join(opts.partialWhy, "; "))
+	}
+}
+
+func newPartialFile() string {
+	f, err := os.CreateTemp("", "gate-partial-*")
+	if err != nil {
+		return ""
+	}
+	_ = f.Close()
+	return f.Name()
+}
+
+// readPartialWhy is what gates wrote to the run's partial file, a line each.
+func readPartialWhy(path string) []string {
+	data, err := os.ReadFile(path) //nolint:gosec // gate's own temp file
+	if err != nil || len(bytes.TrimSpace(data)) == 0 {
+		return nil
+	}
+	return strings.Split(strings.TrimSpace(string(data)), "\n")
+}
+
 // runGates runs every gate and returns the aggregate status.
 //
 // The verdict is always a command's own exit status, never a reading of its
@@ -501,6 +532,9 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 		defer func() { _ = os.RemoveAll(opts.tempDir) }()
 	}
 	opts.oomBase = cgroupOOMCount()
+	if opts.partialFile = newPartialFile(); opts.partialFile != "" {
+		defer func() { _ = os.Remove(opts.partialFile) }()
+	}
 	announceMemoryCap(stderr, opts)
 	results := make([]gateResult, len(opts.gates))
 	if opts.stream {
@@ -580,6 +614,7 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 			}
 		}
 	}
+	opts.partialWhy = readPartialWhy(opts.partialFile)
 	code := report(results, opts, stdout, stderr)
 	if userStop && stopped {
 		code = Interrupted
@@ -587,6 +622,7 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 	if len(opts.skippedTools) > 0 && !opts.quiet {
 		fmt.Fprintf(stdout, "gate: partial pass, %s skipped for a missing tool\n", strings.Join(opts.skippedTools, ", "))
 	}
+	writePartialWhy(stdout, opts)
 	writeOptInNotes(stdout, opts)
 	if opts.profile {
 		writeProfile(stderr, results, wall)
@@ -623,7 +659,7 @@ func warnUnreadableTree(stderr io.Writer, opts options) {
 func saveRecord(stderr io.Writer, opts options, results []gateResult, state stored.State, fingerprint string, started time.Time, wall, waited time.Duration, code Code) {
 	rec := record{
 		Schema: recordSchema, Root: stored.Canonical(opts.root), Head: state.Head, Dirty: state.Dirty, Status: state.Status,
-		Partial: opts.partial, Started: started, Finished: started.Add(wall), Exit: int(code),
+		Partial: opts.partial || len(opts.partialWhy) > 0, Started: started, Finished: started.Add(wall), Exit: int(code),
 		Fingerprint: fingerprint, LoadWaitMs: waited.Milliseconds(),
 		Gates: make([]result, 0, len(results)),
 	}
@@ -1270,6 +1306,9 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 	cmd.Env = append(cmd.Env, activeRootsVar+"="+activeRootsValue(spec.root, spec.dir), runEntry)
 	if isolated {
 		cmd.Env = isolatedEnv(cmd.Env, home)
+	}
+	if opts.partialFile != "" {
+		cmd.Env = append(cmd.Env, partialFileVar+"="+opts.partialFile)
 	}
 	cmd.Stdin = nil
 	// One writer for both streams, so interleaving in the log matches what a
