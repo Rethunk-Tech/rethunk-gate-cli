@@ -134,7 +134,7 @@ type Install struct {
 //
 // A role missing from this list never reaches Project.Gates, silently. Adding
 // or renaming one means editing here in the same change.
-var gateOrder = []string{"build", "format", "typecheck", "lint", "knip", "workflows", "markdown", "shell", "canon", "test", "fuzz", "vuln"}
+var gateOrder = []string{"build", "format", "typecheck", "lint", "knip", "workflows", "markdown", "shell", "canon", "test", "test:e2e", "fuzz", "vuln"}
 
 // IsRole reports whether name is one of the gate roles. Role names carry no
 // path separator and no leading dash, so an exact match is enough to tell one

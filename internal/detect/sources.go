@@ -105,40 +105,82 @@ func makefileGates(root string) []Gate {
 			Declared: true,
 		})
 	}
-	if names := fallbackTests(root, false); len(names) > 0 {
-		cmds := make([]string, len(names))
-		for i, n := range names {
-			cmds[i] = "make " + shellJoin([]string{n})
-		}
-		gates = append(gates, fallbackTestGate("Makefile targets ", names, cmds))
-	}
-	return gates
+	plain, browser := fallbackTests(root, false, nil)
+	return append(gates, fallbackTestGates("Makefile targets ", plain, browser, func(n string) string {
+		return "make " + shellJoin([]string{n})
+	})...)
 }
 
 // fallbackTests are the test-like scripts (fromPackage) or Makefile targets
 // that stand in for the test role when the project declares no plain `test`
-// anywhere. With one, they stay unreached and noted.
-func fallbackTests(root string, fromPackage bool) []string {
+// anywhere, split into the ones a default run takes and the browser, watch or
+// update ones it must not. With a plain test they stay unreached and noted.
+func fallbackTests(root string, fromPackage bool, runner []string) (plain, browser []string) {
 	pkg, _ := readPackageJSON(filepath.Join(root, "package.json"))
 	targets := makefileTargets(root)
 	if _, ok := pkg.Scripts["test"]; ok || targets["test"] {
-		return nil
+		return nil, nil
 	}
-	var names []string
+	var recipes map[string]string
 	for _, n := range unreachedTests(root) {
-		if _, isScript := pkg.Scripts[n]; isScript == fromPackage || (!fromPackage && targets[n]) {
-			names = append(names, n)
+		if _, isScript := pkg.Scripts[n]; isScript != fromPackage && (fromPackage || !targets[n]) {
+			continue
+		}
+		// A script wins over a same-named target, so a Makefile never repeats it.
+		if _, ok := pkg.Scripts[n]; ok && !fromPackage {
+			continue
+		}
+		var away bool
+		if fromPackage {
+			away = IsE2E(root, n, append(slices.Clone(runner), n))
+		} else {
+			if recipes == nil {
+				recipes = makefileRecipes(root)
+			}
+			away = runsE2E(recipes[n], pkg.Scripts, nil)
+		}
+		if away || slices.ContainsFunc(nameWords(n), func(w string) bool { return slices.Contains(nonDefaultTestWords, w) }) {
+			browser = append(browser, n)
+		} else {
+			plain = append(plain, n)
 		}
 	}
-	// A script wins over a same-named target, so a Makefile never repeats it.
-	if !fromPackage {
-		names = slices.DeleteFunc(names, func(n string) bool { _, ok := pkg.Scripts[n]; return ok })
-	}
-	return names
+	return plain, browser
 }
 
-func fallbackTestGate(what string, names, cmds []string) Gate {
-	g := Gate{Name: "test", Source: what + strings.Join(names, ", ") + " (no plain test)", Declared: true}
+// nonDefaultTestWords mark a test-like name that needs a browser, a watcher or
+// a snapshot rewrite, none of which belongs in a default run.
+var nonDefaultTestWords = []string{"e2e", "integration", "browser", "playwright", "watch", "update"}
+
+// nameWords splits a script or target name into its lowercase words.
+func nameWords(name string) []string {
+	return strings.FieldsFunc(strings.ToLower(name), func(r rune) bool {
+		return (r < 'a' || r > 'z') && (r < '0' || r > '9')
+	})
+}
+
+// fallbackTestGates is the test gate over plain and a test:e2e gate over
+// browser, each running its names in order. cmd renders one name's command.
+func fallbackTestGates(what string, plain, browser []string, cmd func(string) string) []Gate {
+	var gates []Gate
+	for _, set := range []struct {
+		name  string
+		names []string
+	}{{"test", plain}, {"test:e2e", browser}} {
+		if len(set.names) == 0 {
+			continue
+		}
+		cmds := make([]string, len(set.names))
+		for i, n := range set.names {
+			cmds[i] = cmd(n)
+		}
+		gates = append(gates, fallbackTestGate(set.name, what, set.names, cmds))
+	}
+	return gates
+}
+
+func fallbackTestGate(name, what string, names, cmds []string) Gate {
+	g := Gate{Name: name, Source: what + strings.Join(names, ", ") + " (no plain test)", Declared: true}
 	if len(cmds) == 1 {
 		g.Argv = strings.Fields(cmds[0])
 		return g
@@ -146,6 +188,33 @@ func fallbackTestGate(what string, names, cmds []string) Gate {
 	g.Summary = strings.Join(cmds, " && ")
 	g.Argv = []string{"sh", "-c", g.Summary}
 	return g
+}
+
+// makefileRecipes is each target's recipe lines, joined, for the Makefile at
+// root: read as text, never run.
+func makefileRecipes(root string) map[string]string {
+	recipes := map[string]string{}
+	name, ok := makefileName(root)
+	if !ok {
+		return recipes
+	}
+	data, err := os.ReadFile(filepath.Clean(filepath.Join(root, name)))
+	if err != nil {
+		return recipes
+	}
+	var current []string
+	for line := range strings.SplitSeq(strings.ReplaceAll(string(data), "\\\n", " "), "\n") {
+		if strings.HasPrefix(line, "\t") {
+			for _, t := range current {
+				recipes[t] += strings.TrimSpace(line) + "\n"
+			}
+			continue
+		}
+		if targets, _, ok := makeRuleHead(line); ok {
+			current = targets
+		}
+	}
+	return recipes
 }
 
 // makefileTargets are the targets the Makefile at root declares.
@@ -192,7 +261,7 @@ func unreachedTests(root string) []string {
 	}
 	var out []string
 	for _, name := range names {
-		if strings.Contains(strings.ToLower(name), "test") && !slices.Contains(collectedNames, name) &&
+		if slices.ContainsFunc(nameWords(name), func(w string) bool { return w == "test" || w == "tests" }) && !slices.Contains(collectedNames, name) &&
 			name != "pretest" && name != "posttest" && !strings.Contains(reached.String(), name) && !slices.Contains(out, name) {
 			out = append(out, name)
 		}
@@ -250,14 +319,10 @@ func packageJSONGates(root, workspace string) []Gate {
 			Declared: true,
 		})
 	}
-	if names := fallbackTests(root, true); len(names) > 0 {
-		cmds := make([]string, len(names))
-		for i, n := range names {
-			cmds[i] = shellJoin(append(slices.Clone(runner), n))
-		}
-		gates = append(gates, fallbackTestGate("package.json scripts ", names, cmds))
-	}
-	return gates
+	plain, browser := fallbackTests(root, true, runner)
+	return append(gates, fallbackTestGates("package.json scripts ", plain, browser, func(n string) string {
+		return shellJoin(append(slices.Clone(runner), n))
+	})...)
 }
 
 // packageRunner picks the package manager from the lockfile beside the

@@ -317,3 +317,26 @@ func TestWholeCIRoot(t *testing.T) {
 	_, ok = WholeCIRoot(t.Context(), beside, []string{"make", "ci"})
 	qt.Check(t, qt.IsFalse(ok))
 }
+
+// With no plain test the test-like scripts stand in for it, but a browser,
+// watch or update script must not ride along in a default run, and a name only
+// contains "test" as a word counts.
+func TestFallbackTestsKeepBrowserScriptsOutOfTheDefaultGate(t *testing.T) {
+	t.Parallel()
+	pkg := t.TempDir()
+	testutil.Write(t, pkg, "package.json", `{"scripts":{"test:unit":"vitest run","test:e2e":"playwright test","test:watch":"vitest","attest":"x","latest":"y"}}`)
+	testutil.Write(t, pkg, "bun.lock", "")
+	proj := detect(t, pkg)
+	plain := gateNamed(t, proj, "test").Source
+	qt.Check(t, qt.StringContains(plain, "package.json scripts test:unit (no plain test)"), qt.Commentf("source = %q", plain))
+	qt.Check(t, qt.StringContains(gateNamed(t, proj, "test:e2e").Source, "test:e2e, test:watch"))
+
+	// A Makefile target whose recipe runs the browser suite is one too.
+	mk := t.TempDir()
+	testutil.Write(t, mk, "package.json", `{"scripts":{"test:e2e":"playwright test"}}`)
+	testutil.Write(t, mk, "bun.lock", "")
+	testutil.Write(t, mk, "Makefile", "frontend-test:\n\tbun run test:e2e\n\nunit-tests:\n\tgo test ./...\n")
+	proj = detect(t, mk)
+	qt.Check(t, qt.StringContains(gateNamed(t, proj, "test").Source, "Makefile targets unit-tests"))
+	qt.Check(t, qt.StringContains(gateNamed(t, proj, "test:e2e").Source, "frontend-test"))
+}
