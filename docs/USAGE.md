@@ -34,10 +34,12 @@ push's hook run return at once instead of running everything a second time.
 
 The stored run also keys on what it ran with: the version of each toolchain a
 detected gate invokes (`go`, `bun`/`bunx`, `node`/`npm`/`npx`/`pnpm`/`yarn`,
-`cargo`/`rustc`, `uv`, `python`), the path, size and modification time of
-the file each gate's program resolves to, the content of the `.env*` files in
-each gate's directory (gitignored, so the tree hash misses them), and these
-environment variables: `GOFLAGS`,
+`cargo`/`rustc`, `uv`, `python`) and of the toolchain each manifest in the
+root names (so a gate behind `make` or `sh -c` is covered), the path, size and modification time of
+the file each gate's program resolves to, the content of the `.env*` files, `go.work` and `go.work.sum` in the root,
+in each gate's directory, and anywhere beneath the root that git ignores (so
+the tree hash misses them), and these environment variables: `GOFLAGS`,
+`GOWORK`, `GOENV`, `MAKEFLAGS`,
 `CGO_ENABLED`, `GOOS`, `GOARCH`, `GOEXPERIMENT`, `GOTOOLCHAIN`, `NODE_ENV`,
 `NODE_OPTIONS`, `RUSTFLAGS`, `CC`, `CXX`, `CARGO_*`, plus any `env` a gate
 declares in `.gate.toml`, and the limit each gate runs under (`--timeout`, a

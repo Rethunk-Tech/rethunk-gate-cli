@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"maps"
 	"os"
 	"os/exec"
@@ -314,7 +313,7 @@ var (
 	fingerprintEnvPrefixes = []string{"CARGO_"}
 	fingerprintEnv         = []string{
 		"GOFLAGS", "CGO_ENABLED", "GOOS", "GOARCH", "GOEXPERIMENT", "GOTOOLCHAIN",
-		"NODE_ENV", "NODE_OPTIONS", "RUSTFLAGS", "CC", "CXX",
+		"GOWORK", "GOENV", "MAKEFLAGS", "NODE_ENV", "NODE_OPTIONS", "RUSTFLAGS", "CC", "CXX",
 	}
 )
 
@@ -389,41 +388,81 @@ func gateBinaries(gates []gateSpec) map[string]string {
 // dotenvLimit bounds how much of one .env file the fingerprint reads.
 const dotenvLimit = 1 << 20
 
-// dotenvFiles hashes the .env* files in each directory a gate runs in: Bun,
-// Vite and Next load them from there, and they are gitignored, so the tree
-// hash never sees one change. Only regular files are read, so a FIFO cannot
-// block the run.
-func dotenvFiles(gates []gateSpec) map[string]string {
-	out := map[string]string{}
+// fingerprintedFile reports whether a file name carries state a gate reads but
+// the tree hash cannot see when git ignores it: Bun, Vite and Next load .env*,
+// and go itself honours a go.work that Go's docs advise not committing.
+func fingerprintedFile(name string) bool {
+	return strings.HasPrefix(name, ".env") || name == "go.work" || name == "go.work.sum"
+}
+
+// dotenvFiles hashes those files in the project root, in each directory a gate
+// runs in, and wherever git reports an ignored one beneath the root (a gate
+// that cd's into a package loads that package's .env). Only regular files are
+// read, so a FIFO cannot block the run.
+func dotenvFiles(ctx context.Context, gates []gateSpec, root string) map[string]string {
+	paths := map[string]bool{}
+	dirs := []string{root}
 	for _, g := range gates {
-		if g.dir == "" {
+		dirs = append(dirs, g.dir)
+	}
+	for _, d := range dirs {
+		if d == "" {
 			continue
 		}
-		dir, err := os.OpenRoot(g.dir)
+		entries, _ := os.ReadDir(d)
+		for _, e := range entries {
+			if fingerprintedFile(e.Name()) {
+				paths[filepath.Join(d, e.Name())] = true
+			}
+		}
+	}
+	if root != "" {
+		// --directory keeps an ignored node_modules one entry instead of a walk.
+		cmd := exec.CommandContext(ctx, "git", "-C", root, "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory") //nolint:gosec // fixed argv, root is the detected project
+		if b, err := cmd.Output(); err == nil {
+			for rel := range strings.SplitSeq(string(b), "\x00") {
+				if rel != "" && !strings.HasSuffix(rel, "/") && fingerprintedFile(filepath.Base(rel)) {
+					paths[filepath.Join(root, rel)] = true
+				}
+			}
+		}
+	}
+	out := map[string]string{}
+	for path := range paths {
+		dir, err := os.OpenRoot(filepath.Dir(path))
 		if err != nil {
 			continue
 		}
-		matches, _ := fs.Glob(dir.FS(), ".env*")
-		for _, name := range matches {
-			key := filepath.Join(g.dir, name)
-			if _, seen := out[key]; seen {
-				continue
+		name := filepath.Base(path)
+		if info, err := dir.Stat(name); err == nil && info.Mode().IsRegular() {
+			if f, err := dir.Open(name); err == nil {
+				h := sha256.New()
+				_, _ = io.Copy(h, io.LimitReader(f, dotenvLimit))
+				_ = f.Close()
+				out[path] = hex.EncodeToString(h.Sum(nil))
 			}
-			if info, err := dir.Stat(name); err != nil || !info.Mode().IsRegular() {
-				continue
-			}
-			f, err := dir.Open(name)
-			if err != nil {
-				continue
-			}
-			h := sha256.New()
-			_, _ = io.Copy(h, io.LimitReader(f, dotenvLimit))
-			_ = f.Close()
-			out[key] = hex.EncodeToString(h.Sum(nil))
 		}
 		_ = dir.Close()
 	}
 	return out
+}
+
+// manifestToolchains are the programs a project's manifests say it builds
+// with, whatever wrapper (make, sh, bun run) the gate's argv names.
+var manifestToolchains = map[string]string{
+	"go.mod": "go", "Cargo.toml": "cargo", "package.json": "node", "pyproject.toml": "uv",
+}
+
+// manifestSpecs are gates standing in for the toolchains root's manifests name,
+// so their versions join the fingerprint.
+func manifestSpecs(root string) []gateSpec {
+	var specs []gateSpec
+	for manifest, tool := range manifestToolchains {
+		if _, err := os.Stat(filepath.Join(root, manifest)); root != "" && err == nil {
+			specs = append(specs, gateSpec{argv: []string{tool}})
+		}
+	}
+	return specs
 }
 
 func buildEnv() map[string]string {
@@ -472,9 +511,9 @@ func gatesFingerprint(ctx context.Context, opts options) string {
 			Isolated     bool              `json:"isolated"`
 		}{argv, g.dir, env, g.allowFailure, timeout, isolateAware(opts, g)})
 	}
-	_ = enc.Encode(toolchainVersions(ctx, gates))
+	_ = enc.Encode(toolchainVersions(ctx, append(slices.Clone(gates), manifestSpecs(opts.root)...)))
 	_ = enc.Encode(gateBinaries(gates))
-	_ = enc.Encode(dotenvFiles(gates))
+	_ = enc.Encode(dotenvFiles(ctx, gates, opts.root))
 	_ = enc.Encode(buildEnv())
 	_ = enc.Encode(opts.memory)
 	return hex.EncodeToString(h.Sum(nil))

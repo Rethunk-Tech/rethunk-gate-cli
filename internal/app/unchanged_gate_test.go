@@ -191,3 +191,20 @@ func TestMissingToolMakesThePassPartial(t *testing.T) {
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.IsTrue(rec.Partial))
 }
+
+// A gitignored go.work, or an ignored .env a gate reaches by cd'ing into a
+// package, changes a gate's result while the tree hash stays put.
+func TestFingerprintMovesWithIgnoredFilesUnderTheRoot(t *testing.T) {
+	root := t.TempDir()
+	testutil.Write(t, root, ".gitignore", "go.work\n.env\n")
+	testutil.Write(t, root, "go.work", "go 1.22\n")
+	testutil.Write(t, root, "pkg/a/.env", "X=1\n")
+	committedRepo(t, root)
+	opts := options{root: root, gates: []gateSpec{{argv: []string{"sh", "-c", "cd pkg/a && true"}}}}
+	before := gatesFingerprint(t.Context(), opts)
+	testutil.Write(t, root, "go.work", "garbage\n")
+	after := gatesFingerprint(t.Context(), opts)
+	qt.Check(t, qt.Not(qt.Equals(after, before)), qt.Commentf("go.work change"))
+	testutil.Write(t, root, "pkg/a/.env", "X=2\n")
+	qt.Check(t, qt.Not(qt.Equals(gatesFingerprint(t.Context(), opts), after)), qt.Commentf("nested .env change"))
+}
