@@ -607,9 +607,13 @@ func pythonConventionGates(root string, proj *Project) (gates []Gate, skipped []
 		// resolves imports against the system interpreter and reports errors
 		// that are not in the code, and gate passes that status through as
 		// the verdict.
-		if bin := resolve(root, proj, "pyrefly"); bin != "" {
+		//
+		// A checker the project declares is run by bare name instead: uv
+		// provisions the locked version, where the host's binary by absolute
+		// path would type-check a fresh clone with whatever version is installed.
+		if bin := pythonTool(root, proj, "pyrefly"); bin != "" {
 			gates = append(gates, Gate{Name: "typecheck", Argv: []string{"uv", "run", bin, "check"}, Source: "convention: python"})
-		} else if bin := resolve(root, proj, "mypy"); bin != "" {
+		} else if bin := pythonTool(root, proj, "mypy"); bin != "" {
 			gates = append(gates, Gate{Name: "typecheck", Argv: []string{"uv", "run", bin, "."}, Source: "convention: python (pyrefly absent)"})
 		}
 		// uv audits the lockfile, not the environment, so it sees a pinned
@@ -1241,6 +1245,18 @@ func tsconfigHasProjectReferences(root string) bool {
 func declaresRuff(root string) bool {
 	data, err := os.ReadFile(filepath.Clean(filepath.Join(root, "pyproject.toml")))
 	return err == nil && strings.Contains(string(data), "ruff")
+}
+
+// pythonTool is what `uv run` should be given for name: the bare name when
+// pyproject.toml or uv.lock declares it, else the resolved path of a tool found
+// on disk, else "" when there is none.
+func pythonTool(root string, proj *Project, name string) string {
+	for _, file := range []string{"pyproject.toml", "uv.lock"} {
+		if data, err := os.ReadFile(filepath.Clean(filepath.Join(root, file))); err == nil && strings.Contains(string(data), name) {
+			return name
+		}
+	}
+	return resolve(root, proj, name)
 }
 
 func declaresPytest(root string) bool {

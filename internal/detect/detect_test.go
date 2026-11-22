@@ -461,6 +461,16 @@ func TestPythonTypecheckGateRunsTheResolvedBinary(t *testing.T) {
 		qt.Commentf("the mypy fallback kept the bare name: %q", fallback.Display()))
 }
 
+// A checker the project declares is run by bare name, so uv provisions the
+// locked version in a fresh clone rather than the host's by absolute path.
+func TestPythonTypecheckGateUsesTheDeclaredChecker(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("PATH", filepath.Join(dir, "no-such-bin"))
+	testutil.Write(t, dir, "pyproject.toml", "[project]\nname = \"demo\"\n[dependency-groups]\ndev = [\"pyrefly>=1.4.0\"]\n")
+	typecheck := gateNamed(t, detect(t, dir), "typecheck")
+	qt.Check(t, qt.DeepEquals(typecheck.Argv, []string{"uv", "run", "pyrefly", "check"}))
+}
+
 // The role names are spelled out by hand in more than one place with nothing
 // tying them together. A name in declaredNames but missing from gateOrder is
 // read out of every manifest and then dropped on the way to Project.Gates,
