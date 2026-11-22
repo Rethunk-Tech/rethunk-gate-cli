@@ -35,7 +35,7 @@ func FuzzBad(f *testing.F) {
 func fuzzRepo(t *testing.T, tests ...string) string {
 	t.Helper()
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	t.Setenv("GATE_FUZZTIME", "3s")
+	t.Setenv("GATE_FUZZTIME", "500ms")
 	root := t.TempDir()
 	testutil.Write(t, root, "go.mod", "module demo\n\ngo 1.22\n")
 	testutil.Write(t, root, "demo.go", "package demo\n")
@@ -53,7 +53,7 @@ func TestFuzzGatePassesCleanTargets(t *testing.T) {
 }
 
 func TestFuzzGateFailsOnACrasherAndNamesItsFile(t *testing.T) {
-	root := fuzzRepo(t, fuzzModule, fuzzCrasher)
+	root := fuzzRepo(t, fuzzCrasher)
 	_, stderr, code := runGateTest(t, "-C", root, "run", "fuzz")
 	qt.Check(t, qt.Not(qt.Equals(code, Success)), qt.Commentf("stderr = %q", stderr))
 	qt.Check(t, qt.StringContains(stderr, "testdata/fuzz/FuzzBad/"))

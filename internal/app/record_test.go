@@ -56,6 +56,8 @@ func runSuite(m *testing.M) int {
 		panic(err)
 	}
 	lockPoll = 10 * time.Millisecond
+	// A child that ignores SIGINT would otherwise hold a test for the full grace.
+	stopGrace = time.Second
 	loadForJobs = func() (float64, int) { return 0, 1 }
 	// This suite runs inside this repository's own pre-push hook when a gate
 	// runs it there, and an ancestor walk would then isolate every gate a
