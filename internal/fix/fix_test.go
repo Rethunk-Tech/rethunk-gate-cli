@@ -42,6 +42,14 @@ func applyNamed(t *testing.T, dir, check string, dryRun bool) doctor.Finding {
 	return f
 }
 
+// testSHA stands for the commit the known-good tag resolves to.
+const testSHA = "0123456789abcdef0123456789abcdef01234567"
+
+func TestMain(m *testing.M) {
+	doctor.SetKnownGood(doctor.KnownGoodActionsTag, testSHA)
+	os.Exit(m.Run())
+}
+
 func TestApplyClearsTheNamedDoctorCheck(t *testing.T) {
 	isolatePath(t)
 
@@ -105,7 +113,7 @@ func TestApplyClearsTheNamedDoctorCheck(t *testing.T) {
 			after: func(t *testing.T, dir string) {
 				body, err := os.ReadFile(filepath.Clean(filepath.Join(dir, ".github/workflows/ci.yml")))
 				qt.Assert(t, qt.IsNil(err))
-				qt.Check(t, qt.StringContains(string(body), "gh-actions/setup-bun@"+doctor.KnownGoodActionsTag))
+				qt.Check(t, qt.StringContains(string(body), "gh-actions/setup-bun@"+testSHA+" # "+doctor.KnownGoodActionsTag))
 				qt.Check(t, qt.Not(qt.StringContains(string(body), "@main")))
 			},
 		},
@@ -124,7 +132,7 @@ func TestApplyClearsTheNamedDoctorCheck(t *testing.T) {
 			after: func(t *testing.T, dir string) {
 				body, err := os.ReadFile(filepath.Clean(filepath.Join(dir, ".github/workflows/ci.yml")))
 				qt.Assert(t, qt.IsNil(err))
-				qt.Check(t, qt.StringContains(string(body), "gh-actions/setup-bun@"+doctor.KnownGoodActionsTag))
+				qt.Check(t, qt.StringContains(string(body), "gh-actions/setup-bun@"+testSHA+" # "+doctor.KnownGoodActionsTag))
 				qt.Check(t, qt.StringContains(string(body), "actions/checkout@v4"))
 			},
 		},
@@ -361,14 +369,14 @@ func TestShaPinDropsTheStaleHint(t *testing.T) {
 		Check: "actions-stale-ref",
 		Path:  path,
 		What:  "shared action pinned to " + sha,
-		Fix:   "bump to v1.14 or newer",
+		Fix:   "bump to " + doctor.KnownGoodActionsTag + " or newer",
 	}, false)
 	qt.Assert(t, qt.IsNil(err))
 	qt.Assert(t, qt.Equals(r.Outcome, Applied))
 
 	body, err := os.ReadFile(filepath.Clean(path))
 	qt.Assert(t, qt.IsNil(err))
-	qt.Check(t, qt.StringContains(string(body), "@v1.14"))
+	qt.Check(t, qt.StringContains(string(body), "@"+testSHA+" # "+doctor.KnownGoodActionsTag))
 	qt.Check(t, qt.Not(qt.StringContains(string(body), sha)))
 	qt.Check(t, qt.Not(qt.StringContains(string(body), "v1.7")))
 }
@@ -628,13 +636,13 @@ func TestApplySkipsUnprovableWorkflowEdits(t *testing.T) {
 		{
 			name: "pin ref missing", check: "actions-floating-ref",
 			body: "jobs:\n  a:\n    steps:\n      - uses: actions/checkout@v4\n",
-			what: "shared action pinned to a moving ref (main)", fix: "pin to v1.14",
+			what: "shared action pinned to a moving ref (main)", fix: "pin to " + doctor.KnownGoodActionsTag,
 			want: "named shared-action ref not found",
 		},
 		{
 			name: "pin ref is a prefix", check: "actions-floating-ref",
 			body: "jobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-go@mainline\n",
-			what: "shared action pinned to a moving ref (main)", fix: "pin to v1.14",
+			what: "shared action pinned to a moving ref (main)", fix: "pin to " + doctor.KnownGoodActionsTag,
 			want: "named shared-action ref not found",
 		},
 	} {
@@ -815,14 +823,14 @@ func TestPinKeepsACommentThatIsNotOnlyTheOldTag(t *testing.T) {
 		Check: "actions-stale-ref",
 		Path:  path,
 		What:  "shared action pinned to " + sha,
-		Fix:   "bump to v1.14 or newer",
+		Fix:   "bump to " + doctor.KnownGoodActionsTag + " or newer",
 	}, false)
 	qt.Assert(t, qt.IsNil(err))
 	qt.Assert(t, qt.Equals(r.Outcome, Applied))
 
 	body, err := os.ReadFile(filepath.Clean(path))
 	qt.Assert(t, qt.IsNil(err))
-	qt.Check(t, qt.StringContains(string(body), "@v1.14 # v1.7 keep"))
+	qt.Check(t, qt.StringContains(string(body), "@"+testSHA+" # "+doctor.KnownGoodActionsTag+" # v1.7 keep"))
 	qt.Check(t, qt.Not(qt.StringContains(string(body), sha)))
 }
 
@@ -843,4 +851,26 @@ func TestApplyPreservesExistingMode(t *testing.T) {
 	info, err := os.Stat(path)
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.Equals(info.Mode().Perm(), os.FileMode(0o600)))
+}
+
+// Offline the tag's commit is unknown, and a bare tag would turn canon red, so
+// the finding is skipped rather than rewritten.
+func TestPinSkipsWhenTheCommitIsUnresolved(t *testing.T) {
+	dir := t.TempDir()
+	testutil.BunWorkflow(t, dir)
+	path := filepath.Join(dir, ".github/workflows/ci.yml")
+	before, err := os.ReadFile(filepath.Clean(path))
+	qt.Assert(t, qt.IsNil(err))
+	doctor.SetKnownGood(doctor.KnownGoodActionsTag, "")
+	t.Cleanup(func() { doctor.SetKnownGood(doctor.KnownGoodActionsTag, testSHA) })
+
+	r, err := Apply(doctor.Finding{
+		Check: "actions-floating-ref", Path: path,
+		What: "shared action pinned to a moving ref (main)", Fix: "pin to the commit SHA of tag " + doctor.KnownGoodActionsTag,
+	}, false)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.Equals(r.Outcome, Skipped))
+	got, err := os.ReadFile(filepath.Clean(path))
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.Equals(string(got), string(before)))
 }

@@ -905,3 +905,34 @@ func TestBareMajorTagIsAFloatingRef(t *testing.T) {
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.IsTrue(reported(findings, "actions-floating-ref")), qt.Commentf("findings = %v", checkNames(findings)))
 }
+
+// Several uses of one stale ref in a file are one finding with a count: fix
+// rewrites them all at once, so one finding each would report all but the
+// first as not found.
+func TestStaleRefIsOneFindingPerFileAndRef(t *testing.T) {
+	isolatePath(t)
+	dir := t.TempDir()
+	testutil.BunWorkflow(t, dir)
+	path := filepath.Join(dir, ".github/workflows/ci.yml")
+	data, err := os.ReadFile(filepath.Clean(path))
+	qt.Assert(t, qt.IsNil(err))
+	body := strings.ReplaceAll(string(data), "@main", "@v1.2")
+	var use string
+	for line := range strings.SplitSeq(body, "\n") {
+		if strings.Contains(line, "setup-bun") {
+			use = line
+		}
+	}
+	// Three uses of one ref.
+	qt.Assert(t, qt.IsNil(os.WriteFile(path, []byte(body+use+"\n"+use+"\n"), 0o600)))
+	findings, err := Run(t.Context(), dir)
+	qt.Assert(t, qt.IsNil(err))
+	var stale []Finding
+	for _, f := range findings {
+		if f.Check == "actions-stale-ref" {
+			stale = append(stale, f)
+		}
+	}
+	qt.Assert(t, qt.HasLen(stale, 1), qt.Commentf("%v", checkNames(findings)))
+	qt.Check(t, qt.StringContains(stale[0].Why, "3 use(s)"))
+}
