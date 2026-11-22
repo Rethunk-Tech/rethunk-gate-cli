@@ -338,9 +338,13 @@ func goConventionGates(root string, proj *Project) (gates []Gate, skipped []Skip
 
 func rustConventionGates(root string, proj *Project) (gates []Gate, skipped []Skip) {
 	if exists(filepath.Join(root, "Cargo.toml")) {
+		// Bare cargo commands in a workspace cover only its default-members;
+		// the flag is added only where a [workspace] exists, since a package
+		// without one rejects it.
+		ws, all := cargoWorkspaceFlags(root)
 		gates = append(gates,
-			Gate{Name: "build", Argv: []string{"cargo", "build"}, Source: "convention: rust"},
-			Gate{Name: "test", Argv: []string{"cargo", "test"}, Source: "convention: rust"},
+			Gate{Name: "build", Argv: append([]string{"cargo", "build"}, ws...), Source: "convention: rust"},
+			Gate{Name: "test", Argv: append([]string{"cargo", "test"}, ws...), Source: "convention: rust"},
 		)
 		// No typecheck gate, and there must not be one: `cargo build` type-checks
 		// as it compiles, so the only candidate is `cargo check`, which compiles
@@ -352,7 +356,7 @@ func rustConventionGates(root string, proj *Project) (gates []Gate, skipped []Sk
 		// entry point: the resolved-path rule exists because a tool off PATH
 		// would exit 127, and a cargo subcommand off PATH cannot be run at all.
 		if resolve(root, proj, "cargo-clippy") != "" {
-			gates = append(gates, Gate{Name: "lint", Argv: []string{"cargo", "clippy"}, Source: "convention: rust"})
+			gates = append(gates, Gate{Name: "lint", Argv: append([]string{"cargo", "clippy"}, ws...), Source: "convention: rust"})
 		} else {
 			// No fallback, unlike go vet. Rust's toolchain ships nothing that
 			// judges correctness beyond the compiler: `cargo check` is the
@@ -363,7 +367,7 @@ func rustConventionGates(root string, proj *Project) (gates []Gate, skipped []Sk
 		// rustfmt ships with the toolchain but is reached as `cargo fmt`, so the
 		// subcommand's binary is what is probed, as for clippy.
 		if resolve(root, proj, "cargo-fmt") != "" {
-			gates = append(gates, Gate{Name: "format", Argv: []string{"cargo", "fmt", "--check"}, Source: "convention: rust"})
+			gates = append(gates, Gate{Name: "format", Argv: append([]string{"cargo", "fmt", "--check"}, all...), Source: "convention: rust"})
 		} else {
 			skipped = append(skipped, Skip{"format", "rustfmt not installed; skipping the format gate (rustup component add rustfmt)"})
 		}
@@ -374,6 +378,16 @@ func rustConventionGates(root string, proj *Project) (gates []Gate, skipped []Sk
 		}
 	}
 	return gates, skipped
+}
+
+// cargoWorkspaceFlags are the flags that widen a command to every member of
+// the workspace at root: --workspace for build, test and clippy, --all for fmt.
+func cargoWorkspaceFlags(root string) (ws, all []string) {
+	body, err := os.ReadFile(filepath.Clean(filepath.Join(root, "Cargo.toml")))
+	if err != nil || !regexp.MustCompile(`(?m)^\s*\[workspace\]`).Match(body) {
+		return nil, nil
+	}
+	return []string{"--workspace"}, []string{"--all"}
 }
 
 func dotnetConventionGates(root string, proj *Project) (gates []Gate, skipped []Skip) {

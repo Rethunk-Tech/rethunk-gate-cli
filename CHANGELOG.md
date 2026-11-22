@@ -7,6 +7,7 @@ Notable changes to `gate`. The format follows
 ## [Unreleased]
 
 ### Fixed
+- Cargo workspaces are built, tested, linted and format-checked in full: the convention gates add `--workspace` (`--all` for `cargo fmt`) when the root `Cargo.toml` has a `[workspace]`, instead of only its default-members.
 - `gate make ci` and `gate npm run ci` write a full pass only when a bare `gate` would run no gate beside that aggregate; otherwise the run is partial and keeps the earlier full record.
 - Test suite is about twice as fast: shorter fuzz time, a 1s stop grace, and the crasher test plants only the crasher.
 

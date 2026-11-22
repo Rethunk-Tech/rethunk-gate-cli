@@ -1504,6 +1504,15 @@ func TestRuffAndRustfmtAreFormatGates(t *testing.T) {
 	qt.Check(t, qt.DeepEquals(g.Argv, []string{"cargo", "fmt", "--check"}))
 }
 
+func TestCargoWorkspaceGatesCoverEveryMember(t *testing.T) {
+	ws := t.TempDir()
+	testutil.Write(t, ws, "Cargo.toml", "[workspace]\nmembers = [\"a\", \"b\"]\ndefault-members = [\"a\"]\n")
+	testutil.WriteExecutable(t, ws, "node_modules/.bin/cargo-fmt")
+	proj := detect(t, ws)
+	qt.Check(t, qt.DeepEquals(gateNamed(t, proj, "test").Argv, []string{"cargo", "test", "--workspace"}))
+	qt.Check(t, qt.DeepEquals(gateNamed(t, proj, "format").Argv, []string{"cargo", "fmt", "--check", "--all"}))
+}
+
 // Yarn berry has no --frozen-lockfile, and Yarn 4 given it migrates the
 // project, writing .yarnrc.yml into the tree.
 func TestYarnBerryInstallsImmutable(t *testing.T) {
