@@ -581,9 +581,13 @@ func insertLines(lines []string, at int, extra ...string) []string {
 func pinSharedAction(f doctor.Finding) func(string) (string, string) {
 	old := namedActionRef(f.What)
 	tag := tagFromFix(f.Fix)
+	goodTag, sha := doctor.KnownGood()
 	return func(body string) (string, string) {
 		if old == "" || tag == "" {
 			return body, "finding does not name the ref to pin"
+		}
+		if tag != goodTag || sha == "" {
+			return body, "cannot resolve the commit SHA of " + tag + " (offline); a bare tag would fail the SHA-pin rule"
 		}
 		lines := splitLines(body)
 		changed := false
@@ -591,7 +595,7 @@ func pinSharedAction(f doctor.Finding) func(string) (string, string) {
 			if !strings.Contains(line, "Rethunk-Tech/gh-actions") {
 				continue
 			}
-			next, ok := rewriteRef(line, old, tag)
+			next, ok := rewriteRef(line, old, sha, tag)
 			if !ok {
 				continue
 			}
@@ -629,7 +633,9 @@ func tagFromFix(fix string) string {
 	return ""
 }
 
-func rewriteRef(line, oldRef, tag string) (string, bool) {
+// rewriteRef pins the shared action at oldRef to sha, naming tag in a trailing
+// comment, which is how the fleet pins and what canon verifies.
+func rewriteRef(line, oldRef, sha, tag string) (string, bool) {
 	needle := "@" + oldRef
 	at := strings.LastIndex(line, needle)
 	if at < 0 {
@@ -648,7 +654,7 @@ func rewriteRef(line, oldRef, tag string) (string, bool) {
 			rest = ""
 		}
 	}
-	return line[:at] + "@" + tag + rest, true
+	return line[:at] + "@" + sha + " # " + tag + rest, true
 }
 
 func refBoundary(c byte) bool {

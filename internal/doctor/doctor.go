@@ -14,7 +14,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/config"
 	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/detect"
@@ -49,13 +51,33 @@ type Finding struct {
 	Fix string
 }
 
-// KnownGoodActionsTag is the newest shared-actions tag this build knows about.
-//
-// Deliberately a constant rather than a network lookup: doctor must work
-// offline and must never make a project's health depend on a remote being
-// reachable. It goes stale by design -- bump it when gh-actions publishes a
-// tag, and until then a newer pin than this simply does not get flagged.
+// KnownGoodActionsTag is the newest shared-actions tag this build knows about,
+// and what doctor falls back to when the caller has not resolved a newer one
+// with SetKnownGood. Doctor itself never reaches the network: a project's
+// health must not depend on a remote being reachable.
 const KnownGoodActionsTag = "v1.33"
+
+var (
+	knownGoodMu  sync.Mutex
+	knownGoodTag = KnownGoodActionsTag
+	knownGoodSHA string
+)
+
+// SetKnownGood replaces the tag doctor measures pins against, and the commit
+// it resolves to ("" when that could not be resolved).
+func SetKnownGood(tag, sha string) {
+	knownGoodMu.Lock()
+	defer knownGoodMu.Unlock()
+	knownGoodTag, knownGoodSHA = tag, sha
+}
+
+// KnownGood is the tag pins are measured against and its commit SHA, which is
+// empty until a caller has resolved it.
+func KnownGood() (tag, sha string) {
+	knownGoodMu.Lock()
+	defer knownGoodMu.Unlock()
+	return knownGoodTag, knownGoodSHA
+}
 
 // Run inspects dir and returns findings, most costly first. It executes
 // nothing.
@@ -651,24 +673,39 @@ func checkWorkflowFile(body, path, root string, proj detect.Project, add func(Fi
 		})
 	}
 
+	good, _ := KnownGood()
+	type pin struct{ ref, version string }
+	counts := map[pin]int{}
+	var order []pin
 	for _, ref := range actionRefs(body) {
-		if floatingRef(ref.ref) {
+		k := pin{ref.ref, ref.version()}
+		if counts[k] == 0 {
+			order = append(order, k)
+		}
+		counts[k]++
+	}
+	// One finding per ref in a file, whatever the number of uses: fix rewrites
+	// every line in one go, so a finding per line would report the rest as
+	// not found.
+	for _, k := range order {
+		uses := strconv.Itoa(counts[k]) + " use(s); "
+		if floatingRef(k.ref) {
 			add(Finding{
 				Check: "actions-floating-ref",
 				Where: path,
-				What:  "shared action pinned to a moving ref (" + ref.ref + ")",
-				Why:   "a moving ref changes what CI runs without any commit here recording it",
-				Fix:   "pin to the commit SHA of tag " + KnownGoodActionsTag + ", with the tag in a trailing comment",
+				What:  "shared action pinned to a moving ref (" + k.ref + ")",
+				Why:   uses + "a moving ref changes what CI runs without any commit here recording it",
+				Fix:   "pin to the commit SHA of tag " + good + ", with the tag in a trailing comment",
 			})
 			continue
 		}
-		if olderThanKnownGood(ref.version()) {
+		if olderThanKnownGood(k.version) {
 			add(Finding{
 				Check: "actions-stale-ref",
 				Where: path,
-				What:  "shared action pinned to " + ref.ref,
-				Why:   "that pin is " + ref.version() + " and this build knows of " + KnownGoodActionsTag + "; newer tags are not flagged, so this really is behind",
-				Fix:   "bump to " + KnownGoodActionsTag + " or newer",
+				What:  "shared action pinned to " + k.ref,
+				Why:   uses + "that pin is " + k.version + " and this build knows of " + good + "; newer tags are not flagged, so this really is behind",
+				Fix:   "bump to " + good + " or newer",
 			})
 		}
 	}
@@ -905,7 +942,8 @@ func olderThanKnownGood(ref string) bool {
 	if !ok {
 		return false
 	}
-	goodMajor, goodMinor, ok := ParseTag(KnownGoodActionsTag)
+	good, _ := KnownGood()
+	goodMajor, goodMinor, ok := ParseTag(good)
 	if !ok {
 		return false
 	}
