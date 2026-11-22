@@ -213,6 +213,14 @@ func Load(repo, cacheDir, today string, fetch Fetcher) (Settings, error) {
 	return s, nil
 }
 
+// Forget drops repo's cached answers, leaving other repositories' alone.
+func Forget(repo, cacheDir string) {
+	matches, _ := filepath.Glob(filepath.Join(cacheDir, strings.ReplaceAll(repo, "/", "__")+"-*.json"))
+	for _, m := range matches {
+		_ = os.Remove(m)
+	}
+}
+
 // prune removes cached answers from any day but today.
 func prune(cacheDir, today string) {
 	entries, _ := os.ReadDir(cacheDir)

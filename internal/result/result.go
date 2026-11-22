@@ -412,9 +412,17 @@ func worktreePath(p string) bool {
 	return clean != ".." && !strings.HasPrefix(clean, "../") && clean != "."
 }
 
-// StateDir is $XDG_STATE_HOME, or ~/.local/state where it is unset or not
-// absolute, which is what the XDG spec says a reader must then assume.
+// StateDirEnv names the state directory an isolated run's children use: the
+// throwaway HOME they run under holds none of the caller's state.
+const StateDirEnv = "GATE_STATE_DIR"
+
+// StateDir is $GATE_STATE_DIR when absolute, else $XDG_STATE_HOME, or
+// ~/.local/state where that is unset or not absolute, which is what the XDG
+// spec says a reader must then assume.
 func StateDir() (string, error) {
+	if dir := os.Getenv(StateDirEnv); filepath.IsAbs(dir) {
+		return dir, nil
+	}
 	if dir := os.Getenv("XDG_STATE_HOME"); filepath.IsAbs(dir) {
 		return dir, nil
 	}

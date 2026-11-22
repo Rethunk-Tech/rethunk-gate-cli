@@ -65,7 +65,7 @@ func checkAllowedActions(ctx context.Context, dir string, fetch allowed.Fetcher,
 	}
 	cacheDir := filepath.Join(state, "gate", "actions-allowed")
 	if os.Getenv(actionsRefreshVar) != "" {
-		_ = os.RemoveAll(cacheDir)
+		allowed.Forget(m[1], cacheDir)
 	}
 	s, err := allowed.Load(m[1], cacheDir, today, fetch)
 	if err != nil {

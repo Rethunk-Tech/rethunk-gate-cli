@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	stored "github.com/Rethunk-Tech/rethunk-gate-cli/internal/result"
 )
 
 // resolveIsolate is what an isolated run is: the flag says so, --no-isolate
@@ -197,6 +199,7 @@ func isolatedEnv(env []string, home string) []string {
 	xdgCache := pick("XDG_CACHE_HOME", dir(callerHome, ".cache"))
 	xdgData := pick("XDG_DATA_HOME", dir(callerHome, ".local/share"))
 	gopath := pick("GOPATH", dir(callerHome, "go"))
+	state := pick(stored.StateDirEnv, pick("XDG_STATE_HOME", dir(callerHome, ".local/state")))
 
 	out := make([]string, 0, len(env)+15)
 	for _, e := range env {
@@ -212,6 +215,7 @@ func isolatedEnv(env []string, home string) []string {
 		"HOME="+home,
 		"GIT_CONFIG_GLOBAL="+os.DevNull,
 		"GIT_CONFIG_NOSYSTEM=1",
+		stored.StateDirEnv+"="+state,
 		"GOPATH="+gopath,
 		"GOMODCACHE="+pick("GOMODCACHE", dir(gopath, "pkg/mod")),
 		"GOCACHE="+pick("GOCACHE", dir(xdgCache, "go-build")),

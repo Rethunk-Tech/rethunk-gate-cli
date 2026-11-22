@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	stored "github.com/Rethunk-Tech/rethunk-gate-cli/internal/result"
 	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/testutil"
 	"github.com/go-quicktest/qt"
 )
@@ -234,4 +235,14 @@ func TestIsolatedEnvKeepsToolHomes(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestIsolatedEnvKeepsTheCallersStateDir(t *testing.T) {
+	has := func(env []string, want string) bool { return slices.Contains(env, want) }
+	qt.Check(t, qt.IsTrue(has(isolatedEnv([]string{"HOME=/home/u", "XDG_STATE_HOME=/st"}, "/tmp/fresh"), "GATE_STATE_DIR=/st")))
+	qt.Check(t, qt.IsTrue(has(isolatedEnv([]string{"HOME=/home/u"}, "/tmp/fresh"), "GATE_STATE_DIR=/home/u/.local/state")))
+	t.Setenv("GATE_STATE_DIR", "/st")
+	dir, err := stored.StateDir()
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.Equals(dir, "/st"))
 }

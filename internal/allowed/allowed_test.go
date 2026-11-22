@@ -167,3 +167,15 @@ func TestLoadReportsASelectedActionsFailure(t *testing.T) {
 		qt.Check(t, qt.IsNotNil(err), qt.Commentf(name))
 	}
 }
+
+func TestForgetDropsOnlyThatRepository(t *testing.T) {
+	dir := t.TempDir()
+	for _, n := range []string{"o__a-2026-01-01.json", "o__b-2026-01-01.json"} {
+		qt.Assert(t, qt.IsNil(os.WriteFile(filepath.Join(dir, n), []byte("{}"), 0o600)))
+	}
+	Forget("o/a", dir)
+	_, errA := os.Stat(filepath.Join(dir, "o__a-2026-01-01.json"))
+	_, errB := os.Stat(filepath.Join(dir, "o__b-2026-01-01.json"))
+	qt.Check(t, qt.IsNotNil(errA))
+	qt.Check(t, qt.IsNil(errB))
+}
