@@ -295,14 +295,25 @@ func TestDotnetFormatIsSkippedExactlyWhenBuildIs(t *testing.T) {
 }
 
 func TestWholeCIRoot(t *testing.T) {
+	// Convention gates for tools on PATH (canon, shellcheck) would join every bare run.
+	t.Setenv("PATH", t.TempDir())
 	dir := t.TempDir()
-	qt.Assert(t, qt.IsNil(os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"scripts":{"ci":"x","lint":"y"}}`), 0o600)))
-	qt.Assert(t, qt.IsNil(os.WriteFile(filepath.Join(dir, "Makefile"), []byte("check:\n\ttrue\n"), 0o600)))
+	qt.Assert(t, qt.IsNil(os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"scripts":{"ci":"x"}}`), 0o600)))
+	mk := t.TempDir()
+	qt.Assert(t, qt.IsNil(os.WriteFile(filepath.Join(mk, "Makefile"), []byte("check:\n\ttrue\n"), 0o600)))
 	for argv, want := range map[string]bool{
-		"bun run ci": true, "npm run ci": true, "make check": true,
-		"bun run lint": false, "bun run verify": false, "bun run ci --x": false, "make ci": false, "go test": false,
+		"bun run ci": true, "npm run ci": true,
+		"bun run lint": false, "bun run verify": false, "bun run ci --x": false, "go test": false,
 	} {
-		_, ok := WholeCIRoot(dir, strings.Fields(argv))
+		_, ok := WholeCIRoot(t.Context(), dir, strings.Fields(argv))
 		qt.Check(t, qt.Equals(ok, want), qt.Commentf("%s", argv))
 	}
+	_, ok := WholeCIRoot(t.Context(), mk, []string{"make", "check"})
+	qt.Check(t, qt.IsTrue(ok))
+
+	// A bare run would also run lint, which the aggregate never reaches.
+	beside := t.TempDir()
+	qt.Assert(t, qt.IsNil(os.WriteFile(filepath.Join(beside, "Makefile"), []byte("ci:\n\ttrue\nlint:\n\ttrue\n"), 0o600)))
+	_, ok = WholeCIRoot(t.Context(), beside, []string{"make", "ci"})
+	qt.Check(t, qt.IsFalse(ok))
 }

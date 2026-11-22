@@ -1419,12 +1419,14 @@ func roleNames(gates []Gate) []string {
 // run: `<npm|pnpm|bun> run X`, `yarn X` or `make X` with X an aggregate name
 // (ci, check, verify, validate) the project's own package.json or Makefile
 // defines. Any other command, or an aggregate the project does not define,
-// is not a full pass.
-func WholeCIRoot(dir string, argv []string) (string, bool) {
+// is not a full pass. Nor is one beside which a bare run would still run
+// other gates (shell, canon, workflows, roles the aggregate never calls):
+// the pass would vouch for checks that never ran.
+func WholeCIRoot(ctx context.Context, dir string, argv []string) (string, bool) {
 	var name string
 	switch {
 	case len(argv) == 3 && argv[1] == "run" && slices.Contains([]string{"npm", "pnpm", "bun"}, argv[0]):
-		name = argv[2]
+		name = argv[len(argv)-1]
 	case len(argv) == 2 && (argv[0] == "yarn" || argv[0] == "make"):
 		name = argv[1]
 	default:
@@ -1438,12 +1440,19 @@ func WholeCIRoot(dir string, argv []string) (string, bool) {
 		return "", false
 	}
 	root := locateProject(abs).Root
+	var defined bool
 	if argv[0] == "make" {
-		return root, slices.ContainsFunc(makefileGates(root), func(g Gate) bool { return g.Name == name })
+		defined = slices.ContainsFunc(makefileGates(root), func(g Gate) bool { return g.Name == name })
+	} else {
+		pkg, ok := readPackageJSON(filepath.Join(root, "package.json"))
+		_, has := pkg.Scripts[name]
+		defined = ok && has
 	}
-	pkg, ok := readPackageJSON(filepath.Join(root, "package.json"))
-	_, has := pkg.Scripts[name]
-	return root, ok && has
+	if !defined {
+		return root, false
+	}
+	proj, err := Detect(ctx, root)
+	return root, err == nil && !slices.ContainsFunc(proj.Gates, func(g Gate) bool { return g.Name != name })
 }
 
 // selfPath is this binary: the workflows gate re-enters gate for the

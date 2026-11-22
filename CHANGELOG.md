@@ -6,6 +6,10 @@ Notable changes to `gate`. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- `gate make ci` and `gate npm run ci` write a full pass only when a bare `gate` would run no gate beside that aggregate; otherwise the run is partial and keeps the earlier full record.
+- Test suite is about twice as fast: shorter fuzz time, a 1s stop grace, and the crasher test plants only the crasher.
+
 ## [0.10.3] - 2026-11-21
 
 ### Changed
