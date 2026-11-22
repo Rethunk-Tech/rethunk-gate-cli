@@ -233,6 +233,13 @@ func TestDirectCommandWritesNoRecord(t *testing.T) {
 // fresh, not partial.
 func TestNamedWholeCIWritesAFullRecord(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	// Only make on PATH: a convention gate for a tool the host has (canon)
+	// would join the bare run and make this a partial pass.
+	makeBin, err := exec.LookPath("make")
+	qt.Assert(t, qt.IsNil(err))
+	bin := t.TempDir()
+	qt.Assert(t, qt.IsNil(os.Symlink(makeBin, filepath.Join(bin, "make"))))
+	t.Setenv("PATH", bin)
 	root := t.TempDir()
 	testutil.Write(t, root, "Makefile", "check:\n\ttrue\n")
 	committedRepo(t, root)
