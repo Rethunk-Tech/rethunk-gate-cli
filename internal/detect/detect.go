@@ -81,6 +81,10 @@ func (g Gate) Display() string {
 
 // Project is what a directory turned out to be.
 type Project struct {
+	// Unreached are package scripts and Makefile targets named like tests
+	// that no gate runs.
+	Unreached []string
+
 	// Root is the nearest directory holding a recognised manifest.
 	Root string
 
@@ -155,6 +159,7 @@ func detectOne(ctx context.Context, dir string) (Project, error) {
 	}
 
 	proj := locateProject(abs)
+	proj.Unreached = unreachedTests(proj.Root)
 	c := newClaims()
 
 	// Highest precedence first. A Makefile target is a deliberate wrapper --

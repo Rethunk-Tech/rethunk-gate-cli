@@ -720,6 +720,13 @@ func (st *runState) setBudget(project detect.Project, configured config.Config, 
 	if len(opts.skippedTools) > 0 {
 		opts.partial = true
 	}
+	if !named {
+		for _, name := range project.Unreached {
+			if !slices.ContainsFunc(opts.gates, func(g gateSpec) bool { return strings.Contains(strings.Join(g.argv, " "), name) }) {
+				opts.unreachedTests = append(opts.unreachedTests, name)
+			}
+		}
+	}
 	// A named command that is the project's whole CI is a full pass, so it
 	// keeps the record a bare run does.
 	if st.wholeCI != "" {

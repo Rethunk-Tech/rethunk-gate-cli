@@ -92,25 +92,7 @@ func makefileName(root string) (string, bool) {
 // convention would miss -- so honouring it is the difference between running
 // the project's pipeline and running one that merely resembles it.
 func makefileGates(root string) []Gate {
-	name, ok := makefileName(root)
-	if !ok {
-		return nil
-	}
-	data, err := os.ReadFile(filepath.Clean(filepath.Join(root, name)))
-	if err != nil {
-		return nil
-	}
-
-	declared := map[string]bool{}
-	for line := range strings.SplitSeq(strings.ReplaceAll(string(data), "\\\n", " "), "\n") {
-		if strings.HasPrefix(line, "\t") {
-			continue
-		}
-		targets, _, _ := makeRuleHead(line)
-		for _, t := range targets {
-			declared[t] = true
-		}
-	}
+	declared := makefileTargets(root)
 	var gates []Gate
 	for _, name := range collectedNames {
 		if !declared[name] {
@@ -124,6 +106,59 @@ func makefileGates(root string) []Gate {
 		})
 	}
 	return gates
+}
+
+// makefileTargets are the targets the Makefile at root declares.
+func makefileTargets(root string) map[string]bool {
+	declared := map[string]bool{}
+	name, ok := makefileName(root)
+	if !ok {
+		return declared
+	}
+	data, err := os.ReadFile(filepath.Clean(filepath.Join(root, name)))
+	if err != nil {
+		return declared
+	}
+	for line := range strings.SplitSeq(strings.ReplaceAll(string(data), "\\\n", " "), "\n") {
+		if strings.HasPrefix(line, "\t") {
+			continue
+		}
+		targets, _, _ := makeRuleHead(line)
+		for _, t := range targets {
+			declared[t] = true
+		}
+	}
+	return declared
+}
+
+// unreachedTests are the package scripts and Makefile targets at root that are
+// named like tests but are not a role, so no gate runs them: a full pass
+// would otherwise say nothing about them. A script a role's own script
+// mentions is reached through it.
+func unreachedTests(root string) []string {
+	var names []string
+	var reached strings.Builder
+	pkg, _ := readPackageJSON(filepath.Join(root, "package.json"))
+	for name, body := range pkg.Scripts {
+		if slices.Contains(collectedNames, name) {
+			reached.WriteString(body + "\n")
+		}
+	}
+	for name := range pkg.Scripts {
+		names = append(names, name)
+	}
+	for name := range makefileTargets(root) {
+		names = append(names, name)
+	}
+	var out []string
+	for _, name := range names {
+		if strings.Contains(strings.ToLower(name), "test") && !slices.Contains(collectedNames, name) &&
+			name != "pretest" && name != "posttest" && !strings.Contains(reached.String(), name) && !slices.Contains(out, name) {
+			out = append(out, name)
+		}
+	}
+	slices.Sort(out)
+	return out
 }
 
 type packageJSON struct {

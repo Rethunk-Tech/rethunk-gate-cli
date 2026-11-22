@@ -1558,3 +1558,10 @@ func TestNestedProjectsKeepFormatAndTheirSkippedRoles(t *testing.T) {
 	qt.Check(t, qt.IsTrue(slices.ContainsFunc(proj.Skipped, func(s Skip) bool { return s.Role == "lint" || s.Role == "vuln" })),
 		qt.Commentf("skipped = %v", proj.Skipped))
 }
+
+func TestTestLikeScriptsAndTargetsNoGateRunsAreReported(t *testing.T) {
+	root := t.TempDir()
+	testutil.Write(t, root, "package.json", `{"scripts":{"test":"bun run test:unit","test:unit":"x","test:all":"y","pretest":"z"}}`)
+	testutil.Write(t, root, "Makefile", "tests:\n\tfalse\n")
+	qt.Check(t, qt.DeepEquals(detect(t, root).Unreached, []string{"test:all", "tests"}))
+}

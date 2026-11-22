@@ -7,6 +7,7 @@ Notable changes to `gate`. The format follows
 ## [Unreleased]
 
 ### Fixed
+- A run says which test-like package scripts and Makefile targets (`test:unit`, `tests`) no gate reaches, instead of passing without mentioning them. It is a note, not a new gate: which gates run is unchanged.
 - A stored pass no longer outlives a change gate could not see: a gitignored `go.work`, an ignored `.env*` anywhere under the root (a gate that `cd`s into a package), `GOWORK`, `GOENV`, `MAKEFLAGS`, or the toolchain version behind `make`/`sh -c`/`bun run`. `PATH` itself is still not hashed.
 - Nested projects are gated more completely: Go modules a `go.work` `use`s are found at any depth, a nested directory named like a role (`test/`) runs as `test-dir` instead of being dropped, nested crates and Python projects keep their `format` gate, and a nested project's skipped role (a missing `cargo-audit`) makes the run partial.
 - Cargo workspaces are built, tested, linted and format-checked in full: the convention gates add `--workspace` (`--all` for `cargo fmt`) when the root `Cargo.toml` has a `[workspace]`, instead of only its default-members.

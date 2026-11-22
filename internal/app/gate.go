@@ -187,6 +187,10 @@ type options struct {
 	// partial while there are any.
 	skippedTools []string
 
+	// unreachedTests names test-like scripts and targets no gate runs, so a
+	// full pass does not read as having tested them.
+	unreachedTests []string
+
 	// failed re-runs only the gates whose last record status was fail,
 	// timeout, or error. Detection still runs; this only narrows selection.
 	failed bool
@@ -584,6 +588,9 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 		fmt.Fprintf(stdout, "gate: partial pass, %s skipped for a missing tool\n", strings.Join(opts.skippedTools, ", "))
 	}
 	writeOptInNotes(stdout, opts)
+	if len(opts.unreachedTests) > 0 && !opts.quiet {
+		fmt.Fprintf(stdout, "gate: not run, no gate reaches them: %s (name one in CI or .gate.toml to run it)\n", strings.Join(opts.unreachedTests, ", "))
+	}
 	if opts.profile {
 		writeProfile(stderr, results, wall)
 	}
