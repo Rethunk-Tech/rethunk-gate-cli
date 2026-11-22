@@ -553,7 +553,8 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 	}
 	tree := make(chan startState, 1)
 	if opts.root != "" {
-		go func() { tree <- startState{stored.ReadTree(ctx, opts.root), gatesFingerprint(ctx, opts)} }()
+		// The goroutine gets its own copy: opts is written again once the gates finish.
+		go func(o options) { tree <- startState{stored.ReadTree(ctx, o.root), gatesFingerprint(ctx, o)} }(opts)
 	}
 	sc := groupRun{loads: newLoadWaiter(opts, stderr), opts: opts, results: results, stream: stream, needed: resolveNeeds(opts.gates), done: make([]chan struct{}, len(opts.gates))}
 	for i := range sc.done {
