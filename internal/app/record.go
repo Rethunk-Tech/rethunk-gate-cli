@@ -547,16 +547,25 @@ func selectFailed(ctx context.Context, root string, opts *options, stderr io.Wri
 		fmt.Fprintf(stderr, "gate: cannot read the result record: %v\n", err)
 		return Fatal
 	}
+	var names []string
+	want := map[string]struct{}{}
+	if rec.Schema == recordSchema {
+		for _, g := range rec.Gates {
+			if name := lastFailedName(g); name != "" {
+				names = append(names, name)
+				want[name] = struct{}{}
+			}
+		}
+	}
 	state := stored.ReadTree(ctx, root)
 	if !state.OK || rec.Schema != recordSchema || rec.Head != state.Head || rec.Status != state.Status {
 		fmt.Fprintln(stderr, "gate: result record stale")
-		return InvalidUsage
-	}
-	want := map[string]struct{}{}
-	for _, g := range rec.Gates {
-		if name := lastFailedName(g); name != "" {
-			want[name] = struct{}{}
+		// The names are still the best guess at what to run, and a stale
+		// record cannot say which of them the edits fixed.
+		if len(names) > 0 {
+			fmt.Fprintf(stderr, "gate: tree changed since the failed run; rerun with: gate run %s\n", strings.Join(names, " "))
 		}
+		return InvalidUsage
 	}
 	if len(want) == 0 {
 		fmt.Fprintln(stderr, "gate: no failed gates")

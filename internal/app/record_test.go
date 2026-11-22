@@ -801,6 +801,22 @@ func TestFailedRerunsAGateSkippedByItsNeed(t *testing.T) {
 	qt.Check(t, qt.IsTrue(exists(marker)), qt.Commentf("--failed left the skipped gate unrun: stderr = %q", stderr))
 }
 
+// A stale record still names what failed, as a command to run, and keeps the
+// stale exit code.
+func TestFailedOnAStaleRecordHintsTheFailingNames(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	root := t.TempDir()
+	testutil.Write(t, root, ".gate.toml", "[gates.alpha]\nrun = \"true\"\n\n[gates.beta]\nrun = \"false\"\n\n[gates.gamma]\nrun = \"exit 4\"\n")
+	committedRepo(t, root)
+	_, _, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Code(1)))
+	testutil.Write(t, root, "edited.txt", "x")
+
+	_, stderr, code := runGateTest(t, "-C", root, "--failed")
+	qt.Check(t, qt.Equals(code, InvalidUsage))
+	qt.Check(t, qt.StringContains(stderr, "tree changed since the failed run; rerun with: gate run beta gamma"), qt.Commentf("stderr = %q", stderr))
+}
+
 // The record is a convenience for other tools, so a run that cannot write one
 // still reports the command's own verdict and says what it lost. Here the
 // state directory sits under a regular file, which no mkdir can fix.
