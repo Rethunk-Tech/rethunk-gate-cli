@@ -540,7 +540,7 @@ func TestReadTreeUnreadableWhenGitQueryFails(t *testing.T) {
 				tc.prep(t, repo, git)
 			}
 			gitFailOn(t, tc.fail)
-			qt.Check(t, qt.Equals(ReadTree(t.Context(), repo), State{}))
+			qt.Check(t, qt.IsFalse(ReadTree(t.Context(), repo).OK))
 		})
 	}
 }
@@ -608,4 +608,37 @@ func TestHashChangedReportsGitFailure(t *testing.T) {
 		return nil, false
 	})
 	qt.Check(t, qt.IsFalse(ok))
+}
+
+// An untracked nested repository lists as a directory and a dangling symlink
+// cannot be opened; neither may make the whole tree unreadable.
+func TestReadTreeSurvivesNestedReposAndDanglingSymlinks(t *testing.T) {
+	dir := t.TempDir()
+	git := gitFixture(t, dir)
+	testutilWrite(t, dir, "data.txt", "x\n")
+	git("add", ".")
+	git("commit", "--quiet", "-m", "first")
+	nested := filepath.Join(dir, "nest")
+	if err := os.Mkdir(nested, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := exec.CommandContext(t.Context(), "git", "-C", nested, "init", "--quiet").Run(); err != nil { //nolint:gosec // fixed argv, temp dir
+		t.Fatal(err)
+	}
+	if err := os.Symlink("missing", filepath.Join(dir, "dangling")); err != nil {
+		t.Fatal(err)
+	}
+	st := ReadTree(t.Context(), dir)
+	if !st.OK || !st.Dirty {
+		t.Fatalf("ReadTree = %+v, want OK and dirty", st)
+	}
+	if err := os.Remove(filepath.Join(dir, "dangling")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("elsewhere", filepath.Join(dir, "dangling")); err != nil {
+		t.Fatal(err)
+	}
+	if again := ReadTree(t.Context(), dir); again.Status == st.Status {
+		t.Fatal("a symlink retargeted without changing the tree hash")
+	}
 }

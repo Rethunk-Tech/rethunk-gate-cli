@@ -7,6 +7,7 @@ Notable changes to `gate`. The format follows
 ## [Unreleased]
 
 ### Fixed
+- An untracked nested git repository or a symlink (dangling, or to a directory) no longer makes the working tree unreadable, which had silently dropped the result record; and when the tree cannot be read gate now says no record was saved.
 - A run says which test-like package scripts and Makefile targets (`test:unit`, `tests`) no gate reaches, instead of passing without mentioning them. It is a note, not a new gate: which gates run is unchanged.
 - A stored pass no longer outlives a change gate could not see: a gitignored `go.work`, an ignored `.env*` anywhere under the root (a gate that `cd`s into a package), `GOWORK`, `GOENV`, `MAKEFLAGS`, or the toolchain version behind `make`/`sh -c`/`bun run`. `PATH` itself is still not hashed.
 - Nested projects are gated more completely: Go modules a `go.work` `use`s are found at any depth, a nested directory named like a role (`test/`) runs as `test-dir` instead of being dropped, nested crates and Python projects keep their `format` gate, and a nested project's skipped role (a missing `cargo-audit`) makes the run partial.

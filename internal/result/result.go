@@ -32,6 +32,9 @@ type State struct {
 	Dirty  bool
 	Status string
 	OK     bool
+	// Unreadable is a repository with a HEAD whose worktree could not be
+	// read, as opposed to a directory that is not a repository.
+	Unreadable bool
 }
 
 // Loaded is the part of a stored record a freshness check reads.
@@ -96,15 +99,15 @@ func ReadTree(ctx context.Context, root string) State {
 	// are the repository's to set, and hiding a dirty one hides an input.
 	staged, ok := git(nil, "diff-index", "--cached", "--raw", "-z", "--ignore-submodules=none", "HEAD")
 	if !ok {
-		return State{}
+		return State{Unreadable: true}
 	}
 	worktree, ok := git(nil, "diff-files", "--raw", "-z", "--ignore-submodules=none")
 	if !ok {
-		return State{}
+		return State{Unreadable: true}
 	}
 	untracked, ok := git(nil, "ls-files", "-z", "--others", "--exclude-standard")
 	if !ok {
-		return State{}
+		return State{Unreadable: true}
 	}
 	paths, submodules := readPaths(worktree, untracked)
 	// hash-object opens each path; a FIFO, socket, or device blocks forever
@@ -116,31 +119,31 @@ func ReadTree(ctx context.Context, root string) State {
 	blobs, ok := hashChanged(root, paths, git)
 	if !ok {
 		hcancel()
-		return State{}
+		return State{Unreadable: true}
 	}
 	// skip-worktree and assume-unchanged keep git diff-files quiet, so a
 	// local edit of either would otherwise hash as a clean tree.
 	verbose, ok := git(nil, "ls-files", "-v", "-z")
 	if !ok {
 		hcancel()
-		return State{}
+		return State{Unreadable: true}
 	}
 	hidden, hiddenDirty, ok := hashIndexFlags(root, verbose, git)
 	hcancel()
 	ctx = parent
 	if !ok {
-		return State{}
+		return State{Unreadable: true}
 	}
 	blobs = append(blobs, hidden...)
 	// A changed submodule's raw line keeps the same ids while its files
 	// change, so its own tree is read and hashed in its place.
 	for _, sub := range submodules {
 		if !worktreePath(sub) {
-			return State{}
+			return State{Unreadable: true}
 		}
 		inner := ReadTree(ctx, filepath.Join(root, sub))
 		if !inner.OK {
-			return State{}
+			return State{Unreadable: true}
 		}
 		blobs = fmt.Appendf(blobs, "%s %s %s\n", sub, inner.Head, inner.Status)
 	}
@@ -343,11 +346,15 @@ func hashChanged(root string, paths []string, git gitRead) ([]byte, bool) {
 	}
 	var stdin []byte
 	var argv []string
+	var buf bytes.Buffer
 	for _, p := range paths {
 		if !worktreePath(p) {
 			return nil, false
 		}
 		if blocksHash(root, p) {
+			continue
+		}
+		if handled := hashlessEntry(root, p, &buf); handled {
 			continue
 		}
 		if strings.ContainsRune(p, '\n') {
@@ -357,9 +364,8 @@ func hashChanged(root string, paths []string, git gitRead) ([]byte, bool) {
 		stdin = append(append(stdin, p...), '\n')
 	}
 	if len(stdin) == 0 && len(argv) == 0 {
-		return nil, true
+		return buf.Bytes(), true
 	}
-	var buf bytes.Buffer
 	if len(stdin) > 0 {
 		out, ok := git(stdin, "hash-object", "--no-filters", "--stdin-paths")
 		if !ok {
@@ -375,6 +381,26 @@ func hashChanged(root string, paths []string, git gitRead) ([]byte, bool) {
 		buf.Write(out)
 	}
 	return buf.Bytes(), true
+}
+
+// hashlessEntry covers the entries hash-object cannot read. It cannot open a
+// directory (an untracked nested repository lists as one) or follow a dangling
+// symlink, and failing the whole read for either would leave the run
+// unrecorded. A symlink's identity is its target text, as git stores it,
+// written to buf; a directory has no content of its own to add.
+func hashlessEntry(root, p string, buf *bytes.Buffer) bool {
+	full := filepath.Join(root, filepath.FromSlash(p))
+	fi, err := os.Lstat(full)
+	switch {
+	case err != nil:
+		return false
+	case fi.Mode()&os.ModeSymlink != 0:
+		target, _ := os.Readlink(full)
+		sum := sha256.Sum256([]byte(target))
+		buf.WriteString(hex.EncodeToString(sum[:]) + "\n")
+		return true
+	}
+	return fi.IsDir()
 }
 
 // blocksHash reports a path hash-object would block opening: a FIFO, socket,

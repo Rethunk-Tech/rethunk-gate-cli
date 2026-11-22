@@ -588,9 +588,6 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 		fmt.Fprintf(stdout, "gate: partial pass, %s skipped for a missing tool\n", strings.Join(opts.skippedTools, ", "))
 	}
 	writeOptInNotes(stdout, opts)
-	if len(opts.unreachedTests) > 0 && !opts.quiet {
-		fmt.Fprintf(stdout, "gate: not run, no gate reaches them: %s (name one in CI or .gate.toml to run it)\n", strings.Join(opts.unreachedTests, ", "))
-	}
 	if opts.profile {
 		writeProfile(stderr, results, wall)
 	}
@@ -604,11 +601,20 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 			busy.Round(time.Millisecond), opts.budget, slowest, waitedNote(waited))
 	}
 	if opts.root != "" {
-		if at := <-tree; at.tree.OK {
+		at := <-tree
+		if at.tree.OK {
 			saveRecord(stderr, opts, results, at.tree, at.fingerprint, started, wall, waited, code)
+		} else if at.tree.Unreadable {
+			warnUnreadableTree(stderr, opts)
 		}
 	}
 	return code
+}
+
+func warnUnreadableTree(stderr io.Writer, opts options) {
+	if !opts.quiet {
+		fmt.Fprintln(stderr, "gate: the working tree could not be read; no result record was saved")
+	}
 }
 
 // saveRecord writes the run's result record. Reported, never fatal: the
@@ -845,6 +851,9 @@ func writeOptInNotes(w io.Writer, opts options) {
 	}
 	if opts.skippedE2E > 0 {
 		fmt.Fprintf(w, "gate: %d e2e gate(s) skipped; `gate --e2e` runs them\n", opts.skippedE2E)
+	}
+	if len(opts.unreachedTests) > 0 {
+		fmt.Fprintf(w, "gate: not run, no gate reaches them: %s (name one in CI or .gate.toml to run it)\n", strings.Join(opts.unreachedTests, ", "))
 	}
 	if opts.skippedFuzz > 0 {
 		fmt.Fprintln(w, "gate: fuzz gate skipped; `gate --fuzz` runs it (a pre-push hook and CI always do)")
