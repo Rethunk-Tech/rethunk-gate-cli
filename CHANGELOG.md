@@ -6,6 +6,25 @@ Notable changes to `gate`. The format follows
 
 ## [Unreleased]
 
+### Added
+- `gate doctor` and `gate fix` pin to the newest tag repo-ops has proven (else the newest published `vX.Y`), resolved once a day with its commit SHA; offline they keep the built-in tag.
+- `gate --failed` on a stale record prints the failing gate names as a `gate run ...` command.
+- A `--mem` or `[limits] memory` larger than an enclosing cap says the enclosing cap is lower.
+
+### Fixed
+- A run sweeps isolated HOMEs a killed run left behind.
+- `gate quick` and a named-role run report a missing tool only for the roles they select.
+- The memory re-exec passes `--expand-environment=no` on systemd 254 and later and no longer doubles `$`; older systemd gets argv unchanged.
+- `gate quick` passes `--force-exclude` to ruff and `--no-errors-on-unmatched` to biome, so excluded or ignored files no longer fail or get rewritten; its derived format step runs `golangci-lint fmt` on v2, so configured formatters apply.
+- `gate quick` reaches gates that run in a subdirectory (config `dir`, CI working-directory packages), passing paths relative to it.
+- `gate fix` pins shared actions as `@<sha> # <tag>` instead of a bare tag, and skips when the SHA cannot be resolved.
+- `gate doctor` reports one stale or floating shared-action finding per file and ref, with a use count.
+- `corepack-with-setup-bun` is judged per job and skipped for yarn and pnpm projects.
+- `ci-clippy-off` and its siblings count a direct `cargo clippy`, `govulncheck`, `uv audit` or `bun audit` step, and point at the workflow that gates pushes and pull requests.
+- The fallback `test` gate leaves out browser, integration, watch and update scripts and targets (they form a `test:e2e` gate skipped by default) and matches `test` as a word, not a substring.
+- A Python project that declares pyrefly or mypy runs it by bare name under `uv run`, so a fresh clone uses the locked version.
+- `gate --list` shows the first line of a multi-line `run` plus `(+N lines)`; `--json` keeps all of it.
+
 ## [0.10.6] - 2026-11-21
 
 ### Fixed
