@@ -188,6 +188,9 @@ type options struct {
 	// partial while there are any.
 	skippedTools []string
 
+	// memExplicit is a memory cap the caller asked for, by flag or .gate.toml.
+	memExplicit bool
+
 	// unreachedTests names test-like scripts and targets no gate runs, so a
 	// full pass does not read as having tested them.
 	unreachedTests []string

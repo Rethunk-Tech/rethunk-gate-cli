@@ -1048,6 +1048,7 @@ func (st *runState) applyConfig(cfg config.Config, roles []string) {
 	if cfg.HasMemory && !st.memSet {
 		opts.memory = cfg.Memory
 	}
+	opts.memExplicit = st.memSet || cfg.HasMemory
 }
 
 func missingRoles(roles []string, gates []gateSpec) []string {

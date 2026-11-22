@@ -95,3 +95,20 @@ func TestAnnounceMemoryCapSkipsAndNotes(t *testing.T) {
 	announceMemoryCap(&buf, options{memory: "8G"})
 	qt.Assert(t, qt.Equals(buf.String(), "gate: memory cap 8G unused: systemd-run --user is unavailable\n"))
 }
+
+// Asking for more than an enclosing cap allows is said, because the lower cap
+// is the one in force; the default is not, or every run under a small cap would
+// repeat it.
+func TestAnnounceMemoryCapNamesALowerEnclosingCapWhenAsked(t *testing.T) {
+	origWrap, origAvail, origLimit := applyMemoryWrap, systemdAvailable, cgroupLimit
+	t.Cleanup(func() { applyMemoryWrap, systemdAvailable, cgroupLimit = origWrap, origAvail, origLimit })
+	applyMemoryWrap, systemdAvailable = true, func() bool { return true }
+	cgroupLimit = func() (uint64, bool) { return 24 << 30, true }
+	stubUnit(t, false)
+
+	var buf bytes.Buffer
+	announceMemoryCap(&buf, options{memory: "48G"})
+	qt.Check(t, qt.Equals(buf.Len(), 0))
+	announceMemoryCap(&buf, options{memory: "48G", memExplicit: true})
+	qt.Check(t, qt.Equals(buf.String(), "gate: memory cap 48G not applied: an enclosing 24G cap is lower\n"))
+}

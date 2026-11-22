@@ -138,9 +138,25 @@ func announceMemoryCap(stderr io.Writer, opts options) {
 	if !applyMemoryWrap || opts.quiet {
 		return
 	}
-	if note := memoryNote(opts.memory); note != "" {
+	note := memoryNote(opts.memory)
+	if note == "" && opts.memExplicit {
+		note = enclosingLowerNote(opts.memory)
+	}
+	if note != "" {
 		fmt.Fprintf(stderr, "gate: %s\n", note)
 	}
+}
+
+// enclosingLowerNote says an enclosing cap is tighter than the one asked for,
+// which is the cap that really applies. Only worth saying for a request the
+// caller made: the default would repeat it on every run under a small cap.
+func enclosingLowerNote(size string) string {
+	limit, capped := cgroupLimit()
+	want, ok := parseSizeBytes(size)
+	if !capped || !ok || limit == 0 || want <= limit {
+		return ""
+	}
+	return "memory cap " + size + " not applied: an enclosing " + formatSize(limit) + " cap is lower"
 }
 
 // shouldScopeRun is whether this process must re-exec itself under a memory
