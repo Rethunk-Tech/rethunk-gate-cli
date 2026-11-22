@@ -400,9 +400,14 @@ func uvInstall(dir string) []string {
 // where nothing else claimed that role -- a project whose Makefile or
 // .gate.toml supplies the gate is not missing it, and listing the gate beside
 // a note that it was skipped states both halves of a contradiction.
+//
+// Gate names the nested package's gate the role was found under, empty for the
+// root. Merge drops a nested package's skip when detect.exclude leaves that
+// gate out: the run never meant to judge it, so it is not a gap.
 type Skip struct {
 	Role string
 	Note string
+	Gate string
 }
 
 // conventionGates is the fallback ladder, used only for roles the project
@@ -477,7 +482,7 @@ func goConventionGates(root string, proj *Project) (gates []Gate, skipped []Skip
 		if bin := resolve(root, proj, "govulncheck"); bin != "" {
 			gates = append(gates, Gate{Name: "vuln", Argv: []string{bin, "./..."}, Source: "convention: go"})
 		} else {
-			skipped = append(skipped, Skip{"vuln", "govulncheck not installed; skipping the vuln gate (go install golang.org/x/vuln/cmd/govulncheck@latest)"})
+			skipped = append(skipped, Skip{Role: "vuln", Note: "govulncheck not installed; skipping the vuln gate (go install golang.org/x/vuln/cmd/govulncheck@latest)"})
 		}
 	}
 	return gates, skipped
@@ -509,19 +514,19 @@ func rustConventionGates(root string, proj *Project) (gates []Gate, skipped []Sk
 			// judges correctness beyond the compiler: `cargo check` is the
 			// compiler again, and rustfmt judges formatting, so either one as a
 			// lint gate would report something other than a lint result.
-			skipped = append(skipped, Skip{"lint", "clippy not installed; skipping the lint gate (rustup component add clippy)"})
+			skipped = append(skipped, Skip{Role: "lint", Note: "clippy not installed; skipping the lint gate (rustup component add clippy)"})
 		}
 		// rustfmt ships with the toolchain but is reached as `cargo fmt`, so the
 		// subcommand's binary is what is probed, as for clippy.
 		if resolve(root, proj, "cargo-fmt") != "" {
 			gates = append(gates, Gate{Name: "format", Argv: append([]string{"cargo", "fmt", "--check"}, all...), Source: "convention: rust"})
 		} else {
-			skipped = append(skipped, Skip{"format", "rustfmt not installed; skipping the format gate (rustup component add rustfmt)"})
+			skipped = append(skipped, Skip{Role: "format", Note: "rustfmt not installed; skipping the format gate (rustup component add rustfmt)"})
 		}
 		if resolve(root, proj, "cargo-audit") != "" {
 			gates = append(gates, Gate{Name: "vuln", Argv: []string{"cargo", "audit"}, Source: "convention: rust"})
 		} else {
-			skipped = append(skipped, Skip{"vuln", "cargo-audit not installed; skipping the vuln gate (cargo install cargo-audit)"})
+			skipped = append(skipped, Skip{Role: "vuln", Note: "cargo-audit not installed; skipping the vuln gate (cargo install cargo-audit)"})
 		}
 	}
 	return gates, skipped
@@ -540,10 +545,10 @@ func cargoWorkspaceFlags(root string) (ws, all []string) {
 func dotnetConventionGates(root string, proj *Project) (gates []Gate, skipped []Skip) {
 	if target, ok := dotnetTarget(root); ok {
 		if resolve(root, proj, "dotnet") == "" {
-			skipped = append(skipped, Skip{"build", "dotnet not installed; skipping the build gate (install the .NET SDK)"})
-			skipped = append(skipped, Skip{"format", "dotnet not installed; skipping the format gate (install the .NET SDK)"})
+			skipped = append(skipped, Skip{Role: "build", Note: "dotnet not installed; skipping the build gate (install the .NET SDK)"})
+			skipped = append(skipped, Skip{Role: "format", Note: "dotnet not installed; skipping the format gate (install the .NET SDK)"})
 			if hasDotnetTest(root) {
-				skipped = append(skipped, Skip{"test", "dotnet not installed; skipping the test gate (install the .NET SDK)"})
+				skipped = append(skipped, Skip{Role: "test", Note: "dotnet not installed; skipping the test gate (install the .NET SDK)"})
 			}
 		} else {
 			// One serial group, build first: test needs the build's artifact,
@@ -584,7 +589,7 @@ func pythonConventionGates(root string, proj *Project) (gates []Gate, skipped []
 		if declaresPytest(root) {
 			gates = append(gates, Gate{Name: "test", Argv: []string{"uv", "run", "pytest"}, Source: "convention: python"})
 		} else {
-			skipped = append(skipped, Skip{"test", "pytest not declared and no tests/ or conftest.py; skipping the test gate"})
+			skipped = append(skipped, Skip{Role: "test", Note: "pytest not declared and no tests/ or conftest.py; skipping the test gate"})
 		}
 		gates = append(gates, Gate{Name: "lint", Argv: []string{"uv", "run", "ruff", "check", "."}, Source: "convention: python"})
 		// ruff declared means its formatter is the project's, and the lint
@@ -634,7 +639,7 @@ func pythonConventionGates(root string, proj *Project) (gates []Gate, skipped []
 				Source: "convention: python",
 			})
 		} else {
-			skipped = append(skipped, Skip{"vuln", "no uv.lock; skipping the vuln gate (uv lock)"})
+			skipped = append(skipped, Skip{Role: "vuln", Note: "no uv.lock; skipping the vuln gate (uv lock)"})
 		}
 	}
 	return gates, skipped
@@ -738,7 +743,7 @@ func workflowConventionGates(root string, proj *Project) (gates []Gate, skipped 
 				Source:  "convention: .github/workflows",
 			})
 		} else {
-			skipped = append(skipped, Skip{"workflows", "actionlint not installed; skipping the workflows gate (brew install actionlint)"})
+			skipped = append(skipped, Skip{Role: "workflows", Note: "actionlint not installed; skipping the workflows gate (brew install actionlint)"})
 		}
 	}
 	return gates, skipped
@@ -763,7 +768,7 @@ func markdownConventionGates(root string, proj *Project) (gates []Gate, skipped 
 	}
 	bin := resolve(root, proj, "markdownlint-cli2")
 	if bin == "" {
-		return nil, []Skip{{"markdown", "markdownlint-cli2 not installed; skipping the markdown gate (bun add -g markdownlint-cli2)"}}
+		return nil, []Skip{{Role: "markdown", Note: "markdownlint-cli2 not installed; skipping the markdown gate (bun add -g markdownlint-cli2)"}}
 	}
 	argv := []string{bin, "**/*.md", "#node_modules"}
 	for _, c := range configs {
@@ -789,7 +794,7 @@ func shellConventionGates(ctx context.Context, root string, proj *Project) (gate
 				Summary: fmt.Sprintf("shellcheck (%d script%s)", len(scripts), plural(len(scripts))),
 			})
 		} else {
-			skipped = append(skipped, Skip{"shell", "shellcheck not installed; skipping the shell gate (brew install shellcheck)"})
+			skipped = append(skipped, Skip{Role: "shell", Note: "shellcheck not installed; skipping the shell gate (brew install shellcheck)"})
 		}
 	}
 	return gates, skipped
@@ -1378,6 +1383,7 @@ func gateNestedPackage(ctx context.Context, proj *Project, rel string) {
 	// pass is not the whole gate passing.
 	for _, sk := range sub.Skipped {
 		if slices.Contains(declaredNames, sk.Role) || sk.Role == "format" {
+			sk.Gate = gateName
 			proj.Skipped = append(proj.Skipped, sk)
 			proj.Notes = append(proj.Notes, name+"/: "+sk.Note)
 		}

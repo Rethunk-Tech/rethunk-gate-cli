@@ -930,6 +930,12 @@ func (st *runState) buildGates(ctx context.Context, proj detect.Project, cfg con
 			return s.Note == note && cfg.Gates[s.Role].Run != ""
 		})
 	})
+	// A nested package detect.exclude leaves out runs no gate at all, so a
+	// role it could not fill was never this run's to judge: keeping the skip
+	// would make an excluded directory's missing tool a partial pass.
+	project.Skipped = slices.DeleteFunc(slices.Clone(proj.Skipped), func(s detect.Skip) bool {
+		return s.Gate != "" && cfg.Excluded(s.Gate)
+	})
 	include := roles
 	if len(roles) > 0 {
 		include = expandNeeds(roles, cfg)
