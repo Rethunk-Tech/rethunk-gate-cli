@@ -61,6 +61,10 @@ type Gate struct {
 	// CI-run package in a subdirectory sets it.
 	Dir string
 
+	// Parts is, for a CI-run package, the per-role gates it joins into one
+	// command, so a run that selects roles can pick the ones it wants.
+	Parts []Gate
+
 	// Env is what a CI step sets for the script it runs, carried so the
 	// gate runs it the way CI does.
 	Env map[string]string

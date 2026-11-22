@@ -249,3 +249,35 @@ func TestChangedFilesKeepsNonASCIINames(t *testing.T) {
 	testutil.Write(t, root, "café.go", "package a\n")
 	qt.Check(t, qt.DeepEquals(changedFiles(t.Context(), root), []string{"café.go"}))
 }
+
+// A gate that runs in a subdirectory takes the changed files under it, named
+// from there, and has nothing to do when none changed.
+func TestQuickScopesADirGateToItsOwnFiles(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	g := gateSpec{
+		role: "lint", argv: []string{"biome", "check", "."}, root: root,
+		dir: filepath.Join(root, "web"), hasDir: true,
+	}
+	got, skip := scopeGate(g, []string{"web/src/a.ts", "other/b.ts"})
+	qt.Assert(t, qt.IsFalse(skip))
+	qt.Check(t, qt.DeepEquals(got.argv, []string{"biome", "check", "--no-errors-on-unmatched", "src/a.ts"}))
+
+	_, skip = scopeGate(g, []string{"other/b.ts"})
+	qt.Check(t, qt.IsTrue(skip))
+}
+
+// A package CI runs in a subdirectory is one gate named for the directory, but
+// quick reaches its format, lint and typecheck parts there.
+func TestQuickSelectsRolePartsOfACIRunPackage(t *testing.T) {
+	root := t.TempDir()
+	testutil.Write(t, root, "pyproject.toml", "[project]\nname = \"demo\"\n")
+	testutil.Write(t, root, ".github/workflows/ci.yml", "jobs:\n  fe:\n    defaults:\n      run:\n        working-directory: web\n")
+	testutil.Write(t, root, "web/package.json", `{"scripts":{"lint":"biome check .","test":"bun test"}}`)
+	testutil.Write(t, root, "web/bun.lock", "")
+	committedRepo(t, root)
+	stdout, stderr, code := runGateTest(t, "-C", root, "--list", "quick", "--all")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.StringContains(stdout, "biome check"), qt.Commentf("listing = %q", stdout))
+	qt.Check(t, qt.Not(qt.StringContains(stdout, "bun test")), qt.Commentf("listing = %q", stdout))
+}

@@ -874,6 +874,43 @@ func (st *runState) detectGates(ctx context.Context, dir string, roles []string,
 	return project, cfg, code, ok
 }
 
+// selectedGates is the gates of g a run selecting include asked for: g itself,
+// or for a CI-run package the role parts among them, each still running in the
+// package's directory. The package gate is named for the directory, which no
+// role matches.
+func selectedGates(pkg detect.Gate, include []string) []detect.Gate {
+	if len(include) == 0 || slices.Contains(include, pkg.Name) {
+		return []detect.Gate{pkg}
+	}
+	var out []detect.Gate
+	for _, part := range pkg.Parts {
+		if slices.Contains(include, part.Name) {
+			part.Dir, part.Source = pkg.Dir, pkg.Source
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
+// addDetected turns one detected gate into a spec and schedules it; false
+// means the error was printed.
+func (st *runState) addDetected(g detect.Gate, cfg config.Config, root string, stderr io.Writer) bool {
+	full := g.Argv
+	g, err := rotateFuzz(g, cfg, root, st.opts.jobs, os.Getenv)
+	if err != nil {
+		fmt.Fprintf(stderr, "gate: %v\n", err)
+		return false
+	}
+	spec, err := detectedSpec(g, cfg, root)
+	if err != nil {
+		fmt.Fprintf(stderr, "gate: %v\n", err)
+		return false
+	}
+	markFuzz(&spec, g, full)
+	st.opts.gates = append(st.opts.gates, spec)
+	return true
+}
+
 // buildGates turns a detected project and its configuration into the gate
 // list, with every note, override and merge applied. It is what a run and
 // doctor's warnings array share, so both answer "which gates does this
@@ -903,22 +940,11 @@ func (st *runState) buildGates(ctx context.Context, proj detect.Project, cfg con
 			project.Installs = slices.DeleteFunc(slices.Clone(project.Installs), func(in detect.Install) bool { return in.Dir == g.Dir })
 			continue
 		}
-		if len(include) > 0 && !slices.Contains(include, g.Name) {
-			continue
+		for _, g := range selectedGates(g, include) {
+			if !st.addDetected(g, cfg, proj.Root, stderr) {
+				return project, InvalidUsage, false
+			}
 		}
-		full := g.Argv
-		g, err := rotateFuzz(g, cfg, proj.Root, opts.jobs, os.Getenv)
-		if err != nil {
-			fmt.Fprintf(stderr, "gate: %v\n", err)
-			return project, InvalidUsage, false
-		}
-		spec, err := detectedSpec(g, cfg, proj.Root)
-		if err != nil {
-			fmt.Fprintf(stderr, "gate: %v\n", err)
-			return project, InvalidUsage, false
-		}
-		markFuzz(&spec, g, full)
-		opts.gates = append(opts.gates, spec)
 	}
 
 	extra, err := configOnlyGates(cfg, opts.gates, include, proj.Root)

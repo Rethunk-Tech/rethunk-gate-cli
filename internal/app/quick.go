@@ -138,6 +138,14 @@ func scopeQuick(gates []gateSpec, files []string, all bool) []gateSpec {
 }
 
 func scopeGate(g gateSpec, files []string) (gateSpec, bool) {
+	// Changed files are named from the project root; a gate that runs in a
+	// subdirectory sees only the ones under it, named from there.
+	if g.hasDir && g.root != "" && g.dir != g.root {
+		files = filesUnder(g.root, g.dir, files)
+		if len(files) == 0 {
+			return g, true
+		}
+	}
 	switch quickTool(g.argv) {
 	case "biome":
 		matched := filterExt(files, biomeExt)
@@ -248,6 +256,25 @@ func replacePathArgs(argv, files []string) []string {
 		}
 	}
 	return append(out, files...)
+}
+
+// filesUnder is the files inside dir, named relative to it.
+func filesUnder(root, dir string, files []string) []string {
+	if !filepath.IsAbs(dir) {
+		dir = filepath.Join(root, dir)
+	}
+	rel, err := filepath.Rel(root, dir)
+	if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
+		return files
+	}
+	prefix := filepath.ToSlash(rel) + "/"
+	var out []string
+	for _, f := range files {
+		if after, ok := strings.CutPrefix(f, prefix); ok {
+			out = append(out, after)
+		}
+	}
+	return out
 }
 
 // scopedArgv is argv narrowed to files, with flag so the tool honours its own

@@ -1421,6 +1421,7 @@ func packageGate(name, dir string, parts []Gate) Gate {
 	g := Gate{
 		Name:   name,
 		Dir:    dir,
+		Parts:  parts,
 		Source: "CI working-directory " + name + ": " + strings.Join(roles, ", ") + " as detected there",
 	}
 	if turbo {
