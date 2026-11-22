@@ -6,6 +6,8 @@ Notable changes to `gate`. The format follows
 
 ## [Unreleased]
 
+## [0.10.5] - 2026-11-21
+
 ### Fixed
 - When the `workflows` gate skips the allowed-actions lookup because `gh` is unauthenticated or offline, the run still exits 0 but is recorded as partial, and says why.
 - With no plain `test` script or Makefile target, the `test` role runs the test-like ones (`test:unit`, `tests`) instead of only listing them as not run.
