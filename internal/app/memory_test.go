@@ -16,29 +16,41 @@ func TestMemoryArgvDefaultTomlFlagZeroUnavailable(t *testing.T) {
 	cmd := []string{"make", "test"}
 	prefix := []string{
 		"systemd-run", "--user", "--scope", "-q", "--collect",
-		"-p", "MemoryMax=24G", "-p", "MemorySwapMax=0", "-p", "OOMPolicy=continue", "--",
+		"-p", "MemoryMax=24G", "-p", "MemorySwapMax=0", "-p", "OOMPolicy=continue", "--expand-environment=no", "--",
 	}
 
-	qt.Check(t, qt.DeepEquals(memoryArgv(defaultMemory, true, cmd), append(prefix, cmd...)))
+	qt.Check(t, qt.DeepEquals(memoryArgv(defaultMemory, true, true, cmd), append(prefix, cmd...)))
 
 	tomlPrefix := []string{
 		"systemd-run", "--user", "--scope", "-q", "--collect",
-		"-p", "MemoryMax=16G", "-p", "MemorySwapMax=0", "-p", "OOMPolicy=continue", "--",
+		"-p", "MemoryMax=16G", "-p", "MemorySwapMax=0", "-p", "OOMPolicy=continue", "--expand-environment=no", "--",
 	}
-	qt.Check(t, qt.DeepEquals(memoryArgv("16G", true, cmd), append(tomlPrefix, cmd...)))
+	qt.Check(t, qt.DeepEquals(memoryArgv("16G", true, true, cmd), append(tomlPrefix, cmd...)))
 
 	flagPrefix := []string{
 		"systemd-run", "--user", "--scope", "-q", "--collect",
-		"-p", "MemoryMax=8G", "-p", "MemorySwapMax=0", "-p", "OOMPolicy=continue", "--",
+		"-p", "MemoryMax=8G", "-p", "MemorySwapMax=0", "-p", "OOMPolicy=continue", "--expand-environment=no", "--",
 	}
-	qt.Check(t, qt.DeepEquals(memoryArgv("8G", true, cmd), append(flagPrefix, cmd...)))
+	qt.Check(t, qt.DeepEquals(memoryArgv("8G", true, true, cmd), append(flagPrefix, cmd...)))
 
-	qt.Check(t, qt.DeepEquals(memoryArgv("0", true, cmd), cmd))
-	qt.Check(t, qt.DeepEquals(memoryArgv(defaultMemory, false, cmd), cmd))
-	qt.Check(t, qt.DeepEquals(memoryArgv("0", false, cmd), cmd))
+	qt.Check(t, qt.DeepEquals(memoryArgv("0", true, true, cmd), cmd))
+	qt.Check(t, qt.DeepEquals(memoryArgv(defaultMemory, false, true, cmd), cmd))
+	qt.Check(t, qt.DeepEquals(memoryArgv("0", false, true, cmd), cmd))
 
 	dollars := []string{"sh", "-c", "echo $$"}
-	qt.Check(t, qt.DeepEquals(memoryArgv("24G", true, dollars), append(prefix, "sh", "-c", "echo $$$$")))
+	qt.Check(t, qt.DeepEquals(memoryArgv("24G", true, true, dollars), append(prefix, dollars...)))
+}
+
+// Before systemd 254 a scope's argv is not expanded and the flag does not
+// exist, so argv goes through as it is.
+func TestMemoryArgvOnSystemdWithoutExpandFlag(t *testing.T) {
+	t.Parallel()
+	got := memoryArgv("24G", true, false, []string{"sh", "-c", "echo $$"})
+	qt.Check(t, qt.DeepEquals(got, []string{
+		"systemd-run", "--user", "--scope", "-q", "--collect",
+		"-p", "MemoryMax=24G", "-p", "MemorySwapMax=0", "-p", "OOMPolicy=continue",
+		"--", "sh", "-c", "echo $$",
+	}))
 }
 
 func TestMemoryKillLabel(t *testing.T) {

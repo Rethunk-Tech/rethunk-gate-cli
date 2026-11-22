@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -36,7 +37,10 @@ func memoryOn(size string) bool {
 // memoryArgv is the argv systemd-run should see. available false or a
 // disabled size leave argv unchanged -- the command still runs, never fails
 // for want of a wrapper.
-func memoryArgv(size string, available bool, argv []string) []string {
+// noExpand says systemd-run understands --expand-environment (254 and later),
+// where it is passed so argv reaches the command verbatim; older versions do
+// not expand a scope's argv at all, so it is passed unchanged.
+func memoryArgv(size string, available, noExpand bool, argv []string) []string {
 	if !memoryOn(size) || !available || len(argv) == 0 {
 		return append([]string(nil), argv...)
 	}
@@ -46,17 +50,25 @@ func memoryArgv(size string, available bool, argv []string) []string {
 		"-p", "MemoryMax="+size,
 		"-p", "MemorySwapMax=0",
 		"-p", "OOMPolicy=continue",
-		"--",
 	)
-	// systemd ExecStart expands $VAR like a unit file. A command that
-	// contains $$ (a shell's pid) would become a lone $ and never start
-	// the work the SIGHUP tests wait on. Doubling each $ yields the
-	// original bytes after systemd parses them.
-	for _, a := range argv {
-		out = append(out, strings.ReplaceAll(a, "$", "$$"))
+	if noExpand {
+		out = append(out, "--expand-environment=no")
 	}
-	return out
+	out = append(out, "--")
+	return append(out, argv...)
 }
+
+// systemdRunNoExpand reports whether the installed systemd-run is 254 or
+// later, the first with --expand-environment.
+var systemdRunNoExpand = sync.OnceValue(func() bool {
+	out, err := exec.Command("systemd-run", "--version").Output()
+	if err != nil {
+		return false
+	}
+	var ver int
+	_, _ = fmt.Sscanf(string(out), "systemd %d", &ver)
+	return ver >= 254
+})
 
 func memoryUnusedNote(size string, available bool) string {
 	if !memoryOn(size) || available {
@@ -157,7 +169,7 @@ func scopeRun(size string) {
 	if err != nil {
 		return
 	}
-	argv := memoryArgv(size, true, append([]string{exe}, os.Args[1:]...))
+	argv := memoryArgv(size, true, systemdRunNoExpand(), append([]string{exe}, os.Args[1:]...))
 	// systemd-run names a scope after its pid; gate is that pid after the
 	// exec, so when gate itself is the command of an outer scope the default
 	// name is taken. A unit name of our own cannot clash.

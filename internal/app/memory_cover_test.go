@@ -12,14 +12,15 @@ import (
 )
 
 func TestMemoryArgvPassthroughAndEscape(t *testing.T) {
-	qt.Assert(t, qt.DeepEquals(memoryArgv("", true, []string{"true"}), []string{"true"}))
-	qt.Assert(t, qt.DeepEquals(memoryArgv("1G", false, []string{"true"}), []string{"true"}))
-	qt.Assert(t, qt.DeepEquals(memoryArgv("1G", true, nil), []string(nil)))
-	qt.Assert(t, qt.DeepEquals(memoryArgv("1G", true, []string{"true"}), []string{
+	qt.Assert(t, qt.DeepEquals(memoryArgv("", true, true, []string{"true"}), []string{"true"}))
+	qt.Assert(t, qt.DeepEquals(memoryArgv("1G", false, true, []string{"true"}), []string{"true"}))
+	qt.Assert(t, qt.DeepEquals(memoryArgv("1G", true, true, nil), []string(nil)))
+	qt.Assert(t, qt.DeepEquals(memoryArgv("1G", true, true, []string{"true"}), []string{
 		"systemd-run", "--user", "--scope", "-q", "--collect",
 		"-p", "MemoryMax=1G",
 		"-p", "MemorySwapMax=0",
 		"-p", "OOMPolicy=continue",
+		"--expand-environment=no",
 		"--",
 		"true",
 	}))
