@@ -286,3 +286,15 @@ func TestDetectedGoTestRunsUnderTheRaceDetector(t *testing.T) {
 	testutil.Write(t, root, "go.mod", "module demo\n")
 	qt.Check(t, qt.Equals(gateNamed(t, detect(t, root), "test").Display(), "go test -race ./..."))
 }
+
+func TestCargoWorkspaceExcludedCrateIsGatedAsNested(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, "Cargo.toml", "[workspace]\nmembers = [\"a\"]\nexclude = [\n  \"tools/x\", # why\n  \"gone\",\n]\n")
+	testutil.Write(t, root, "a/Cargo.toml", "[package]\nname = \"a\"\n")
+	testutil.Write(t, root, "tools/x/Cargo.toml", "[package]\nname = \"x\"\n")
+	proj := detect(t, root)
+	qt.Check(t, qt.IsTrue(hasGate(proj, "tools/x")))
+	qt.Check(t, qt.IsFalse(hasGate(proj, "a")))
+	qt.Check(t, qt.IsFalse(hasGate(proj, "gone")))
+}

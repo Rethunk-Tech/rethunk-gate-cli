@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 )
@@ -30,7 +31,7 @@ var nestedManifests = []string{"go.mod", "pyproject.toml", "Cargo.toml"}
 // nestedSkipped.
 func nestedCandidates(ctx context.Context, root string) []string {
 	dirs := ciPackageDirs(root)
-	for _, rel := range append(discoverNested(ctx, root), goWorkUses(root)...) {
+	for _, rel := range slices.Concat(discoverNested(ctx, root), goWorkUses(root), cargoExcludes(root)) {
 		if !slices.Contains(dirs, rel) {
 			dirs = append(dirs, rel)
 		}
@@ -70,6 +71,33 @@ func goWorkUses(root string) []string {
 	}
 	return dirs
 }
+
+// cargoExcludes are the directories the root Cargo.toml's [workspace] excludes
+// (a nested crate is checked for later): cargo's --workspace never reaches them.
+// Glob entries are not expanded.
+func cargoExcludes(root string) []string {
+	data, err := os.ReadFile(filepath.Clean(filepath.Join(root, "Cargo.toml")))
+	if err != nil {
+		return nil
+	}
+	m := cargoExcludeRE.FindSubmatch(data)
+	if m == nil {
+		return nil
+	}
+	var dirs []string
+	for _, q := range cargoQuotedRE.FindAllSubmatch(m[1], -1) {
+		rel := filepath.ToSlash(filepath.Clean(string(q[1])))
+		if rel != "." && !strings.HasPrefix(rel, "../") && !filepath.IsAbs(rel) && nestedAllowed(rel) {
+			dirs = append(dirs, rel)
+		}
+	}
+	return dirs
+}
+
+var (
+	cargoExcludeRE = regexp.MustCompile(`(?ms)^\s*\[workspace\].*?^\s*exclude\s*=\s*\[(.*?)\]`)
+	cargoQuotedRE  = regexp.MustCompile(`["']([^"']+)["']`)
+)
 
 func discoverNested(ctx context.Context, root string) []string {
 	var dirs []string
@@ -133,7 +161,8 @@ func nestedProject(root, dir string) bool {
 	case exists(filepath.Join(dir, "pyproject.toml")):
 		return !exists(filepath.Join(root, "pyproject.toml"))
 	case exists(filepath.Join(dir, "Cargo.toml")):
-		return !exists(filepath.Join(root, "Cargo.toml"))
+		rel, err := filepath.Rel(root, dir)
+		return !exists(filepath.Join(root, "Cargo.toml")) || (err == nil && slices.Contains(cargoExcludes(root), filepath.ToSlash(rel)))
 	}
 	return false
 }
