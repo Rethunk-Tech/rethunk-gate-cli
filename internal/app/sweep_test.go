@@ -148,6 +148,7 @@ func TestSweepReportsItsCounts(t *testing.T) {
 	base := t.TempDir()
 	t.Setenv("GATE_TMPDIR", base)
 	t.Setenv("TMPDIR", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 
 	var out strings.Builder
 	reportSweep(&out, false)
