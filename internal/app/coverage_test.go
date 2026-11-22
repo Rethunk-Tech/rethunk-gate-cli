@@ -99,3 +99,16 @@ func TestDetectExcludeLeavesACINamedDirectoryOut(t *testing.T) {
 	qt.Check(t, qt.StringContains(stdout, "  fixtures/good "))
 	qt.Check(t, qt.StringContains(stdout, "CI runs fixtures/broken/, but detect.exclude in .gate.toml leaves it out"))
 }
+
+// A multi-line run string keeps one row in the text listing and all its lines
+// in --json.
+func TestListShowsTheFirstLineOfAMultiLineRun(t *testing.T) {
+	root := timeoutProject(t, "[gates.lint]\nrun = \"\"\"\necho one\necho two\necho three\n\"\"\"\n")
+	stdout, stderr, code := runGateTest(t, "-C", root, "--list")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.StringContains(stdout, "lint       echo one (+2 lines)\n"), qt.Commentf("listing = %q", stdout))
+	qt.Check(t, qt.Not(qt.StringContains(stdout, "echo two")))
+
+	stdout, _, _ = runGateTest(t, "-C", root, "--list", "--json")
+	qt.Check(t, qt.StringContains(stdout, "echo two"), qt.Commentf("json = %q", stdout))
+}

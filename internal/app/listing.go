@@ -6,6 +6,7 @@ import (
 	"io"
 	"maps"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/detect"
@@ -216,10 +217,10 @@ func writeListing(w io.Writer, project detect.Project, files []string, opts opti
 // setting that differs from the default, or a bare command.
 func writeListedGate(w io.Writer, lead string, spec gateSpec, skipE2E, skipFuzz bool) {
 	if spec.role == "" {
-		fmt.Fprintf(w, "%s%s\n", lead, spec.display)
+		fmt.Fprintf(w, "%s%s\n", lead, firstLine(spec.display))
 		return
 	}
-	fmt.Fprintf(w, "%s%-10s %s\n", lead, spec.role, spec.display)
+	fmt.Fprintf(w, "%s%-10s %s\n", lead, spec.role, firstLine(spec.display))
 	fmt.Fprintf(w, "        from %s\n", spec.source)
 	// A gate showing a summary still has to show its working
 	// here: --list is the surface that answers "what exactly
@@ -232,7 +233,7 @@ func writeListedGate(w io.Writer, lead string, spec gateSpec, skipE2E, skipFuzz 
 	// gate -- and noise is how a listing stops being read.
 	argv := strings.Join(spec.argv, " ")
 	if argv != spec.display && !slices.Equal(spec.argv, shellArgv(spec.display)) {
-		fmt.Fprintf(w, "        runs %s\n", argv)
+		fmt.Fprintf(w, "        runs %s\n", firstLine(argv))
 	}
 	for _, shadowed := range spec.shadowed {
 		fmt.Fprintf(w, "        shadows %s\n", shadowed)
@@ -268,6 +269,17 @@ func writeListedGate(w io.Writer, lead string, spec gateSpec, skipE2E, skipFuzz 
 	case spec.fuzz && skipFuzz:
 		fmt.Fprintf(w, "        fuzz, skipped by default\n")
 	}
+}
+
+// firstLine is the text's first line, with how many more there are, so a
+// multi-line run string keeps one row in the listing. --json keeps all of it.
+func firstLine(text string) string {
+	text = strings.TrimRight(text, "\n")
+	first, rest, multi := strings.Cut(text, "\n")
+	if !multi {
+		return text
+	}
+	return first + " (+" + strconv.Itoa(strings.Count(rest, "\n")+1) + " lines)"
 }
 
 // skippedFuzz counts the fuzz gates this invocation leaves out.
