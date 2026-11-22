@@ -23,7 +23,7 @@ func TestFuzzGatesNamesEachTargetAndSkipsModulesWithout(t *testing.T) {
 	testutil.Write(t, root, "nested/n_test.go", "package n\n\nfunc FuzzN(f *testing.F) {}\n")
 	gates := fuzzGates(root)
 	qt.Assert(t, qt.HasLen(gates, 1))
-	qt.Check(t, qt.StringContains(gates[0].Argv[2], "-parallel="+strconv.Itoa(fuzzParallel())))
+	qt.Check(t, qt.StringContains(gates[0].Argv[2], "-parallel=${GATE_FUZZ_PARALLEL:-"+strconv.Itoa(FuzzParallel(0))))
 	qt.Check(t, qt.IsFalse(strings.Contains(gates[0].Argv[2], "@PAR@")))
 	qt.Check(t, qt.DeepEquals(gates[0].Argv[4:], []string{"./a:FuzzX", "./a:FuzzZ"}))
 }
@@ -44,16 +44,19 @@ func TestRotateFuzzTakesLeastRecentFirstWithinTheBudget(t *testing.T) {
 		"./p:FuzzC": {At: 300, Cost: 4 * time.Second},
 		// D, E and F were never fuzzed: first, by name, at 2s+3s each.
 	}
-	// Lanes of 4 and a 4s budget fit 16s of cost: D, E and F (15s), not B.
-	got := RotateFuzz(g, 4*time.Second, 2*time.Second, state, "/s/state")
-	qt.Check(t, qt.DeepEquals(got.Argv[4:], []string{"./p:FuzzD", "./p:FuzzE", "./p:FuzzF"}))
+	// D, E and F (5s each) and B (4s) fill the four lanes to 5s; C would put a
+	// lane at 8s.
+	got := RotateFuzz(g, 5*time.Second, 2*time.Second, state, "/s/state")
+	qt.Check(t, qt.DeepEquals(got.Argv[4:], []string{"./p:FuzzD", "./p:FuzzE", "./p:FuzzF", "./p:FuzzB"}))
 	qt.Check(t, qt.Equals(got.Env["GATE_FUZZ_STATE"], "/s/state"))
-	qt.Check(t, qt.Equals(got.Summary, "go test -fuzz (3/6 targets, rotating)"))
+	qt.Check(t, qt.Equals(got.Summary, "go test -fuzz (4/6 targets, rotating)"))
 
-	// Once those have run, the oldest of the rest come next.
+	// Once those have run, the oldest of the rest come next. Perfect packing
+	// would fit B and C in 3s of four lanes (8s of cost / 4 lanes); the real
+	// makespan is 4s, so only B runs.
 	state["./p:FuzzD"], state["./p:FuzzE"], state["./p:FuzzF"] = FuzzStat{At: 900, Cost: time.Second}, FuzzStat{At: 900, Cost: time.Second}, FuzzStat{At: 900, Cost: time.Second}
 	got = RotateFuzz(g, 3*time.Second, 2*time.Second, state, "/s/state")
-	qt.Check(t, qt.DeepEquals(got.Argv[4:], []string{"./p:FuzzB", "./p:FuzzC", "./p:FuzzA"}))
+	qt.Check(t, qt.DeepEquals(got.Argv[4:], []string{"./p:FuzzB"}))
 
 	// A budget smaller than one target still runs one.
 	got = RotateFuzz(g, time.Millisecond, 2*time.Second, nil, "/s/state")

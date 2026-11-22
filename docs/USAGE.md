@@ -65,6 +65,12 @@ it runs a package script / turbo task that is e2e by either test.
 default`); `--json` marks `"e2e": true, "skipped": true` and drops `skipped`
 under `--e2e`. A project whose every gate is e2e refuses a bare run.
 
+The convention `fuzz` gate is opt-in the same way: a bare local `gate` skips it
+(`fuzz, skipped by default`, `"skipped": true`), `gate --fuzz` or `GATE_FUZZ=1`
+runs it under the fuzz budget, and a git pre-push hook and CI run it without
+asking. `gate run fuzz` runs it too. A pass with fuzz and one without are
+different gate sets, so neither stands in for the other.
+
 `--json` with `doctor`, `fix`, or `record` names that report instead.
 
 ### `--failed`
@@ -238,13 +244,18 @@ not parsed; the env vars reach a nested tool.
    (`tsc -b --noEmit` when it names project references — without `-b` a
    solution-style file exits 0 having checked nothing); `actionlint`, then every `uses:` against the repo's allowed-actions settings and
    verified-creator rule (the `workflows` gate; needs `gh` auth, and warns and
-   skips when offline; answers are cached per UTC day, and `GATE_ACTIONS_REFRESH=1`
-   discards them; a repo that requires SHA pins fails any ref that is not a full
+   skips when offline; answers are cached per UTC day, also under `--isolate` and the pre-push
+   hook, and `GATE_ACTIONS_REFRESH=1` discards this repository's; a repo that requires SHA pins fails any ref that is not a full
    commit SHA); a bun workspace's `vuln` gate (`audit-bun`, else
    `bun audit`); a Go module's `fuzz` gate (each `Fuzz*` target in the module for
-   `GATE_FUZZTIME`, default `2s`, four at a time; locally only the targets that fit
+   `GATE_FUZZTIME`, default `2s`, four at a time, each with a `-parallel` that keeps
+   the workers at half the CPUs, or at `--jobs` where that is lower; a local run skips
+   the gate, listed as skipped like e2e, unless `gate --fuzz` or `GATE_FUZZ=1` asks,
+   and a pre-push hook and CI always run it; locally only the targets that fit
    `GATE_FUZZ_BUDGET` / `fuzz-budget` (default `8s`, `0` = all) run, least recently
-   fuzzed first, and CI runs all; none declared: no gate; a crasher
+   fuzzed first, judged by the projected finish of the busiest of the four lanes,
+   and CI runs all; the record fingerprint takes the whole target list, not the
+   rotating subset, so a fresh pass still stands in on an unchanged tree; none declared: no gate; a crasher
    fails the gate and `go test` prints its `testdata/fuzz/<Target>/<hash>` path; with no `--timeout` or `timeout` key the gate's limit is `ceil(targets/4)` x (fuzztime + 60s), at least 1m, counting the targets that run);
    `markdownlint-cli2` where a `.markdownlint-cli2.*` config exists and no
    package script already runs it (bare when the config sets `globs`, else over

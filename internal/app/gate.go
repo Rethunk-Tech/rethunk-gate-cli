@@ -177,6 +177,12 @@ type options struct {
 	skipE2E    bool
 	skippedE2E int
 
+	// fuzz asks for the fuzz gate a local run skips; skipFuzz is the resolved
+	// answer and skippedFuzz what it left out.
+	fuzz        bool
+	skipFuzz    bool
+	skippedFuzz int
+
 	// skippedTools names the roles left out for want of a tool; the record is
 	// partial while there are any.
 	skippedTools []string
@@ -234,6 +240,11 @@ type options struct {
 type gateSpec struct {
 	argv    []string
 	display string
+
+	// fingerprintArgv stands in for argv in the record fingerprint, where
+	// argv changes from run to run without the work changing (the rotating
+	// fuzz subset).
+	fingerprintArgv []string
 
 	// serial sequences this gate against the other serial ones. Nothing else
 	// sequences a gate -- gates run concurrently unless --serial or this
@@ -301,6 +312,9 @@ type gateSpec struct {
 
 	// e2e marks a browser end-to-end suite, which a default run skips.
 	e2e bool
+
+	// fuzz marks the convention fuzz gate, which a local run skips.
+	fuzz bool
 
 	// isolate overrides the run's isolation for this gate where the file
 	// said so. hasIsolate is what makes a deliberate `isolate = false`
@@ -569,9 +583,7 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 	if len(opts.skippedTools) > 0 && !opts.quiet {
 		fmt.Fprintf(stdout, "gate: partial pass, %s skipped for a missing tool\n", strings.Join(opts.skippedTools, ", "))
 	}
-	if opts.skippedE2E > 0 && !opts.quiet {
-		fmt.Fprintf(stdout, "gate: %d e2e gate(s) skipped; `gate --e2e` runs them\n", opts.skippedE2E)
-	}
+	writeOptInNotes(stdout, opts)
 	if opts.profile {
 		writeProfile(stderr, results, wall)
 	}
@@ -817,6 +829,19 @@ func schedule(gates []gateSpec, serial bool) [][]int {
 		out[chain] = append(out[chain], i)
 	}
 	return out
+}
+
+// writeOptInNotes names the opt-in gates a run left out.
+func writeOptInNotes(w io.Writer, opts options) {
+	if opts.quiet {
+		return
+	}
+	if opts.skippedE2E > 0 {
+		fmt.Fprintf(w, "gate: %d e2e gate(s) skipped; `gate --e2e` runs them\n", opts.skippedE2E)
+	}
+	if opts.skippedFuzz > 0 {
+		fmt.Fprintln(w, "gate: fuzz gate skipped; `gate --fuzz` runs it (a pre-push hook and CI always do)")
+	}
 }
 
 // acquireJob takes one slot from a --jobs cap. A nil channel is no cap.

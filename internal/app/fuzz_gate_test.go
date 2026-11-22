@@ -58,3 +58,29 @@ func TestFuzzGateFailsOnACrasherAndNamesItsFile(t *testing.T) {
 	qt.Check(t, qt.Not(qt.Equals(code, Success)), qt.Commentf("stderr = %q", stderr))
 	qt.Check(t, qt.StringContains(stderr, "testdata/fuzz/FuzzBad/"))
 }
+
+func TestFuzzGateIsOptInLocallyAndOnInAHookOrCI(t *testing.T) {
+	root := fuzzRepo(t, fuzzModule)
+	t.Setenv("CI", "")
+	t.Setenv("GITHUB_ACTIONS", "")
+	t.Setenv("GATE_FUZZ", "")
+	prev := inPrePushHook
+	t.Cleanup(func() { inPrePushHook = prev })
+	inPrePushHook = func() bool { return false }
+
+	listed := func(args ...string) string {
+		stdout, stderr, code := runGateTest(t, append([]string{"-C", root, "--list"}, args...)...)
+		qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+		return stdout
+	}
+	qt.Check(t, qt.StringContains(listed(), "fuzz, skipped by default"))
+	qt.Check(t, qt.Not(qt.StringContains(listed("--fuzz"), "skipped by default")))
+	t.Setenv("GATE_FUZZ", "1")
+	qt.Check(t, qt.Not(qt.StringContains(listed(), "skipped by default")))
+	t.Setenv("GATE_FUZZ", "")
+	inPrePushHook = func() bool { return true }
+	qt.Check(t, qt.Not(qt.StringContains(listed(), "skipped by default")))
+	inPrePushHook = func() bool { return false }
+	t.Setenv("CI", "true")
+	qt.Check(t, qt.Not(qt.StringContains(listed(), "skipped by default")))
+}

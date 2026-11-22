@@ -19,24 +19,24 @@ func TestRotateFuzzFuzzesEveryTargetInCIAndAFitLocally(t *testing.T) {
 	g := detect.Gate{Name: "fuzz", Argv: argv, Source: "convention: go (Fuzz targets)"}
 	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
 
-	local, err := rotateFuzz(g, config.Config{}, t.TempDir(), env(nil))
+	local, err := rotateFuzz(g, config.Config{}, t.TempDir(), 0, env(nil))
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.IsTrue(len(local.Argv[4:]) < 10), qt.Commentf("%d targets", len(local.Argv[4:])))
 
-	ci, err := rotateFuzz(g, config.Config{}, t.TempDir(), env(map[string]string{"CI": "true"}))
+	ci, err := rotateFuzz(g, config.Config{}, t.TempDir(), 0, env(map[string]string{"CI": "true"}))
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.HasLen(ci.Argv[4:], 10))
 
 	// The env var beats the config key.
 	cfg := config.Config{FuzzBudget: time.Hour, HasFuzzBudget: true}
-	all, err := rotateFuzz(g, cfg, t.TempDir(), env(nil))
+	all, err := rotateFuzz(g, cfg, t.TempDir(), 0, env(nil))
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.HasLen(all.Argv[4:], 10))
-	few, err := rotateFuzz(g, cfg, t.TempDir(), env(map[string]string{"GATE_FUZZ_BUDGET": "1s"}))
+	few, err := rotateFuzz(g, cfg, t.TempDir(), 0, env(map[string]string{"GATE_FUZZ_BUDGET": "1s"}))
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.IsTrue(len(few.Argv[4:]) < 10))
 
-	_, err = rotateFuzz(g, cfg, t.TempDir(), env(map[string]string{"GATE_FUZZ_BUDGET": "soon"}))
+	_, err = rotateFuzz(g, cfg, t.TempDir(), 0, env(map[string]string{"GATE_FUZZ_BUDGET": "soon"}))
 	qt.Check(t, qt.ErrorMatches(err, `GATE_FUZZ_BUDGET .*`))
 }
 
@@ -50,15 +50,15 @@ func TestRotateFuzzTimeoutScalesWithTheTargetsRun(t *testing.T) {
 	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
 
 	// Nine targets over four lanes is three waves of 2s + 60s.
-	ci, err := rotateFuzz(g, config.Config{}, t.TempDir(), env(map[string]string{"CI": "true"}))
+	ci, err := rotateFuzz(g, config.Config{}, t.TempDir(), 0, env(map[string]string{"CI": "true"}))
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.Equals(ci.Timeout, 3*(62*time.Second)))
 
 	// Locally only the targets that fit the budget count.
-	local, err := rotateFuzz(g, config.Config{}, t.TempDir(), env(nil))
+	local, err := rotateFuzz(g, config.Config{}, t.TempDir(), 0, env(nil))
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.Equals(local.Timeout, detect.FuzzTimeout(len(local.Argv[4:]), 2*time.Second, defaultTimeout)))
-	all, err := rotateFuzz(g, config.Config{}, t.TempDir(), env(map[string]string{"GATE_FUZZ_BUDGET": "0"}))
+	all, err := rotateFuzz(g, config.Config{}, t.TempDir(), 0, env(map[string]string{"GATE_FUZZ_BUDGET": "0"}))
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.Equals(all.Timeout, 3*(62*time.Second)))
 
@@ -70,4 +70,25 @@ func TestRotateFuzzTimeoutScalesWithTheTargetsRun(t *testing.T) {
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.IsTrue(spec.hasTimeout))
 	qt.Check(t, qt.Equals(spec.timeout, ci.Timeout))
+}
+
+func TestFuzzFingerprintIgnoresTheRotatedSubset(t *testing.T) {
+	g := gateSpec{argv: []string{"sh", "-c", "x", "sh", "./p:FuzzA"}, fingerprintArgv: []string{"sh", "-c", "x", "sh", "./p:FuzzA", "./p:FuzzB"}, env: map[string]string{"GATE_FUZZ_PARALLEL": "1"}}
+	other := g
+	other.argv = []string{"sh", "-c", "x", "sh", "./p:FuzzB"}
+	other.env = map[string]string{"GATE_FUZZ_PARALLEL": "4"}
+	ctx := t.Context()
+	qt.Check(t, qt.Equals(gatesFingerprint(ctx, options{gates: []gateSpec{g}}), gatesFingerprint(ctx, options{gates: []gateSpec{other}})))
+	other.fingerprintArgv = []string{"sh", "-c", "x", "sh", "./p:FuzzA"}
+	qt.Check(t, qt.Not(qt.Equals(gatesFingerprint(ctx, options{gates: []gateSpec{g}}), gatesFingerprint(ctx, options{gates: []gateSpec{other}}))))
+}
+
+func TestFuzzRotationLowersParallelUnderAJobsCap(t *testing.T) {
+	g := detect.Gate{Name: "fuzz", Argv: []string{"sh", "-c", "x", "sh", "./p:FuzzA"}, Source: detect.FuzzSource}
+	got, err := rotateFuzz(g, config.Config{}, t.TempDir(), 2, func(string) string { return "" })
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.Equals(got.Env["GATE_FUZZ_PARALLEL"], "1"))
+	got, err = rotateFuzz(g, config.Config{}, t.TempDir(), 0, func(string) string { return "" })
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.Equals(got.Env["GATE_FUZZ_PARALLEL"], ""))
 }

@@ -64,8 +64,8 @@ func LoadFuzzState(path string) map[string]FuzzStat {
 // RotateFuzz narrows a convention fuzz gate to the targets that fit budget,
 // least recently fuzzed first, and has the gate record each pass in statePath.
 // A target never fuzzed sorts first; a cost is the last measured one, else
-// fuzztime plus startup. The budget is total wall time, spread over the
-// targets' four lanes. At least one target always runs. A budget of zero
+// fuzztime plus startup. The budget is total wall time: the projected finish of
+// the busiest of the four lanes. At least one target always runs. A budget of zero
 // keeps every target and records nothing.
 func RotateFuzz(g Gate, budget, fuzztime time.Duration, state map[string]FuzzStat, statePath string) Gate {
 	if g.Source != fuzzSource || budget <= 0 {
@@ -81,17 +81,20 @@ func RotateFuzz(g Gate, budget, fuzztime time.Duration, state map[string]FuzzSta
 		}
 		return strings.Compare(a, b)
 	})
-	var spent time.Duration
+	var lanes [fuzzLanes]time.Duration
 	n := 0
 	for _, t := range targets {
 		cost := fuzztime + fuzzStartup
 		if st, ok := state[t]; ok && st.Cost > 0 {
 			cost = st.Cost
 		}
-		if n > 0 && (spent+cost)/fuzzLanes > budget {
+		// The target goes on the least-loaded lane, as xargs hands it to the
+		// first lane to free up; the run ends when the busiest lane does.
+		lane := slices.Index(lanes[:], slices.Min(lanes[:]))
+		if n > 0 && max(slices.Max(lanes[:]), lanes[lane]+cost) > budget {
 			break
 		}
-		spent += cost
+		lanes[lane] += cost
 		n++
 	}
 	out := g

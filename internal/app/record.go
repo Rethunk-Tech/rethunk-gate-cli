@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -452,6 +453,15 @@ func gatesFingerprint(ctx context.Context, opts options) string {
 		if !g.derivedTimeout {
 			timeout = describeTimeout(g.timeout)
 		}
+		argv := g.argv
+		if g.fingerprintArgv != nil {
+			argv = g.fingerprintArgv
+		}
+		env := g.env
+		if _, ok := env[fuzzParallelEnv]; ok {
+			env = maps.Clone(env)
+			delete(env, fuzzParallelEnv)
+		}
 		// Marshalling a map sorts its keys, so the hash is stable.
 		_ = enc.Encode(struct {
 			Argv         []string          `json:"argv"`
@@ -460,7 +470,7 @@ func gatesFingerprint(ctx context.Context, opts options) string {
 			AllowFailure bool              `json:"allow_failure"`
 			Timeout      string            `json:"timeout,omitempty"`
 			Isolated     bool              `json:"isolated"`
-		}{g.argv, g.dir, g.env, g.allowFailure, timeout, isolateAware(opts, g)})
+		}{argv, g.dir, env, g.allowFailure, timeout, isolateAware(opts, g)})
 	}
 	_ = enc.Encode(toolchainVersions(ctx, gates))
 	_ = enc.Encode(gateBinaries(gates))

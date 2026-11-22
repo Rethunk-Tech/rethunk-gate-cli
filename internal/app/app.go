@@ -85,6 +85,8 @@ Flags:
   --failed      re-run only the gates that failed, timed out, errored, or were cancelled last time
                 (reads this root's result record; missing, stale, or none: exit 129)
   --e2e         also run the e2e gates a default run skips
+  --fuzz        also run the fuzz gate a local run skips (GATE_FUZZ=1; a pre-push hook
+                and CI always run it)
   --force       run even when a fresh result record would skip
   --list        print the gates that would run, and run nothing
                 (e2e gates are shown, marked skipped unless --e2e; a gate
@@ -239,6 +241,7 @@ func (st *runState) defineFlags(flags *flag.FlagSet) {
 	flags.BoolVar(&st.noIsolate, "no-isolate", false, "")
 	flags.BoolVar(&opts.failed, "failed", false, "")
 	flags.BoolVar(&opts.e2e, "e2e", false, "")
+	flags.BoolVar(&opts.fuzz, "fuzz", false, "")
 	flags.BoolVar(&opts.force, "force", false, "")
 	flags.BoolVar(&opts.trust, "trust", false, "")
 	flags.BoolVar(&st.showVersion, "version", false, "")
@@ -355,6 +358,9 @@ func (st *runState) finalizeFlags(stderr io.Writer) (code Code, ok bool) {
 			}
 			opts.jobs, st.jobsSet = n, true
 		}
+	}
+	if v := os.Getenv("GATE_FUZZ"); v != "" && v != "0" && v != "false" {
+		opts.fuzz = true
 	}
 	return Success, true
 }
@@ -763,9 +769,18 @@ func (st *runState) dropE2E(project detect.Project, stderr io.Writer) (code Code
 		opts.gates = slices.DeleteFunc(opts.gates, func(g gateSpec) bool { return g.e2e })
 		opts.skippedE2E = len(skipped)
 	}
+	if opts.skipFuzz {
+		for _, g := range opts.gates {
+			if g.fuzz {
+				skipped = append(skipped, g)
+				opts.skippedFuzz++
+			}
+		}
+		opts.gates = slices.DeleteFunc(opts.gates, func(g gateSpec) bool { return g.fuzz })
+	}
 	if len(opts.gates) == 0 && len(skipped) > 0 {
-		fmt.Fprintf(stderr, "gate: every gate in %s is e2e, which runs only on request\n", project.Root)
-		fmt.Fprintln(stderr, "gate: run `gate --e2e`, or `gate run <name>` for one")
+		fmt.Fprintf(stderr, "gate: every gate in %s is e2e or fuzz, which runs only on request\n", project.Root)
+		fmt.Fprintln(stderr, "gate: run `gate --e2e` or `gate --fuzz`, or `gate run <name>` for one")
 		return InvalidUsage, false
 	}
 	if len(opts.gates) == 0 {
@@ -778,6 +793,15 @@ func (st *runState) dropE2E(project detect.Project, stderr io.Writer) (code Code
 		return InvalidUsage, false
 	}
 	return Success, true
+}
+
+// markFuzz flags the convention fuzz gate, and keeps its whole target list
+// for the fingerprint where a config entry has not replaced its command.
+func markFuzz(spec *gateSpec, g detect.Gate, full []string) {
+	spec.fuzz = g.Name == "fuzz" && g.Source == detect.FuzzSource
+	if g.Name == "fuzz" && slices.Equal(spec.argv, g.Argv) {
+		spec.fingerprintArgv = full
+	}
 }
 
 // detectGates reads the project and the configuration found from its root
@@ -869,7 +893,8 @@ func (st *runState) buildGates(ctx context.Context, proj detect.Project, cfg con
 		if len(include) > 0 && !slices.Contains(include, g.Name) {
 			continue
 		}
-		g, err := rotateFuzz(g, cfg, proj.Root, os.Getenv)
+		full := g.Argv
+		g, err := rotateFuzz(g, cfg, proj.Root, opts.jobs, os.Getenv)
 		if err != nil {
 			fmt.Fprintf(stderr, "gate: %v\n", err)
 			return project, InvalidUsage, false
@@ -879,6 +904,7 @@ func (st *runState) buildGates(ctx context.Context, proj detect.Project, cfg con
 			fmt.Fprintf(stderr, "gate: %v\n", err)
 			return project, InvalidUsage, false
 		}
+		markFuzz(&spec, g, full)
 		opts.gates = append(opts.gates, spec)
 	}
 
@@ -967,6 +993,8 @@ func (st *runState) applyConfig(cfg config.Config, roles []string) {
 	// A name asked for outright is run whatever it is. --failed is the
 	// same: the last run already chose those gates, including e2e.
 	opts.skipE2E = !opts.e2e && len(roles) == 0 && !opts.failed
+	// Fuzz is opt-in locally, but a pre-push hook and CI run it.
+	opts.skipFuzz = !opts.fuzz && len(roles) == 0 && !opts.failed && !ciEnv(os.Getenv) && !inPrePushHook()
 	if cfg.HasBudget && !st.budgetSet {
 		st.budget = cfg.Budget
 	}

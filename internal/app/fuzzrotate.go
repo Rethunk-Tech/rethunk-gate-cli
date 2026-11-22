@@ -2,6 +2,8 @@ package app
 
 import (
 	"fmt"
+	"maps"
+	"strconv"
 	"strings"
 	"time"
 
@@ -12,11 +14,24 @@ import (
 
 const defaultFuzzBudget = 8 * time.Second
 
+// fuzzParallelEnv carries the per-target -parallel a --jobs cap lowers.
+const fuzzParallelEnv = "GATE_FUZZ_PARALLEL"
+
 // rotateFuzz applies the fuzz budget to the convention fuzz gate: the env var
 // beats the config key, which beats the default. CI fuzzes every target.
-func rotateFuzz(g detect.Gate, cfg config.Config, root string, getenv func(string) string) (detect.Gate, error) {
+func rotateFuzz(g detect.Gate, cfg config.Config, root string, jobs int, getenv func(string) string) (detect.Gate, error) {
 	if g.Name != "fuzz" {
 		return g, nil
+	}
+	if cfg.HasJobs && jobs <= 0 {
+		jobs = cfg.Jobs
+	}
+	if jobs > 0 {
+		g.Env = maps.Clone(g.Env)
+		if g.Env == nil {
+			g.Env = map[string]string{}
+		}
+		g.Env[fuzzParallelEnv] = strconv.Itoa(detect.FuzzParallel(jobs))
 	}
 	fuzztime := 2 * time.Second
 	if d, err := config.ParseTimeout(getenv("GATE_FUZZTIME")); err == nil && d > 0 {

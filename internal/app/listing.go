@@ -137,7 +137,7 @@ func writeListingJSON(w io.Writer, project detect.Project, files []string, opts 
 				AllowFailure: spec.allowFailure,
 				Timeout:      spec.listTimeout(),
 				E2E:          spec.e2e,
-				Skipped:      spec.e2e && opts.skipE2E,
+				Skipped:      (spec.e2e && opts.skipE2E) || (spec.fuzz && opts.skipFuzz),
 				Group:        group,
 				Serial:       spec.serial,
 				Needs:        spec.needs,
@@ -191,6 +191,9 @@ func writeListing(w io.Writer, project detect.Project, files []string, opts opti
 	if n := skippedE2E(opts); n > 0 {
 		fmt.Fprintf(w, "; %d e2e skipped by default (gate --e2e runs them)", n)
 	}
+	if n := skippedFuzz(opts); n > 0 {
+		fmt.Fprint(w, "; fuzz skipped by default (gate --fuzz runs it)")
+	}
 	fmt.Fprintln(w)
 
 	for _, group := range groups {
@@ -199,7 +202,7 @@ func writeListing(w io.Writer, project detect.Project, files []string, opts opti
 			if n > 0 {
 				lead = "  then "
 			}
-			writeListedGate(w, lead, opts.gates[i], opts.skipE2E)
+			writeListedGate(w, lead, opts.gates[i], opts.skipE2E, opts.skipFuzz)
 		}
 	}
 
@@ -211,7 +214,7 @@ func writeListing(w io.Writer, project detect.Project, files []string, opts opti
 
 // writeListedGate prints one gate: a role with where it came from and every
 // setting that differs from the default, or a bare command.
-func writeListedGate(w io.Writer, lead string, spec gateSpec, skipE2E bool) {
+func writeListedGate(w io.Writer, lead string, spec gateSpec, skipE2E, skipFuzz bool) {
 	if spec.role == "" {
 		fmt.Fprintf(w, "%s%s\n", lead, spec.display)
 		return
@@ -262,7 +265,23 @@ func writeListedGate(w io.Writer, lead string, spec gateSpec, skipE2E bool) {
 		fmt.Fprintf(w, "        e2e, skipped by default\n")
 	case spec.e2e:
 		fmt.Fprintf(w, "        e2e\n")
+	case spec.fuzz && skipFuzz:
+		fmt.Fprintf(w, "        fuzz, skipped by default\n")
 	}
+}
+
+// skippedFuzz counts the fuzz gates this invocation leaves out.
+func skippedFuzz(opts options) int {
+	if !opts.skipFuzz {
+		return 0
+	}
+	n := 0
+	for _, g := range opts.gates {
+		if g.fuzz {
+			n++
+		}
+	}
+	return n
 }
 
 // skippedE2E counts the e2e gates this invocation leaves out.

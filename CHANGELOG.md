@@ -6,6 +6,17 @@ Notable changes to `gate`. The format follows
 
 ## [Unreleased]
 
+## [0.10.3] - 2026-11-21
+
+### Changed
+- A bare local `gate` skips the convention `fuzz` gate and says so, as it does for e2e. `gate --fuzz` or `GATE_FUZZ=1` runs it under the budget; a git pre-push hook and CI run it without asking, and `gate run fuzz` still works. A pass made with fuzz and one made without are different runs, so a land (`--fuzz --isolate`) and the hook after it still share one.
+
+### Fixed
+- A fresh pass is reused on an unchanged tree again for modules with a rotating fuzz subset. The record fingerprint hashed the subset's argv, which changed every run; it now takes the whole target list.
+- The fuzz budget no longer overshoots. It assumed perfect packing across the four lanes and a 5s guess for an unmeasured target; it now places each target on the least loaded lane and stops before the busiest lane would pass the budget (one target always runs).
+- The allowed-actions cache hits under `--isolate` and the pre-push hook. The isolated HOME hid the caller's state directory, so every run made two `gh api` calls; the caller's directory now reaches the children as `GATE_STATE_DIR`. `GATE_ACTIONS_REFRESH=1` drops only the current repository's cached answers.
+- Fuzz workers no longer take every core: the targets' `-parallel` is sized so the four lanes together use half the CPUs, or `--jobs` where that is lower. `test` and `lint` beside it slowed by half under the old load.
+
 ## [0.10.2] - 2026-11-21
 
 ### Fixed
