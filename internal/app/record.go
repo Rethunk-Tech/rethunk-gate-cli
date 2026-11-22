@@ -521,7 +521,7 @@ func gatesFingerprint(ctx context.Context, opts options) string {
 
 func lastFailedName(g result) string {
 	switch g.Status {
-	case "fail", "timeout", "error", "cancelled":
+	case "fail", "timeout", "error", "cancelled", "interrupted", "not-found":
 		return g.Name
 	case "skipped":
 		// A gate parked behind a need that did not pass was never judged;

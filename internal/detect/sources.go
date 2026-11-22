@@ -1191,8 +1191,24 @@ func ciPackageGates(ctx context.Context, proj *Project) {
 	}
 }
 
-// ciPackageGate gates the package at rel, or notes why it does not.
+// ciPackageGate gates the package at rel, or notes why it does not. What it
+// adds says "CI" only for a directory a workflow names; one found by its
+// manifest is a nested project.
 func ciPackageGate(ctx context.Context, proj *Project, rel string) {
+	notes, gates := len(proj.Notes), len(proj.Gates)
+	gateNestedPackage(ctx, proj, rel)
+	if slices.Contains(ciPackageDirs(proj.Root), rel) {
+		return
+	}
+	for i := notes; i < len(proj.Notes); i++ {
+		proj.Notes[i] = strings.Replace(proj.Notes[i], "CI runs ", "nested project ", 1)
+	}
+	for i := gates; i < len(proj.Gates); i++ {
+		proj.Gates[i].Source = strings.Replace(proj.Gates[i].Source, "CI working-directory ", "nested project ", 1)
+	}
+}
+
+func gateNestedPackage(ctx context.Context, proj *Project, rel string) {
 	dir := filepath.Join(proj.Root, rel)
 	if !nestedProject(proj.Root, dir) {
 		return

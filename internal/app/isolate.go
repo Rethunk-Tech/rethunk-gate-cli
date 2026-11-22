@@ -206,7 +206,14 @@ func isolatedEnv(env []string, home string) []string {
 		// The XDG directories are unset rather than moved: a tool that finds
 		// them keeps reading this machine's config and state, which is the
 		// leak the fresh HOME closes.
-		if k, _, _ := strings.Cut(e, "="); strings.HasPrefix(k, "XDG_") && strings.HasSuffix(k, "_HOME") {
+		k, _, _ := strings.Cut(e, "=")
+		if strings.HasPrefix(k, "XDG_") && strings.HasSuffix(k, "_HOME") {
+			continue
+		}
+		// Git config injected through the environment would reach every git
+		// the gate runs, as the identity and settings the fresh HOME hides.
+		if k == "GIT_CONFIG_COUNT" || k == "GIT_CONFIG_PARAMETERS" ||
+			strings.HasPrefix(k, "GIT_CONFIG_KEY_") || strings.HasPrefix(k, "GIT_CONFIG_VALUE_") {
 			continue
 		}
 		out = append(out, e)

@@ -246,3 +246,12 @@ func TestIsolatedEnvKeepsTheCallersStateDir(t *testing.T) {
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.Equals(dir, "/st"))
 }
+
+func TestIsolatedEnvDropsGitConfigInjectedThroughTheEnvironment(t *testing.T) {
+	env := isolatedEnv([]string{"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=user.name", "GIT_CONFIG_VALUE_0=x", "GIT_CONFIG_PARAMETERS='a=b'", "KEEP=1"}, "/tmp/fresh")
+	for _, e := range env {
+		qt.Check(t, qt.IsFalse(strings.HasPrefix(e, "GIT_CONFIG_COUNT") || strings.HasPrefix(e, "GIT_CONFIG_KEY_") ||
+			strings.HasPrefix(e, "GIT_CONFIG_VALUE_") || strings.HasPrefix(e, "GIT_CONFIG_PARAMETERS")), qt.Commentf("%s", e))
+	}
+	qt.Check(t, qt.IsTrue(slices.Contains(env, "KEEP=1")))
+}

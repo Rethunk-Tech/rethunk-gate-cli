@@ -1014,3 +1014,10 @@ func TestRecordCorruptIsFatal(t *testing.T) {
 	qt.Check(t, qt.Equals(code, Fatal))
 	qt.Check(t, qt.StringContains(stderr, "cannot read the result record"))
 }
+
+func TestLastFailedNameRerunsInterruptedAndNotFound(t *testing.T) {
+	for _, status := range []string{"fail", "timeout", "error", "cancelled", "interrupted", "not-found"} {
+		qt.Check(t, qt.Equals(lastFailedName(result{Name: "g", Status: status}), "g"), qt.Commentf("%s", status))
+	}
+	qt.Check(t, qt.Equals(lastFailedName(result{Name: "g", Status: "ok"}), ""))
+}

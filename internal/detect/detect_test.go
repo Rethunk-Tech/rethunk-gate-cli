@@ -1565,3 +1565,10 @@ func TestTestLikeScriptsAndTargetsNoGateRunsAreReported(t *testing.T) {
 	testutil.Write(t, root, "Makefile", "tests:\n\tfalse\n")
 	qt.Check(t, qt.DeepEquals(detect(t, root).Unreached, []string{"test:all", "tests"}))
 }
+
+func TestNestedProjectNoWorkflowNamedIsNotLabelledCI(t *testing.T) {
+	root := t.TempDir()
+	testutil.Write(t, root, "go.mod", "module root\n\ngo 1.22\n")
+	testutil.Write(t, root, "sub/go.mod", "module sub\n\ngo 1.22\n")
+	qt.Check(t, qt.StringContains(gateNamed(t, detect(t, root), "sub").Source, "nested project sub"))
+}

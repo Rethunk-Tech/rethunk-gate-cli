@@ -7,6 +7,9 @@ Notable changes to `gate`. The format follows
 ## [Unreleased]
 
 ### Fixed
+- `gate --failed` also reruns gates whose last status was `interrupted` or `not-found`.
+- `--isolate` no longer passes `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_*`, `GIT_CONFIG_VALUE_*` or `GIT_CONFIG_PARAMETERS` through, which carried the caller's git identity into the isolated run.
+- A nested project found by its manifest is labelled "nested project", not "CI", when no workflow names its directory.
 - An untracked nested git repository or a symlink (dangling, or to a directory) no longer makes the working tree unreadable, which had silently dropped the result record; and when the tree cannot be read gate now says no record was saved.
 - A run says which test-like package scripts and Makefile targets (`test:unit`, `tests`) no gate reaches, instead of passing without mentioning them. It is a note, not a new gate: which gates run is unchanged.
 - A stored pass no longer outlives a change gate could not see: a gitignored `go.work`, an ignored `.env*` anywhere under the root (a gate that `cd`s into a package), `GOWORK`, `GOENV`, `MAKEFLAGS`, or the toolchain version behind `make`/`sh -c`/`bun run`. `PATH` itself is still not hashed.
