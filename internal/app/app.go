@@ -614,7 +614,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	if code := frozenInstall(ctx, project, st.timeout, stderr); code != Success {
 		return code
 	}
-	st.setBudget(project, configured, len(roles) > 0)
+	st.setBudget(project, configured, roles)
 	return runGates(ctx, *opts, stdout, stderr)
 }
 
@@ -707,13 +707,19 @@ func (st *runState) announceAndCheckLog(dir string, project detect.Project, stde
 }
 
 // setBudget records the project root and the wall-time budget for the run.
-func (st *runState) setBudget(project detect.Project, configured config.Config, named bool) {
+func (st *runState) setBudget(project detect.Project, configured config.Config, roles []string) {
 	opts := &st.opts
+	named := len(roles) > 0
+	if opts.quick {
+		roles = quickRoles(configured)
+	}
 	opts.root, opts.partial = project.Root, named || opts.failed
 	// A role left empty for want of a tool was never judged, so the pass is
 	// not the project's whole gate passing.
+	// A run that selects roles never judged the others, so it does not
+	// report them missing.
 	for _, sk := range project.Skipped {
-		if configured.Gates[sk.Role].Run == "" {
+		if (len(roles) == 0 || slices.Contains(roles, sk.Role)) && configured.Gates[sk.Role].Run == "" {
 			opts.skippedTools = append(opts.skippedTools, sk.Role)
 		}
 	}

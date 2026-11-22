@@ -192,6 +192,30 @@ func TestMissingToolMakesThePassPartial(t *testing.T) {
 	qt.Check(t, qt.IsTrue(rec.Partial))
 }
 
+// quick never selects vuln, so a missing govulncheck is not its to report.
+func TestQuickDoesNotReportMissingToolsForRolesItSkips(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	var dirs []string
+	for _, d := range filepath.SplitList(os.Getenv("PATH")) {
+		if _, err := os.Stat(filepath.Join(d, "govulncheck")); err != nil {
+			dirs = append(dirs, d)
+		}
+	}
+	t.Setenv("PATH", strings.Join(dirs, string(os.PathListSeparator)))
+	if _, err := exec.LookPath("govulncheck"); err == nil {
+		t.Skip("govulncheck shares a directory with tools the gates need")
+	}
+	root := t.TempDir()
+	testutil.Write(t, root, "go.mod", "module demo\n\ngo 1.22\n")
+	testutil.Write(t, root, "main.go", "package main\n\nfunc main() {}\n")
+	testutil.Write(t, root, ".gate.toml", "[gates.lint]\nrun = \"true\"\n")
+	committedRepo(t, root)
+	testutil.Write(t, root, "main.go", "package main\n\nfunc main() { _ = 1 }\n")
+	stdout, stderr, code := runGateTest(t, "-C", root, "quick", "--all")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.Not(qt.StringContains(stdout, "partial pass")), qt.Commentf("stdout = %q", stdout))
+}
+
 // A gitignored go.work, or an ignored .env a gate reaches by cd'ing into a
 // package, changes a gate's result while the tree hash stays put.
 func TestFingerprintMovesWithIgnoredFilesUnderTheRoot(t *testing.T) {
