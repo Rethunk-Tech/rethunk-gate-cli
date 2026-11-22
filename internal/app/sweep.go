@@ -21,6 +21,9 @@ const runTempPrefix = "gr-"
 // after. It carries no pid, and it is where nearly all of the litter lands.
 const goBuildPrefix = "go-build"
 
+// isolatedHomePrefix names a gate's throwaway HOME.
+const isolatedHomePrefix = "gate-home-"
+
 // orphanRunAge is how long a dead run's directory is left alone. Long enough
 // that a run started a moment ago still reads as running to a sweep on
 // another core, short enough that a SIGKILLed run's leftovers go the same day.
@@ -41,11 +44,33 @@ func newRunTempDir(base string) (string, error) {
 // sweepOrphans removes what killed runs left behind and reports how many
 // entries each part of the sweep removed. Housekeeping never fails a run: an
 // entry that will not go is simply still there for the next sweep.
-func sweepOrphans() (runs, builds, logs int) {
+func sweepOrphans() (runs, builds, homes, logs int) {
 	if base := childTempDir(); base != "" {
 		runs, builds = sweepTemp(base)
 	}
-	return runs, builds, pruneLogs(logDir())
+	return runs, builds, sweepHomes(isolatedHomeBase()), pruneLogs(logDir())
+}
+
+// sweepHomes removes throwaway HOMEs a killed run never got to delete: the
+// owning run removes its own in a defer that SIGKILL skips.
+func sweepHomes(base string) (n int) {
+	entries, err := os.ReadDir(base)
+	if err != nil {
+		return 0
+	}
+	for _, e := range entries {
+		if !e.IsDir() || !strings.HasPrefix(e.Name(), isolatedHomePrefix) {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil || time.Since(info.ModTime()) < orphanRunAge {
+			continue
+		}
+		if os.RemoveAll(filepath.Join(base, e.Name())) == nil {
+			n++
+		}
+	}
+	return n
 }
 
 // reportSweep runs the sweep and says what it removed, once per run, so a
@@ -53,12 +78,12 @@ func sweepOrphans() (runs, builds, logs int) {
 // the line, not the sweep: a passing run prints nothing at all, and the
 // leftovers still go.
 func reportSweep(w io.Writer, quiet bool) {
-	runs, builds, logs := sweepOrphans()
-	if quiet || runs+builds+logs == 0 {
+	runs, builds, homes, logs := sweepOrphans()
+	if quiet || runs+builds+homes+logs == 0 {
 		return
 	}
-	fmt.Fprintf(w, "gate: removed %d dead run dir(s), %d go-build dir(s), %d log(s) older than %d days\n",
-		runs, builds, logs, int(pruneAge.Hours()/24))
+	fmt.Fprintf(w, "gate: removed %d dead run dir(s), %d go-build dir(s), %d isolated home(s), %d log(s) older than %d days\n",
+		runs, builds, homes, logs, int(pruneAge.Hours()/24))
 }
 
 // prepareTempDirs sweeps what killed runs left, then makes this run's own

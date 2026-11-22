@@ -166,3 +166,22 @@ func TestSweepReportsItsCounts(t *testing.T) {
 	reportSweep(&out, true)
 	qt.Check(t, qt.Equals(out.String(), ""))
 }
+
+// A killed run never removes its throwaway HOME, so the sweep does, once it
+// is older than an hour.
+func TestSweepRemovesStaleIsolatedHomes(t *testing.T) {
+	base := t.TempDir()
+	stale := filepath.Join(base, isolatedHomePrefix+"stale")
+	fresh := filepath.Join(base, isolatedHomePrefix+"fresh")
+	other := filepath.Join(base, "keep")
+	for _, dir := range []string{stale, fresh, other} {
+		qt.Assert(t, qt.IsNil(os.Mkdir(dir, 0o700)))
+	}
+	aged(t, stale, orphanRunAge+time.Minute)
+	aged(t, other, orphanRunAge+time.Minute)
+
+	qt.Check(t, qt.Equals(sweepHomes(base), 1))
+	qt.Check(t, qt.IsFalse(exists(stale)))
+	qt.Check(t, qt.IsTrue(exists(fresh)))
+	qt.Check(t, qt.IsTrue(exists(other)))
+}
