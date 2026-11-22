@@ -230,7 +230,7 @@ func TestFormatConventionsGetQuickWriteModesAndYieldToFmt(t *testing.T) {
 	ruff := []gateSpec{{role: "format", argv: []string{"uv", "run", "ruff", "format", "--check", "."}}}
 	got := scopeQuick(ensureQuickFormat(ruff), []string{"a.py"}, false)
 	qt.Assert(t, qt.HasLen(got, 1))
-	qt.Check(t, qt.DeepEquals(got[0].argv, []string{"uv", "run", "ruff", "format", "a.py"}))
+	qt.Check(t, qt.DeepEquals(got[0].argv, []string{"uv", "run", "ruff", "format", "--force-exclude", "a.py"}))
 
 	root := timeoutProject(t, "[gates.fmt]\nrun = \"echo fmt\"\n")
 	testutil.Write(t, root, "pyproject.toml", "[project]\nname = \"x\"\n\n[tool.ruff]\n")
