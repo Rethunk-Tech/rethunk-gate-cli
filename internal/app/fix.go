@@ -99,6 +99,7 @@ func runFix(ctx context.Context, dir string, args []string, asJSON bool, stdout,
 		return InvalidUsage
 	}
 
+	resolveKnownGood(ctx, dir)
 	findings, err := doctor.Run(ctx, dir)
 	if err != nil {
 		fmt.Fprintf(stderr, "gate: cannot inspect this directory: %v\n", err)

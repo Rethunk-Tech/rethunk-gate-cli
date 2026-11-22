@@ -92,8 +92,11 @@ go-toml is the only binary dependency; `go-quicktest/qt` is test-only.
 ## Doctor
 
 Read-only; every finding has evidence. Shape and checks:
-[docs/USAGE.md](docs/USAGE.md#gate-doctor). `KnownGoodActionsTag` is a
-constant, not a network lookup. Judgements are repository-wide where that
+[docs/USAGE.md](docs/USAGE.md#gate-doctor). `doctor` itself never reaches the
+network: the `doctor` and `fix` verbs resolve the pin target once a day
+(`internal/app/knowngood.go`; repo-ops's newest proven tag, else the newest
+published one) and hand it in, with `KnownGoodActionsTag` as the offline
+fallback. Judgements are repository-wide where that
 matters (govulncheck).
 
 ## Concurrency

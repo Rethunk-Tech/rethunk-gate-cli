@@ -98,6 +98,7 @@ func runDoctor(ctx context.Context, dir string, asJSON, forceCache bool, stdout,
 		fmt.Fprintf(stderr, "gate: %v\n", err)
 		return InvalidUsage
 	}
+	resolveKnownGood(ctx, dir)
 	findings := doctor.RunProject(ctx, proj, cfg)
 
 	if asJSON {
