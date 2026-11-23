@@ -487,9 +487,11 @@ func gatesFingerprint(ctx context.Context, opts options) string {
 	for _, g := range gates {
 		// A limit derived from the gate's own history follows the machine's
 		// load, not anything the caller asked for, so it is left out: hashing
-		// it would stop a fresh pass ever standing in for a new run.
+		// it would stop a fresh pass ever standing in for a new run. The same
+		// holds for the fuzz gate's rotation, whose limit follows how many
+		// targets this run's slice holds.
 		timeout := ""
-		if !g.derivedTimeout {
+		if !g.derivedTimeout && g.fingerprintArgv == nil {
 			timeout = describeTimeout(g.timeout)
 		}
 		argv := g.argv

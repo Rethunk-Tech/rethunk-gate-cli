@@ -2,6 +2,7 @@ package app
 
 import (
 	"testing"
+	"time"
 
 	"github.com/go-quicktest/qt"
 
@@ -83,4 +84,16 @@ func TestFuzzGateIsOptInLocallyAndOnInAHookOrCI(t *testing.T) {
 	inPrePushHook = func() bool { return false }
 	t.Setenv("CI", "true")
 	qt.Check(t, qt.Not(qt.StringContains(listed(), "skipped by default")))
+}
+
+func TestFingerprintIgnoresTheFuzzRotationTimeout(t *testing.T) {
+	full := []string{"sh", "-c", "x", "sh", "./a:FuzzA", "./b:FuzzB"}
+	gate := func(d time.Duration) options {
+		return options{gates: []gateSpec{{
+			role: "fuzz", argv: full[:5], fingerprintArgv: full,
+			timeout: d, hasTimeout: true,
+		}}}
+	}
+	ctx := t.Context()
+	qt.Check(t, qt.Equals(gatesFingerprint(ctx, gate(time.Minute)), gatesFingerprint(ctx, gate(2*time.Minute))))
 }
