@@ -3781,3 +3781,18 @@ func TestOkLineNamesALongShellGateByRole(t *testing.T) {
 	stdout, _, _ = runGateTest(t, "-C", gateProject(t, "true"))
 	qt.Check(t, qt.StringContains(stdout, "gate: ok  true  "), qt.Commentf("a short command lost its name: %q", stdout))
 }
+
+// A test target only an opt-in gate runs is reached: a default run names the
+// skipped gate, not the target as unreached.
+func TestOptInGateReachesItsTestTarget(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "test:\n\t@true\ntest-race:\n\t@true\n")
+	testutil.Write(t, root, ".gate.toml", "[gates.unit]\nrun = \"true\"\n\n"+
+		"[gates.race]\nrun = \"make test-race\"\ne2e = true\n")
+
+	stdout, stderr, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.StringContains(stdout, "gate: 1 e2e gate(s) skipped"), qt.Commentf("stdout = %q", stdout))
+	qt.Check(t, qt.Not(qt.StringContains(stdout+stderr, "no gate reaches them")), qt.Commentf("stdout = %q stderr = %q", stdout, stderr))
+}

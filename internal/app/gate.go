@@ -177,6 +177,9 @@ type options struct {
 	e2e        bool
 	skipE2E    bool
 	skippedE2E int
+	// optIn holds the e2e and fuzz gates this run left out: a test target one
+	// of them runs is reached, so it is not named as unreached.
+	optIn []gateSpec
 
 	// fuzz asks for the fuzz gate a local run skips; skipFuzz is the resolved
 	// answer and skippedFuzz what it left out.

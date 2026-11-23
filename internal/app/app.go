@@ -728,7 +728,7 @@ func (st *runState) setBudget(project detect.Project, configured config.Config, 
 	}
 	if !named {
 		for _, name := range project.Unreached {
-			if !slices.ContainsFunc(opts.gates, func(g gateSpec) bool { return strings.Contains(strings.Join(g.argv, " "), name) }) {
+			if !slices.ContainsFunc(slices.Concat(opts.gates, opts.optIn), func(g gateSpec) bool { return strings.Contains(strings.Join(g.argv, " "), name) }) {
 				opts.unreachedTests = append(opts.unreachedTests, name)
 			}
 		}
@@ -791,6 +791,7 @@ func (st *runState) dropE2E(project detect.Project, stderr io.Writer) (code Code
 		}
 		opts.gates = slices.DeleteFunc(opts.gates, func(g gateSpec) bool { return g.fuzz })
 	}
+	opts.optIn = skipped
 	if len(opts.gates) == 0 && len(skipped) > 0 {
 		fmt.Fprintf(stderr, "gate: every gate in %s is e2e or fuzz, which runs only on request\n", project.Root)
 		fmt.Fprintln(stderr, "gate: run `gate --e2e` or `gate --fuzz`, or `gate run <name>` for one")
