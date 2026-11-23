@@ -12,6 +12,7 @@ Notable changes to `gate`. The format follows
 - A `--mem` or `[limits] memory` larger than an enclosing cap says the enclosing cap is lower.
 
 ### Fixed
+- The CI-parity warning skips a step whose `if:` is a `hashFiles(...)` comparison with `''` that no file in the repository satisfies, so a guarded `dotnet test` no longer warns where no tests exist.
 - A nested project `detect.exclude` leaves out no longer makes the run partial for a tool it could not find: its gate never runs, so its skipped roles are not gaps.
 - A run sweeps isolated HOMEs a killed run left behind.
 - `gate quick` and a named-role run report a missing tool only for the roles they select.

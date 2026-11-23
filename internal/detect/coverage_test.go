@@ -163,3 +163,31 @@ func TestGateCommandTextReadsMakeRecipesInTheGatesDirectory(t *testing.T) {
 	text := GateCommandText(root, "svc", []string{"sh", "-c", "make build && make test"}, "")
 	qt.Check(t, qt.HasLen(CIGaps(root, []string{text}), 0))
 }
+
+const guardedTest = "jobs:\n  build:\n    steps:\n      - run: dotnet test -c Release\n        if: hashFiles('.template.config/template.json') == '' && hashFiles('tests/*/*.csproj') != ''\n"
+
+// The mortar-lc-boombox shape: dotnet test runs only when tests/*/*.csproj
+// exists, and none does.
+func TestCIGapsSkipsAStepWhoseHashFilesGuardMatchesNothing(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, ".github/workflows/build.yml", guardedTest)
+	qt.Check(t, qt.HasLen(CIGaps(root, []string{"actionlint"}), 0))
+
+	testutil.Write(t, root, "tests/Foo/Foo.csproj", "<Project/>")
+	got := CIGaps(root, []string{"actionlint"})
+	qt.Assert(t, qt.HasLen(got, 1))
+	qt.Check(t, qt.StringContains(got[0], "no gate runs dotnet test"))
+}
+
+func TestCIGapsHashFilesGuardOnALaterKeyAndOtherConditions(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	later := "jobs:\n  b:\n    steps:\n      - name: t\n        if: ${{ hashFiles('tests/**/*.csproj') != '' }}\n        run: dotnet test\n"
+	testutil.Write(t, root, ".github/workflows/build.yml", later)
+	qt.Check(t, qt.HasLen(CIGaps(root, nil), 0))
+
+	other := strings.Replace(later, "hashFiles('tests/**/*.csproj') != ''", "github.event_name == 'push'", 1)
+	testutil.Write(t, root, ".github/workflows/build.yml", other)
+	qt.Check(t, qt.HasLen(CIGaps(root, nil), 1))
+}

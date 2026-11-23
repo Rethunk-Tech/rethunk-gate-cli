@@ -119,6 +119,11 @@ func eachCIRunLine(root string, visit func(file string, number int, line string)
 			}
 			keyIndent := len(m[1])
 			body := stripComment(strings.TrimSpace(m[2]))
+			dead := stepNeverRuns(root, lines, i)
+			visit := visit
+			if dead {
+				visit = func(string, int, string) {}
+			}
 			if strings.HasPrefix(body, "|") || strings.HasPrefix(body, ">") {
 				for j := i + 1; j < len(lines); j++ {
 					if strings.TrimSpace(lines[j]) != "" && indent(lines[j]) <= keyIndent {
