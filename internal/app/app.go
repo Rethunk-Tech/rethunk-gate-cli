@@ -1094,6 +1094,7 @@ func detectedSpec(g detect.Gate, cfg config.Config, root string) (gateSpec, erro
 		source:   g.Source,
 		shadowed: g.Shadowed,
 		serial:   g.Serial,
+		needs:    slices.Clone(g.Needs),
 		env:      maps.Clone(g.Env),
 		// The project's own commands only work at its root, which
 		// is not necessarily where the caller stood.
@@ -1129,7 +1130,9 @@ func detectedSpec(g detect.Gate, cfg config.Config, root string) (gateSpec, erro
 	if c.HasSerial {
 		spec.serial = c.Serial
 	}
-	spec.needs = slices.Clone(c.Needs)
+	if c.Needs != nil {
+		spec.needs = slices.Clone(c.Needs)
+	}
 	// Same rule for the same reason: an absent key inherits, and
 	// a deliberate 0 disables the limit for this gate only.
 	if c.HasTimeout {

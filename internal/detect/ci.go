@@ -143,7 +143,7 @@ func (b *ciGateBuilder) expand(script string, st ciStep, seen []string) {
 	}
 	// An aggregate gate declined is one whose roles are already gates;
 	// what it runs beyond them is what is left to cover.
-	rest, whole := aggregateRest(body)
+	rest, earlier, whole := aggregateRest(body)
 	if !slices.Contains(aggregateNames, script) || b.have(script) || whole {
 		via := ""
 		if len(seen) > 0 {
@@ -155,6 +155,12 @@ func (b *ciGateBuilder) expand(script string, st ciStep, seen []string) {
 	seen = append(seen, script)
 	if len(rest) > 0 {
 		b.add(script, []string{"sh", "-c", strings.Join(rest, " && ")}, st, ", "+packageSource+script)
+		for i := range b.added {
+			if b.added[i].Name == script {
+				b.added[i].Needs = b.knownNeeds(earlier)
+				break
+			}
+		}
 	}
 	segs, _ := andChain(body)
 	for _, seg := range segs {
@@ -173,18 +179,57 @@ func (b *ciGateBuilder) expand(script string, st ciStep, seen []string) {
 // or a turbo task: those parts are gates of their own, since nothing else
 // covers them. whole is true when the body is that one command, so the script
 // itself is the gate.
-func aggregateRest(body string) (rest []string, whole bool) {
+func aggregateRest(body string) (rest, earlier []string, whole bool) {
 	segs, ok := andChain(body)
 	if !ok {
-		return []string{body}, true
+		return []string{body}, nil, true
 	}
+	var before []string
 	for _, seg := range segs {
 		if c, ok := parseRun(seg); ok && (c.scriptName() != "" || c.tasks() != nil) {
+			if name := c.scriptName(); name != "" {
+				before = appendUnique(before, name)
+			}
+			for _, task := range c.tasks() {
+				before = appendUnique(before, strings.TrimPrefix(task, "//#"))
+			}
 			continue
 		}
 		rest = append(rest, seg)
+		for _, name := range before {
+			earlier = appendUnique(earlier, name)
+		}
 	}
-	return rest, len(segs) == 1 && len(rest) == 1
+	return rest, earlier, len(segs) == 1 && len(rest) == 1
+}
+
+// existingNeeds keeps the names in earlier that are already gates, so a
+// leftover does not wait on a turbo task no gate runs.
+func existingNeeds(gates []Gate, earlier []string) []string {
+	var out []string
+	for _, name := range earlier {
+		if slices.ContainsFunc(gates, func(g Gate) bool { return g.Name == name }) {
+			out = appendUnique(out, name)
+		}
+	}
+	return out
+}
+
+func (b *ciGateBuilder) knownNeeds(earlier []string) []string {
+	var out []string
+	for _, name := range earlier {
+		if b.have(name) {
+			out = appendUnique(out, name)
+		}
+	}
+	return out
+}
+
+func appendUnique(s []string, v string) []string {
+	if slices.Contains(s, v) {
+		return s
+	}
+	return append(s, v)
 }
 
 func (b *ciGateBuilder) addTasks(c runCall, st ciStep) {

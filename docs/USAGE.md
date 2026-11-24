@@ -364,7 +364,8 @@ including `//#name`, through `&&`) and each step runs once:
   a command under a condition does.
 - **Split** — a shared step stays in the smaller gate; an empty aggregate
   drops; leftovers run as `sh -c` with tools resolved into
-  `node_modules/.bin`.
+  `node_modules/.bin`. They need every gate that took a step before them
+  in the chain, so a reader after `build` waits for the dist `build` writes.
 
 Any shell control but `&&` (`|`, `;`, `||`, redirect, `cd`, `$`) is one step.
 Each action is a `note:`. `gate run` names are checked first.

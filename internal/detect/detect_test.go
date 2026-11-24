@@ -1342,6 +1342,21 @@ func TestMakefileRuleHeadsAreReadOnce(t *testing.T) {
 	qt.Check(t, qt.Equals(makeRecipes(root, "test"), ""))
 }
 
+// A declined aggregate's leftover steps keep the chain's order: they wait
+// for every gate that took a step before them, so a reader after build does
+// not race the dist build writes.
+func TestSplitAggregateLeftoversNeedEarlierChainGates(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("PATH", filepath.Join(root, "no-such-bin"))
+	testutil.Write(t, root, "package.json", `{"scripts":{"X":"tool-x","build":"vite build","ci":"bun run X && bun run build && tool-reader"}}`)
+	testutil.Write(t, root, "bun.lock", "")
+
+	proj := detect(t, root)
+	g := gateNamed(t, proj, "ci")
+	qt.Check(t, qt.DeepEquals(g.Argv, []string{"sh", "-c", "tool-reader"}))
+	qt.Check(t, qt.DeepEquals(g.Needs, []string{"build"}))
+}
+
 // A declined aggregate whose script pipes is one command: its parts are not
 // read, so no gate appears for what they would have run.
 func TestCIScriptStepsDoNotExpandPipelines(t *testing.T) {

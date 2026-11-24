@@ -43,6 +43,11 @@ type Gate struct {
 	// this -- it reads an ordering the project already wrote down.
 	Serial bool
 
+	// Needs names the gates a leftover aggregate step waits for: every gate
+	// that took a step before it in the `&&` chain. The chain is an order
+	// the project wrote; detection does not invent one.
+	Needs []string
+
 	// Declared is true when this came from a manifest the project maintains,
 	// rather than from the fallback ladder. Only declared gates can shadow.
 	Declared bool
@@ -348,12 +353,13 @@ func aggregateOwnGate(proj *Project, aggregate Gate) (Gate, bool) {
 	if !ok {
 		return Gate{}, false
 	}
-	rest, whole := aggregateRest(pkg.Scripts[aggregate.Name])
+	rest, earlier, whole := aggregateRest(pkg.Scripts[aggregate.Name])
 	switch {
 	case whole:
 		return aggregate, true
 	case len(rest) > 0:
 		aggregate.Argv = []string{"sh", "-c", strings.Join(rest, " && ")}
+		aggregate.Needs = existingNeeds(proj.Gates, earlier)
 		return aggregate, true
 	}
 	return Gate{}, false

@@ -7,11 +7,14 @@ Notable changes to `gate`. The format follows
 ## [Unreleased]
 
 ### Added
+
 - `gate doctor` and `gate fix` pin to the newest tag repo-ops has proven (else the newest published `vX.Y`), resolved once a day with its commit SHA; offline they keep the built-in tag.
 - `gate --failed` on a stale record prints the failing gate names as a `gate run ...` command.
 - A `--mem` or `[limits] memory` larger than an enclosing cap says the enclosing cap is lower.
 
 ### Fixed
+
+- A split aggregate's leftover steps wait for every gate that took an earlier step in the chain, so a post-build check does not race the build.
 - The CI-parity warning skips a step whose `if:` is a `hashFiles(...)` comparison with `''` that no file in the repository satisfies, so a guarded `dotnet test` no longer warns where no tests exist.
 - A nested project `detect.exclude` leaves out no longer makes the run partial for a tool it could not find: its gate never runs, so its skipped roles are not gaps.
 - A run sweeps isolated HOMEs a killed run left behind.
@@ -30,11 +33,13 @@ Notable changes to `gate`. The format follows
 ## [0.10.6] - 2026-11-21
 
 ### Fixed
+
 - A data race between the start-of-run fingerprint read and the end-of-run partial-pass note, which the race detector flagged in CI.
 
 ## [0.10.5] - 2026-11-21
 
 ### Fixed
+
 - When the `workflows` gate skips the allowed-actions lookup because `gh` is unauthenticated or offline, the run still exits 0 but is recorded as partial, and says why.
 - With no plain `test` script or Makefile target, the `test` role runs the test-like ones (`test:unit`, `tests`) instead of only listing them as not run.
 - A crate the root `Cargo.toml` `[workspace]` lists in `exclude` is gated as a nested project; `--workspace` never reached it.
@@ -42,6 +47,7 @@ Notable changes to `gate`. The format follows
 ## [0.10.4] - 2026-11-21
 
 ### Fixed
+
 - `gate --failed` also reruns gates whose last status was `interrupted` or `not-found`.
 - `--isolate` no longer passes `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_*`, `GIT_CONFIG_VALUE_*` or `GIT_CONFIG_PARAMETERS` through, which carried the caller's git identity into the isolated run.
 - A nested project found by its manifest is labelled "nested project", not "CI", when no workflow names its directory.
@@ -56,9 +62,11 @@ Notable changes to `gate`. The format follows
 ## [0.10.3] - 2026-11-21
 
 ### Changed
+
 - A bare local `gate` skips the convention `fuzz` gate and says so, as it does for e2e. `gate --fuzz` or `GATE_FUZZ=1` runs it under the budget; a git pre-push hook and CI run it without asking, and `gate run fuzz` still works. A pass made with fuzz and one made without are different runs, so a land (`--fuzz --isolate`) and the hook after it still share one.
 
 ### Fixed
+
 - A fresh pass is reused on an unchanged tree again for modules with a rotating fuzz subset. The record fingerprint hashed the subset's argv, which changed every run; it now takes the whole target list.
 - The fuzz budget no longer overshoots. It assumed perfect packing across the four lanes and a 5s guess for an unmeasured target; it now places each target on the least loaded lane and stops before the busiest lane would pass the budget (one target always runs).
 - The allowed-actions cache hits under `--isolate` and the pre-push hook. The isolated HOME hid the caller's state directory, so every run made two `gh api` calls; the caller's directory now reaches the children as `GATE_STATE_DIR`. `GATE_ACTIONS_REFRESH=1` drops only the current repository's cached answers.
@@ -67,14 +75,17 @@ Notable changes to `gate`. The format follows
 ## [0.10.2] - 2026-11-21
 
 ### Fixed
+
 - The `fuzz` gate no longer dies at the 1m default on a small CI runner. With no `--timeout` and no `timeout` in `.gate.toml`, it gets one wave per four targets of `GATE_FUZZTIME` plus 60s for the build, never under 1m. Locally the figure covers only the targets the fuzz budget lets run.
 
 ## [0.10.1] - 2026-11-21
 
 ### Added
+
 - The `fuzz` gate has a local wall budget: `GATE_FUZZ_BUDGET` or `fuzz-budget = "8s"` in `.gate.toml` (default 8s, `0` fuzzes every target). Each run fuzzes the targets that fit, least recently fuzzed first, and the line says so, as in `fuzz (6/27 targets, rotating)`. A subset is still a plain pass. Last-fuzzed times and costs sit beside the result record in the state directory. CI fuzzes every target.
 
 ### Fixed
+
 - The `fuzz` gate passes `-parallel` of a quarter of the CPUs to each target. `go test -fuzz` started one worker per CPU per target, 128 on a 32 core machine; peak memory on go-contentpatcher fell from 5.5 GiB to 2.8 GiB.
 - The Go build gate runs `go build -o /dev/null ./...`, so a module whose only package is `main` no longer gets a binary written into the tree.
 - A Yarn berry project (a `packageManager` pin of yarn 2 or newer, `.yarnrc.yml`, or `.yarn/releases`) installs with `yarn install --immutable`. `--frozen-lockfile` made Yarn 4 migrate the project and write `.yarnrc.yml`.
@@ -83,11 +94,13 @@ Notable changes to `gate`. The format follows
 ## [0.10.0] - 2026-11-21
 
 ### Added
+
 - A `fuzz` gate by convention for a Go module that declares `Fuzz*` targets: each runs for `GATE_FUZZTIME` (default `2s`), four at a time, and a crasher fails the gate with its `testdata/fuzz` path in the log. No targets, no gate. About 9s warm on go-smapi (9 targets) and go-safefs (10).
 - A `windows` gate (`GOOS=windows go build` and `go vet`) in `.gate.toml`, matching the CI Windows job.
 - The `workflows` gate also checks every `uses:` in the workflows, and in the local composite actions they call, against the repo's allowed-actions settings (`gh api repos/O/R/actions/permissions`). A refused action fails the gate. Under `verified_allowed`, an action that is not GitHub-owned and matches no `patterns_allowed` entry is a warning naming the owner, since the verified-creator status cannot be checked; it never fails. Actions outside the allowlist under `selected` or `local_only` still fail. Answers are cached per repo per day; offline or without gh auth the check is skipped with a note.
 
 ### Fixed
+
 - A run that leaves a role out for want of a tool (govulncheck, clippy, rustfmt, cargo-audit, dotnet) writes a partial record, so it is not mistaken for the whole gate passing, and prints one line naming the skipped roles. The exit stays 0.
 - A second isolated run on an unchanged tree reuses the first's pass. `rgit land` gates isolated in a repo with a pre-push hook, so the hook's gate on the push returns at once; a non-isolated pass still does not stand in for the hook's isolated run.
 - A gated command no longer outlives its gate: after each gate, anything still carrying that run's `GATE_ACTIVE_RUN` entry is killed, including a `setsid` child outside the process group (Linux).
@@ -103,9 +116,11 @@ Notable changes to `gate`. The format follows
 ## [0.9.0] - 2026-11-21
 
 ### Removed
+
 - `gate push`: `rgit land` is the ship command and runs the gate itself.
 
 ### Added
+
 - A format gate by convention: `uv run ruff format --check .` for a Python project that declares ruff, `cargo fmt --check` for a Cargo project with rustfmt installed. `gate quick` runs them in write mode (`ruff format <files>`, `cargo fmt`). A project that declares its own `format` or `fmt` gate keeps only that one.
 - A bun workspace gets a `vuln` gate from its lockfile: `bun <gh-actions>/audit-bun/audit.ts` where audit-bun is checked out (it fails only on advisories whose fix has shipped and reads `.bun-audit-ignore`), plain `bun audit` otherwise. `gate doctor`'s `bun-no-audit` now names the `[gates.vuln]` line and `gate fix` writes it into `.gate.toml`. A package's own bun audit is not added to a CI-run package gate.
 - A named command that is the project's whole CI (`bun run ci`, `npm run check`, `make check`, ...) writes a full (not partial) result record; any other named command still writes none.
@@ -122,6 +137,7 @@ Notable changes to `gate`. The format follows
 - Logs in gate's own directory are kept **7 days** rather than 14, and the sweep runs once per run instead of once per day.
 
 ### Fixed
+
 - `gate doctor`'s `result-not-fresh` is information, not a warning.
 
 - `gate` as the direct command of `systemd-run --user --scope` no longer fails with "already loaded": its own scope gets a unit name of its own.

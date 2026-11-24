@@ -190,14 +190,27 @@ func (p *dedupePlan) excused(i, j int) bool {
 func (p *dedupePlan) resolve(i int) (g gateSpec, keep bool, note string) {
 	var kept []detect.Step
 	var covered []string
+	var before []string
+	var need []string
 	instrumented := ""
 	for _, s := range p.work[i] {
 		by, how := p.coveredBy(i, s)
 		switch {
 		case by < 0:
 			kept = append(kept, s)
+			for _, role := range before {
+				if !slices.Contains(need, role) {
+					need = append(need, role)
+				}
+			}
 		case !slices.Contains(covered, p.gates[by].role):
 			covered = append(covered, p.gates[by].role)
+		}
+		if by >= 0 {
+			role := p.gates[by].role
+			if !slices.Contains(before, role) {
+				before = append(before, role)
+			}
 		}
 		if how != "" {
 			instrumented = how
@@ -219,6 +232,14 @@ func (p *dedupePlan) resolve(i int) (g gateSpec, keep bool, note string) {
 	g.display = strings.Join(texts, " && ")
 	g.argv = shellArgv(g.display)
 	g.source += ", split"
+	if len(need) > 0 {
+		g.needs = slices.Clone(g.needs)
+		for _, role := range need {
+			if !slices.Contains(g.needs, role) {
+				g.needs = append(g.needs, role)
+			}
+		}
+	}
 	return g, true, "split " + g.role + " to `" + g.display + "`: " + already(covered) + " the rest"
 }
 
