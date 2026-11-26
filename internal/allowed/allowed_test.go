@@ -102,18 +102,34 @@ func TestLoadFetchesOncePerDay(t *testing.T) {
 	qt.Check(t, qt.IsNotNil(err))
 }
 
+func TestLoadRefetchesACorruptCache(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "o__r-2026-11-21.json", "{")
+	fetched := 0
+	fetch := func(string) ([]byte, error) {
+		fetched++
+		return []byte(`{"allowed_actions":"all","sha_pinning_required":true}`), nil
+	}
+	s, err := Load("o/r", dir, "2026-11-21", fetch)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.Equals(fetched, 1))
+	qt.Check(t, qt.DeepEquals(s, Settings{AllowedActions: "all", SHAPinningRequired: true}))
+}
+
 func TestCheckEnforcesSHAPinningWhenRequired(t *testing.T) {
 	uses := []Use{
 		{Ref: "actions/checkout@v4"},
 		{Ref: "actions/checkout@" + "3d3c42e5aac5ba805825da76410c181273ba90b1"},
 		{Ref: "./local"},
 		{Ref: "docker://alpine"},
+		{Ref: "o/a@abc1234"},
+		{Ref: "o/a@3d3c42e5aac5ba805825da76410c181273ba90b"},
 	}
 	var got []string
 	for _, f := range Check(uses, Settings{AllowedActions: "all", SHAPinningRequired: true}) {
 		got = append(got, f.Use.Ref)
 	}
-	qt.Check(t, qt.DeepEquals(got, []string{"actions/checkout@v4"}))
+	qt.Check(t, qt.DeepEquals(got, []string{"actions/checkout@v4", "o/a@abc1234", "o/a@3d3c42e5aac5ba805825da76410c181273ba90b"}))
 	qt.Check(t, qt.HasLen(Check(uses, Settings{AllowedActions: "all"}), 0))
 }
 
@@ -139,6 +155,9 @@ func TestGlobWithSeveralStars(t *testing.T) {
 		{"a/*/b/*@v1", "a/x/c/y@v1", false},
 		{"*mid*end", "startmidend", true},
 		{"*mid*end", "startendmid", false},
+		{"octo/*@v1", "octo/x@v1.2", false},
+		{"o/*ab*b", "o/ab", false},
+		{"o/*ab*b", "o/abb", true},
 	} {
 		qt.Check(t, qt.Equals(glob(c.pattern, c.s), c.want), qt.Commentf("%s ~ %s", c.pattern, c.s))
 	}
