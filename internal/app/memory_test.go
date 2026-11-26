@@ -391,6 +391,10 @@ func TestCgroupQuotaWalksToTheTightestAncestor(t *testing.T) {
 	cpu, pids := cgroupQuota()
 	qt.Check(t, qt.Equals(cpu, "10%"))
 	qt.Check(t, qt.Equals(pids, "256"))
+
+	write(filepath.Dir(leaf), "cpu.max", "2333 7000\n")
+	cpu, _ = cgroupQuota()
+	qt.Check(t, qt.Equals(cpu, "33.32%"))
 }
 
 func TestVersionHasNoExpand(t *testing.T) {

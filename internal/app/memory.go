@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"io"
+	"math"
 	"math/rand/v2"
 	"os"
 	"os/exec"
@@ -279,7 +280,9 @@ var cgroupQuota = func() (cpu, pids string) {
 		if data, err := os.ReadFile(filepath.Clean(filepath.Join(dir, "cpu.max"))); err == nil {
 			var quota, period float64
 			if n, _ := fmt.Sscanf(string(data), "%f %f", &quota, &period); n == 2 && period > 0 {
-				if pct := quota * 100 / period; best == 0 || pct < best {
+				// systemd refuses more than two decimals; flooring keeps the
+				// restated quota from exceeding the enclosing one.
+				if pct := math.Floor(quota*100/period*100) / 100; best == 0 || pct < best {
 					best = pct
 					cpu = strconv.FormatFloat(pct, 'f', -1, 64) + "%"
 				}
