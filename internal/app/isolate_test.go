@@ -268,10 +268,13 @@ func TestIsolatedEnvKeepsTheCallersStateDir(t *testing.T) {
 }
 
 func TestIsolatedEnvDropsGitConfigInjectedThroughTheEnvironment(t *testing.T) {
-	env := isolatedEnv([]string{"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=user.name", "GIT_CONFIG_VALUE_0=x", "GIT_CONFIG_PARAMETERS='a=b'", "KEEP=1"}, "/tmp/fresh")
+	env := isolatedEnv([]string{"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=user.name", "GIT_CONFIG_VALUE_0=x", "GIT_CONFIG_PARAMETERS='a=b'", "KEEP=1", "XDG_RUNTIME_DIR=/run/user/1", "XDG_CONFIG_HOME=/x"}, "/tmp/fresh")
 	for _, e := range env {
 		qt.Check(t, qt.IsFalse(strings.HasPrefix(e, "GIT_CONFIG_COUNT") || strings.HasPrefix(e, "GIT_CONFIG_KEY_") ||
 			strings.HasPrefix(e, "GIT_CONFIG_VALUE_") || strings.HasPrefix(e, "GIT_CONFIG_PARAMETERS")), qt.Commentf("%s", e))
 	}
 	qt.Check(t, qt.IsTrue(slices.Contains(env, "KEEP=1")))
+	qt.Check(t, qt.IsTrue(slices.Contains(env, "GIT_CONFIG_NOSYSTEM=1")), qt.Commentf("the system gitconfig must stay out"))
+	qt.Check(t, qt.IsTrue(slices.Contains(env, "XDG_RUNTIME_DIR=/run/user/1")), qt.Commentf("only the _HOME directories are dropped"))
+	qt.Check(t, qt.IsFalse(slices.Contains(env, "XDG_CONFIG_HOME=/x")))
 }
