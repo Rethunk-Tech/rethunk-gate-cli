@@ -60,3 +60,54 @@ func TestFloatingAndStaleActionRefsInOneFileAreBothReported(t *testing.T) {
 	qt.Check(t, qt.IsTrue(reported(findings, "actions-floating-ref")), qt.Commentf("findings = %v", checkNames(findings)))
 	qt.Check(t, qt.IsTrue(reported(findings, "actions-stale-ref")), qt.Commentf("findings = %v", checkNames(findings)))
 }
+
+func TestNpxInAnNpmPackageInsideAGitRepoIsNotFlagged(t *testing.T) {
+	isolatePath(t)
+	dir := t.TempDir()
+	testutil.Write(t, dir, ".git/HEAD", "ref: refs/heads/main\n")
+	testutil.Write(t, dir, "package-lock.json", "{}")
+	testutil.Write(t, dir, "package.json", `{"scripts":{"typecheck":"npx tsc --noEmit"}}`)
+	findings, err := Run(t.Context(), dir)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsFalse(reported(findings, "npx-in-bun-workspace")), qt.Commentf("findings = %v", checkNames(findings)))
+}
+
+func TestMissingTypecheckIsReportedForAPackageWithATestGate(t *testing.T) {
+	isolatePath(t)
+	dir := t.TempDir()
+	testutil.Write(t, dir, "package.json", `{"scripts":{"test":"vitest run"}}`)
+	findings, err := Run(t.Context(), dir)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsTrue(reported(findings, "missing-gate-typecheck")), qt.Commentf("findings = %v", checkNames(findings)))
+	qt.Check(t, qt.IsFalse(reported(findings, "missing-gate-test")))
+}
+
+func TestNextRaceWithOneSerialGateOrAConfigOnlyBuild(t *testing.T) {
+	isolatePath(t)
+	one := nextProject(t, "[gates.build]\nserial = true\n")
+	findings, err := Run(t.Context(), one)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsTrue(reported(findings, "next-build-typecheck-race")), qt.Commentf("serial build, parallel typecheck: %v", checkNames(findings)))
+
+	cfgBuild := t.TempDir()
+	testutil.Write(t, cfgBuild, "package.json", `{"dependencies":{"next":"16.0.0"},"scripts":{"typecheck":"tsc --noEmit"}}`)
+	testutil.Write(t, cfgBuild, ".gate.toml", "[gates.build]\nrun = \"next build\"\n")
+	findings, err = Run(t.Context(), cfgBuild)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsTrue(reported(findings, "next-build-typecheck-race")), qt.Commentf("config-only build: %v", checkNames(findings)))
+}
+
+func TestDependabotNpmEntryAfterANonNpmEntryAndBlankLines(t *testing.T) {
+	isolatePath(t)
+	dir := t.TempDir()
+	testutil.Write(t, dir, "web/bun.lock", "")
+	body := "version: 2\nupdates:\n" +
+		"  - package-ecosystem: github-actions\n    directory: /\n\n" +
+		"  - package-ecosystem: npm\n    directory: /web\n"
+	qt.Check(t, qt.DeepEquals(DependabotNpmInBun(dir, body), []int{5}))
+	testutil.Write(t, dir, ".github/dependabot.yml", body)
+	testutil.Write(t, dir, "package.json", `{"scripts":{"test":"bun test"}}`)
+	findings, err := Run(t.Context(), dir)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsTrue(reported(findings, "dependabot-npm-in-bun")), qt.Commentf("findings = %v", checkNames(findings)))
+}
