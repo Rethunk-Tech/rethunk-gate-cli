@@ -71,18 +71,7 @@ func ReadTree(ctx context.Context, root string) State {
 	if !ok {
 		return State{}
 	}
-	git := func(stdin []byte, args ...string) ([]byte, bool) {
-		cmd := exec.CommandContext(ctx, "git", append([]string{ //nolint:gosec // repository inspection uses fixed git arguments
-			"-C", root,
-			"-c", "core.fsmonitor=",
-		}, args...)...)
-		cmd.Env = gitEnv(emptyTree)
-		if len(stdin) > 0 {
-			cmd.Stdin = bytes.NewReader(stdin)
-		}
-		out, err := cmd.Output()
-		return out, err == nil
-	}
+	git := gitReader(ctx, root, emptyTree)
 	head, ok := git(nil, "rev-parse", "--verify", "--quiet", "HEAD")
 	if !ok {
 		return State{}
@@ -93,6 +82,7 @@ func ReadTree(ctx context.Context, root string) State {
 	}
 	// git reads root on each call, so every read below runs from the top.
 	root = strings.TrimSpace(string(top))
+	git = gitReader(ctx, root, emptyTree)
 	// Index against HEAD, then the worktree against the index: both raw, so a
 	// changed file is named by ids rather than by diffed content.
 	// Submodules are never ignored here: .gitmodules and diff.ignoreSubmodules
@@ -120,6 +110,7 @@ func ReadTree(ctx context.Context, root string) State {
 	parent := ctx
 	hctx, hcancel := context.WithTimeout(ctx, 30*time.Second)
 	ctx = hctx
+	git = gitReader(ctx, root, emptyTree)
 	blobs, ok := hashChanged(root, paths, git)
 	if !ok {
 		hcancel()
@@ -149,8 +140,14 @@ func ReadTree(ctx context.Context, root string) State {
 		if inner.Unreadable {
 			return State{Unreadable: true}
 		}
-		// A repository with no commit has no head to hash and stays readable.
+		// A repository with no commit has no head to hash and stays readable;
+		// its files are hashed in the head's place.
 		if !inner.OK {
+			content, ok := hashNoCommitRepo(ctx, filepath.Join(root, sub))
+			if !ok {
+				return State{Unreadable: true}
+			}
+			blobs = fmt.Appendf(blobs, "%s %s\n", sub, content)
 			continue
 		}
 		blobs = fmt.Appendf(blobs, "%s %s %s\n", sub, inner.Head, inner.Status)
@@ -161,6 +158,45 @@ func ReadTree(ctx context.Context, root string) State {
 		Status: statusHash(staged, worktree, untracked, blobs),
 		OK:     true,
 	}
+}
+
+// gitReader runs git in root with the hashing environment, from an attributes
+// source of emptyTree.
+func gitReader(ctx context.Context, root, emptyTree string) gitRead {
+	return func(stdin []byte, args ...string) ([]byte, bool) {
+		cmd := exec.CommandContext(ctx, "git", append([]string{ //nolint:gosec // repository inspection uses fixed git arguments
+			"-C", root,
+			"-c", "core.fsmonitor=",
+		}, args...)...)
+		cmd.Env = gitEnv(emptyTree)
+		if len(stdin) > 0 {
+			cmd.Stdin = bytes.NewReader(stdin)
+		}
+		out, err := cmd.Output()
+		return out, err == nil
+	}
+}
+
+// hashNoCommitRepo is a digest of every indexed and untracked file of the
+// repository at root, which has no commit to name its state.
+func hashNoCommitRepo(ctx context.Context, root string) (string, bool) {
+	tree, ok := gitTree(ctx, root)
+	if !ok {
+		return "", false
+	}
+	git := gitReader(ctx, root, tree)
+	list, ok := git(nil, "ls-files", "-z", "--cached", "--others", "--exclude-standard")
+	if !ok {
+		return "", false
+	}
+	var paths []string
+	for p := range bytes.SplitSeq(list, []byte{0}) {
+		if len(p) > 0 {
+			paths = append(paths, string(p))
+		}
+	}
+	blobs, ok := hashChanged(root, paths, git)
+	return fmt.Sprintf("%x", sha256.Sum256(append(list, blobs...))), ok
 }
 
 // gitTree is the object id of the empty tree in root's object format, which

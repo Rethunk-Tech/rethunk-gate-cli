@@ -2,6 +2,7 @@ package result
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -132,7 +133,10 @@ func gitFixture(t *testing.T, dir string) func(args ...string) string {
 		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
 		out, err := cmd.CombinedOutput()
 		if err != nil {
-			t.Skipf("git %v: %v\n%s", args, err, out)
+			if errors.Is(err, exec.ErrNotFound) {
+				t.Skipf("git %v: %v", args, err)
+			}
+			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
 		return strings.TrimSpace(string(out))
 	}
@@ -159,7 +163,10 @@ func TestReadTreeDoesNotRunGITExternalDiff(t *testing.T) {
 		cmd.Dir = root
 		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
 		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Skipf("git %v: %v\n%s", args, err, out)
+			if errors.Is(err, exec.ErrNotFound) {
+				t.Skipf("git %v: %v", args, err)
+			}
+			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
 	}
 	git("init", "--quiet")
@@ -652,6 +659,7 @@ func TestReadTreeFollowsAnUntrackedNestedRepo(t *testing.T) {
 	git("add", "f")
 	git("commit", "--quiet", "-m", "first")
 	lib := filepath.Join(repo, "lib")
+	qt.Assert(t, qt.IsNil(os.MkdirAll(lib, 0o750)))
 	libGit := gitFixture(t, lib)
 	testutilWrite(t, lib, "in.txt", "a\n")
 	libGit("add", "in.txt")
@@ -683,6 +691,20 @@ func TestReadTreeIgnoresAStatOnlyChange(t *testing.T) {
 	qt.Check(t, qt.Not(qt.Equals(ReadTree(t.Context(), repo).Status, clean.Status)))
 }
 
+func TestReadTreeCountsAChmodWithUnchangedBytes(t *testing.T) {
+	t.Parallel()
+	repo := t.TempDir()
+	git := gitFixture(t, repo)
+	testutilWrite(t, repo, "f", "a\n")
+	git("add", "f")
+	git("commit", "--quiet", "-m", "first")
+	clean := ReadTree(t.Context(), repo)
+	qt.Assert(t, qt.IsTrue(clean.OK))
+
+	qt.Assert(t, qt.IsNil(os.Chmod(filepath.Join(repo, "f"), 0o755))) //nolint:gosec // the exec bit is the change under test
+	qt.Check(t, qt.Not(qt.Equals(ReadTree(t.Context(), repo).Status, clean.Status)))
+}
+
 func TestReadTreeFollowsAnUntrackedNestedRepoWithNoCommit(t *testing.T) {
 	t.Parallel()
 	repo := t.TempDir()
@@ -691,6 +713,7 @@ func TestReadTreeFollowsAnUntrackedNestedRepoWithNoCommit(t *testing.T) {
 	git("add", "f")
 	git("commit", "--quiet", "-m", "first")
 	lib := filepath.Join(repo, "lib")
+	qt.Assert(t, qt.IsNil(os.MkdirAll(lib, 0o750)))
 	gitFixture(t, lib)
 	testutilWrite(t, lib, "in.txt", "a\n")
 
