@@ -62,6 +62,9 @@ type prefixWriter struct {
 	out     *lockedWriter
 	prefix  string
 	partial bytes.Buffer
+	// chunked: the line so far was cut at maxTrackedLine, so a remainder that
+	// is only the CR of a CRLF is not a line of its own.
+	chunked bool
 }
 
 func newPrefixWriter(out *lockedWriter, name string) *prefixWriter {
@@ -89,6 +92,7 @@ func (p *prefixWriter) add(b []byte) {
 		room := maxTrackedLine - p.partial.Len()
 		if room <= 0 {
 			p.flush()
+			p.chunked = true
 			continue
 		}
 		take := min(room, len(b))
@@ -96,6 +100,7 @@ func (p *prefixWriter) add(b []byte) {
 		b = b[take:]
 		if p.partial.Len() >= maxTrackedLine && len(b) > 0 {
 			p.flush()
+			p.chunked = true
 		}
 	}
 }
@@ -103,6 +108,11 @@ func (p *prefixWriter) add(b []byte) {
 func (p *prefixWriter) flush() {
 	line := strings.TrimRight(p.partial.String(), "\r")
 	p.partial.Reset()
+	continued := p.chunked
+	p.chunked = false
+	if continued && line == "" {
+		return
+	}
 	p.out.writeLine([]byte(p.prefix + line + "\n"))
 }
 

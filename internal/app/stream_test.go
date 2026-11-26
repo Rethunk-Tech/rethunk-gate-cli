@@ -83,3 +83,13 @@ func TestResolveStream(t *testing.T) {
 		})
 	}
 }
+
+func TestPrefixWriterCRLFAfterAFullChunkIsNotABlankLine(t *testing.T) {
+	t.Parallel()
+	var out bytes.Buffer
+	pw := newPrefixWriter(&lockedWriter{w: &out}, "x")
+	_, err := pw.Write([]byte(strings.Repeat("a", maxTrackedLine) + "\r\nend\n"))
+	qt.Assert(t, qt.IsNil(err))
+	pw.close()
+	qt.Check(t, qt.Equals(out.String(), "[x] "+strings.Repeat("a", maxTrackedLine)+"\n[x] end\n"))
+}
