@@ -454,6 +454,37 @@ func TestReadTreeFollowsADirtySubmodule(t *testing.T) {
 	qt.Check(t, qt.Not(qt.Equals(ReadTree(t.Context(), repo).Status, again.Status)), qt.Commentf("an untracked file inside the submodule did not move the hash"))
 }
 
+// submodule.sub.ignore=all hides a staged submodule bump from git's own
+// diff-index; the status hash must still move, or skipUnchanged and `gate
+// record` report the pass from before the bump.
+func TestReadTreeSeesAStagedSubmoduleBumpAndRefusesAnUnreadableOne(t *testing.T) {
+	t.Parallel()
+	sub := t.TempDir()
+	subGit := gitFixture(t, sub)
+	testutilWrite(t, sub, "f", "a\n")
+	subGit("add", "f")
+	subGit("commit", "--quiet", "-m", "sub")
+	repo := t.TempDir()
+	git := gitFixture(t, repo)
+	git("-c", "protocol.file.allow=always", "submodule", "add", "--quiet", sub, "sub")
+	git("config", "submodule.sub.ignore", "all")
+	git("commit", "--quiet", "-m", "first")
+	clean := ReadTree(t.Context(), repo)
+	qt.Assert(t, qt.IsTrue(clean.OK))
+
+	inner := gitFixture(t, filepath.Join(repo, "sub"))
+	testutilWrite(t, repo, "sub/f", "b\n")
+	inner("commit", "--quiet", "-a", "-m", "bump")
+	git("add", "sub")
+	staged := ReadTree(t.Context(), repo)
+	qt.Check(t, qt.Not(qt.Equals(staged.Status, clean.Status)), qt.Commentf("a staged submodule bump left the hash alone"))
+
+	// A submodule the outer read cannot hash makes the whole tree unreadable.
+	testutilWrite(t, repo, "sub/secret", "x\n")
+	qt.Assert(t, qt.IsNil(os.Chmod(filepath.Join(repo, "sub", "secret"), 0)))
+	qt.Check(t, qt.IsTrue(ReadTree(t.Context(), repo).Unreadable), qt.Commentf("an unreadable submodule hashed as empty"))
+}
+
 func TestRead(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	root := t.TempDir()
@@ -724,6 +755,10 @@ func TestReadTreeFollowsAnUntrackedNestedRepoWithNoCommit(t *testing.T) {
 	qt.Assert(t, qt.IsTrue(before.OK))
 	testutilWrite(t, lib, "in.txt", "b\n")
 	qt.Check(t, qt.Not(qt.Equals(ReadTree(t.Context(), repo).Status, before.Status)), qt.Commentf("an edit inside a nested repo with no commit did not move the hash"))
+
+	testutilWrite(t, lib, "secret", "x\n")
+	qt.Assert(t, qt.IsNil(os.Chmod(filepath.Join(lib, "secret"), 0)))
+	qt.Check(t, qt.IsTrue(ReadTree(t.Context(), repo).Unreadable), qt.Commentf("a nested repo with an unreadable file hashed as empty"))
 }
 
 // hash-object --stdin-paths C-unquotes a line that starts with a double quote,
