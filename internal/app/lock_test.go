@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -276,4 +277,66 @@ func TestRepoScopeSerialisesTwoWorktrees(t *testing.T) {
 	defer cancel()
 	_, ok = acquireWorkspaceLock(ctx, other, "repo", &bytes.Buffer{})
 	qt.Check(t, qt.IsFalse(ok), qt.Commentf("a second worktree ran under the repo lock"))
+}
+
+// A waiter that won the flock on a file pruneLocks then unlinked holds a lock
+// nobody else sees; it must reopen the path and lock the file there instead.
+func TestAcquireReopensALockFileUnlinkedUnderIt(t *testing.T) {
+	root := lockTestRepo(t, "true")
+	path, err := lockPath(lockKey(t.Context(), root, ""))
+	qt.Assert(t, qt.IsNil(err))
+	qt.Assert(t, qt.IsNil(os.WriteFile(path, nil, 0o600)))
+	holder, err := os.Open(path) //nolint:gosec // a file this test just made
+	qt.Assert(t, qt.IsNil(err))
+	defer func() { _ = holder.Close() }()
+	locked, err := tryLock(holder)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Assert(t, qt.IsTrue(locked))
+
+	var stderr syncBuffer
+	type result struct {
+		release func()
+		ok      bool
+	}
+	done := make(chan result, 1)
+	go func() {
+		release, ok := acquireWorkspaceLock(t.Context(), root, "", &stderr)
+		done <- result{release, ok}
+	}()
+	// The waiter announces itself once it has opened the old file and failed
+	// to lock it; only then is the unlink what it must notice.
+	for !strings.Contains(stderr.String(), "waiting") {
+		select {
+		case <-t.Context().Done():
+			t.Fatal("the waiter never started waiting")
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+	qt.Assert(t, qt.IsNil(os.Remove(path)))
+	_ = holder.Close()
+
+	res := <-done
+	qt.Assert(t, qt.IsTrue(res.ok))
+	defer res.release()
+	data, err := os.ReadFile(path) //nolint:gosec // the lock path
+	qt.Assert(t, qt.IsNil(err), qt.Commentf("the winner holds an unlinked file"))
+	qt.Check(t, qt.StringContains(string(data), strconv.Itoa(os.Getpid())))
+}
+
+// syncBuffer is a writer the test can read while another goroutine writes.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }
