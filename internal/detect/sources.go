@@ -122,11 +122,8 @@ func fallbackTests(root string, fromPackage bool, runner []string) (plain, brows
 		return nil, nil
 	}
 	for _, n := range unreachedTests(root) {
-		if _, isScript := pkg.Scripts[n]; isScript != fromPackage && (fromPackage || !targets[n]) {
-			continue
-		}
 		// A script wins over a same-named target, so a Makefile never repeats it.
-		if _, ok := pkg.Scripts[n]; ok && !fromPackage {
+		if _, isScript := pkg.Scripts[n]; isScript != fromPackage {
 			continue
 		}
 		var away bool
