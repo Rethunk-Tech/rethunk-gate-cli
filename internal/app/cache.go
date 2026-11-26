@@ -167,7 +167,9 @@ func (s *cacheScanner) observe(line string) {
 		cached, err1 := strconv.Atoi(m[1])
 		total, err2 := strconv.Atoi(m[2])
 		if err1 == nil && err2 == nil && total > 0 {
-			s.turboSeen, s.turboCached, s.turboTotal = true, cached, total
+			s.turboSeen = true
+			s.turboCached += cached
+			s.turboTotal += total
 		}
 		return
 	}

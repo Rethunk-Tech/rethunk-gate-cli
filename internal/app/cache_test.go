@@ -187,3 +187,10 @@ func TestApplyForceCacheDoesNotDuplicateAlwaysMake(t *testing.T) {
 		qt.Assert(t, qt.Equals(spec.env["MAKEFLAGS"], flags), qt.Commentf("flags %q", flags))
 	}
 }
+
+func TestTwoTurboRunsAccumulateTheirSummaries(t *testing.T) {
+	t.Parallel()
+	s := &cacheScanner{}
+	feed(s, "Cached:    0 cached, 3 total", "Cached:    2 cached, 2 total")
+	qt.Assert(t, qt.Equals(s.verdict().label(), "2/5 cached"))
+}
