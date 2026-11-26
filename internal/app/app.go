@@ -454,7 +454,7 @@ func (st *runState) runVerb(ctx context.Context, dir string, args []string, stdo
 	case word == "quick" && len(args) == 2 && (args[1] == "-h" || args[1] == "--help"):
 		fmt.Fprint(stdout, quickHelp)
 		return Success, true
-	case (word == "doctor" || word == "record") && len(args) > 1:
+	case (word == "doctor" || word == "record" || word == "isolate-env") && len(args) > 1:
 		fmt.Fprintf(stderr, "gate: flags go before the verb: gate %s\n", verbFlagRemedy(args[1], word))
 		fmt.Fprintf(stderr, "gate: a program named %s is `gate -- %s`\n", word, word)
 		return InvalidUsage, true

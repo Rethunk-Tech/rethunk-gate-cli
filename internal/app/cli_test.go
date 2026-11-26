@@ -113,4 +113,8 @@ func TestIsolateEnvRefusesArgumentsAndRunFlags(t *testing.T) {
 	qt.Check(t, qt.Equals(code, InvalidUsage), qt.Commentf("stderr = %q", stderr))
 	_, stderr, code = runGateTest(t, "--profile", "isolate-env")
 	qt.Check(t, qt.Equals(code, InvalidUsage), qt.Commentf("stderr = %q", stderr))
+	for _, arg := range []string{"--help", "--json", "x"} {
+		_, stderr, code = runGateTest(t, "isolate-env", arg)
+		qt.Check(t, qt.Equals(code, InvalidUsage), qt.Commentf("%s: stderr = %q", arg, stderr))
+	}
 }
