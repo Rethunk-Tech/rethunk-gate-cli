@@ -111,4 +111,8 @@ func TestAnnounceMemoryCapNamesALowerEnclosingCapWhenAsked(t *testing.T) {
 	qt.Check(t, qt.Equals(buf.Len(), 0))
 	announceMemoryCap(&buf, options{memory: "48G", memExplicit: true})
 	qt.Check(t, qt.Equals(buf.String(), "gate: memory cap 48G not applied: an enclosing 24G cap is lower\n"))
+
+	buf.Reset()
+	announceMemoryCap(&buf, options{memory: "24G", memExplicit: true})
+	qt.Check(t, qt.Equals(buf.Len(), 0), qt.Commentf("an equal cap is not lower"))
 }

@@ -199,6 +199,13 @@ func TestCgroupCappedWalksAncestors(t *testing.T) {
 
 	write(filepath.Dir(leaf), "32212254720")
 	qt.Check(t, qt.IsTrue(cgroupCapped()))
+
+	// The smallest cap on the way up is the one in force, whichever level
+	// holds it.
+	write(leaf, "25769803776")
+	write(filepath.Dir(leaf), "17179869184")
+	limit, _ := cgroupLimit()
+	qt.Check(t, qt.Equals(limit, uint64(17179869184)))
 }
 
 func TestMemoryNoteNamesWhyTheCapIsNotTheRequestedOne(t *testing.T) {
