@@ -487,18 +487,27 @@ func gateProject(t *testing.T, commands ...string) string {
 func TestIndependentGatesOverlap(t *testing.T) {
 	t.Parallel()
 
-	root := gateProject(t, "sleep 1", "sleep 1")
-	started := time.Now()
-	_, stderr, code := runGateTest(t, "-C", root)
-	elapsed := time.Since(started)
-
-	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("gate = %d, stderr = %q", code, stderr))
-	// Two 1s gates: overlapped they finish near 1s, serialised near 2s. The
-	// threshold sits between the two, and the gates are long enough that a
-	// loaded host's startup noise cannot reach it.
-	if elapsed > 1700*time.Millisecond {
-		t.Errorf("two 1s gates took %s, want them overlapped", elapsed)
+	// Each gate stamps its start and end. Overlapped, both starts precede both
+	// ends; serialised, the second start follows the first end. The ordering
+	// holds however slow the host is, which a wall-clock budget does not.
+	marks := t.TempDir()
+	gate := func(name string) string {
+		return "date +%s%N > " + filepath.Join(marks, name+".start") + "; sleep 1; date +%s%N > " + filepath.Join(marks, name+".end")
 	}
+	root := gateProject(t, gate("a"), gate("b"))
+	_, stderr, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("gate = %d, stderr = %q", code, stderr))
+
+	stamp := func(file string) int64 {
+		raw, err := os.ReadFile(filepath.Clean(filepath.Join(marks, file)))
+		qt.Assert(t, qt.IsNil(err))
+		n, err := strconv.ParseInt(strings.TrimSpace(string(raw)), 10, 64)
+		qt.Assert(t, qt.IsNil(err))
+		return n
+	}
+	lastStart := max(stamp("a.start"), stamp("b.start"))
+	firstEnd := min(stamp("a.end"), stamp("b.end"))
+	qt.Check(t, qt.IsTrue(lastStart < firstEnd), qt.Commentf("the second gate started %dns after the first ended: they ran one after the other", lastStart-firstEnd))
 }
 
 // --jobs N (and top-level jobs = N) bound overlap: three independent gates
@@ -1647,20 +1656,22 @@ func TestTimeoutKillsTheWholeProcessGroup(t *testing.T) {
 	dir := t.TempDir()
 	started := filepath.Join(dir, "child-started")
 	orphan := filepath.Join(dir, "orphan-survived")
+	release := filepath.Join(dir, "release")
 
 	// The subshell outlives its parent's kill unless the whole group is
 	// signalled. It marks its own start immediately, so a subshell that never
 	// ran cannot be mistaken for one that was killed -- without that, this
 	// test passes whether or not the kill works. It runs in the foreground
-	// because sh starts a background job with SIGINT ignored.
-	script := "(touch " + started + "; sleep 0.2; touch " + orphan + "); sleep 10"
-	_, _, code := runGateTest(t, "--timeout", "50ms", "--log", tempLog(t), "sh", "-c", script)
+	// because sh starts a background job with SIGINT ignored. A survivor
+	// writes the orphan file only once the test releases it, so how late the
+	// kill lands under load cannot make a killed child look like a survivor.
+	script := "(touch " + started + "; while [ ! -e " + release + " ]; do sleep 0.05; done; touch " + orphan + "); sleep 10"
+	_, _, code := runGateTest(t, "--timeout", "1s", "--log", tempLog(t), "sh", "-c", script)
 	qt.Assert(t, qt.Equals(code, TimedOut))
 	qt.Assert(t, qt.IsTrue(exists(started)), qt.Commentf("the background child never ran, so nothing here is proven"))
 
-	// Long enough that a survivor would have fired -- it was due 200ms after
-	// a start that preceded the 50ms kill.
-	time.Sleep(300 * time.Millisecond)
+	qt.Assert(t, qt.IsNil(os.WriteFile(release, nil, 0o600)))
+	time.Sleep(500 * time.Millisecond)
 	qt.Check(t, qt.IsFalse(exists(orphan)), qt.Commentf("a process spawned by the gate survived the timeout kill"))
 }
 
