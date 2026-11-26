@@ -3796,3 +3796,14 @@ func TestOptInGateReachesItsTestTarget(t *testing.T) {
 	qt.Check(t, qt.StringContains(stdout, "gate: 1 e2e gate(s) skipped"), qt.Commentf("stdout = %q", stdout))
 	qt.Check(t, qt.Not(qt.StringContains(stdout+stderr, "no gate reaches them")), qt.Commentf("stdout = %q stderr = %q", stdout, stderr))
 }
+
+// A file the kernel refuses to execute never ran: it is the could-not-run
+// outcome with the cause, not gate's own 128.
+func TestRunReportsUnexecutableFileAsNotRun(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "noexec.sh")
+	qt.Assert(t, qt.IsNil(os.WriteFile(path, []byte("#!/bin/sh\ntrue\n"), 0o600)))
+	_, stderr, code := runGateTest(t, "--log", tempLog(t), path)
+	qt.Check(t, qt.Equals(code, NotFound), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.StringContains(stderr, "permission denied"))
+}

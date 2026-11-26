@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	stored "github.com/Rethunk-Tech/rethunk-gate-cli/internal/result"
@@ -388,6 +390,7 @@ type gateResult struct {
 	tracker  *lineTracker
 	cache    cacheVerdict
 	notFound bool
+	cause    string // why a gate that never ran could not start
 	timedOut bool
 	fatalErr error
 
@@ -1157,7 +1160,11 @@ func reportOutcome(res gateResult, opts options, quote func(io.Writer, *lineTrac
 		if res.excused() {
 			allowed = " (allowed)"
 		}
-		fmt.Fprintf(stderr, "gate: cannot run %q%s\n", res.spec.short(), allowed)
+		cause := ""
+		if res.cause != "" {
+			cause = ": " + res.cause
+		}
+		fmt.Fprintf(stderr, "gate: cannot run %q%s%s\n", res.spec.short(), cause, allowed)
 		return NotFound
 	case outcomeRan:
 		reportRan(res, opts, quote, stdout, stderr)
@@ -1373,8 +1380,9 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 		res.interrupted = true
 		res.cancelled = opts.failFast
 		res.code = Interrupted
-	case runErr != nil && isNotFound(runErr):
+	case runErr != nil && (isNotFound(runErr) || isUnexecutable(runErr)):
 		res.notFound = true
+		res.cause = startFailure(runErr)
 		res.code = NotFound
 	case errors.Is(runErr, exec.ErrWaitDelay):
 		// The command exited and something it started still held the log
@@ -1624,6 +1632,24 @@ func resolveCode(err error) Code {
 		return NotFound
 	}
 	return Fatal
+}
+
+// isUnexecutable is a command that exists but the kernel will not run: no
+// execute bit (EACCES) or no interpreter line (ENOEXEC).
+func isUnexecutable(err error) bool {
+	return errors.Is(err, fs.ErrPermission) || errors.Is(err, syscall.ENOEXEC)
+}
+
+// startFailure is the reason without exec's own prefix, which repeats the
+// command the line already names.
+func startFailure(err error) string {
+	if pe, ok := errors.AsType[*fs.PathError](err); ok {
+		return pe.Err.Error()
+	}
+	if ee, ok := errors.AsType[*exec.Error](err); ok {
+		return ee.Err.Error()
+	}
+	return err.Error()
 }
 
 func isNotFound(err error) bool {
