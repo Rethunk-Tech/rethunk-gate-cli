@@ -146,7 +146,7 @@ func TestUnchangedTreeRunsWhenIsolationOrMemoryChanges(t *testing.T) {
 func TestUnchangedTreeSkipsASecondIsolatedRun(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	root := t.TempDir()
-	marker := filepath.Join(root, "ran")
+	marker := filepath.Join(t.TempDir(), "ran")
 	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
 	testutil.Write(t, root, ".gate.toml", "[gates.g0]\nrun = \"echo ran >> "+marker+"\"\n")
 	committedRepo(t, root)

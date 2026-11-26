@@ -857,7 +857,7 @@ func unchangedSkipRepo(t *testing.T) (root, marker string) {
 	t.Helper()
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	root = t.TempDir()
-	marker = filepath.Join(root, "ran")
+	marker = filepath.Join(t.TempDir(), "ran")
 	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
 	testutil.Write(t, root, ".gate.toml",
 		"[gates.g0]\nrun = "+strconvQuote("echo ran >> "+marker)+"\n\n[gates.e2e]\nrun = "+strconvQuote("echo e2e >> "+marker)+"\n")
