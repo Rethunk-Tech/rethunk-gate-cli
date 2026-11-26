@@ -643,8 +643,10 @@ The whole run sits under one memory ceiling so callers do not wrap `gate` in
 On Linux with a user systemd, gate re-execs itself once, before the lock and
 any install, as
 
-`systemd-run --user --scope -q --collect -p MemoryMax=<SIZE> -p MemorySwapMax=0 -p OOMPolicy=continue -p CPUWeight=20 --`
-followed by its own argv, so every parallel gate shares one cgroup. Display,
+`systemd-run --user --scope -q --collect -p MemoryMax=<SIZE> -p MemorySwapMax=0 -p OOMPolicy=continue -p CPUWeight=20 --unit=gate-<pid>-<rand> [-p CPUQuota=<N>%] [-p TasksMax=<N>] --`
+followed by its own argv (`CPUQuota` and `TasksMax` restate the tightest enclosing
+`cpu.max` and `pids.max`, the quota rounded down to two decimals, and appear only
+under such a limit), so every parallel gate shares one cgroup. Display,
 logs and exit codes are the command's. `<SIZE>` is bytes or a number with an
 uppercase `K`, `M`, `G`, `T`, `P` or `E` (`24G`); systemd takes no `g` or
 `GiB`, so gate refuses them. Where `systemd-run --user` is missing (CI, macOS,
@@ -652,16 +654,18 @@ containers) the run is not capped and prints one `gate: memory cap <SIZE>
 unused: systemd-run --user is unavailable` line; that is not a failure. A gate
 started directly in a systemd service's cgroup is not re-exec'd, so
 `systemctl stop` still reaches it, and says so. Under an existing memory cap on
-the process's cgroup or an ancestor, gate adds none (a new scope would sit beside it, outside its cap and CPU quota), and prints a note when
-an explicit `--mem` or `[limits] memory` differs from the cap in force (the
-default stays silent). Where no cgroup memory controller is
+the process's cgroup or an ancestor, gate adds no scope for the default, and prints a note when an explicit `--mem`
+(on a wrapped command too) or `[limits] memory` differs from the cap in force
+(the default stays silent). An explicit size below the enclosing cap gets its
+own scope, carrying the enclosing CPU quota and task limit; an explicit size at
+or above it is not applied. Where no cgroup memory controller is
 visible (no cgroup v2, or a container that hides it) it prints `gate: memory
 cap <SIZE> unused: no cgroup memory controller visible`.
 
 The scope also carries `CPUWeight=20` (default 100): under contention the run
 yields to the desktop, and idle CPU is still used at full speed. Only scoped
-runs get it: with no user systemd, or under an existing cap, the run keeps its
-normal CPU priority.
+runs get it: with no user systemd, or under an existing cap that gate does not
+scope below, the run keeps its normal CPU priority.
 
 A command the cap kills (exit 137 and the cgroup's `oom_kill` count rose during
 the run) is reported `killed: memory cap <SIZE>`, not `FAIL exit 137`.
@@ -710,7 +714,7 @@ When any step failed, the report ends with one line per failure,
 `gate: failed: <name> (gate run <role>) -> <full log path>`, after the summary, so
 `tail -3` names what failed and where.
 
-`--version` names timeout, budget, memory cap, log directory, retention.
+`--version` prints a `flags and defaults:` line (built-in values and any flags given, not `.gate.toml`) naming timeout, budget, memory cap, log directory, retention.
 
 ## Temporary files
 
