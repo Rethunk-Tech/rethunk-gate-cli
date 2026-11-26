@@ -410,3 +410,31 @@ func TestVersionHasNoExpand(t *testing.T) {
 		qt.Check(t, qt.Equals(versionHasNoExpand(out), want), qt.Commentf("%q", out))
 	}
 }
+
+func TestWrappedCommandTakesTheRepoMemoryCap(t *testing.T) {
+	origWrap, origAvail, origLimit, origExec := applyMemoryWrap, systemdAvailable, cgroupLimit, execReplace
+	t.Cleanup(func() {
+		applyMemoryWrap, systemdAvailable, cgroupLimit, execReplace = origWrap, origAvail, origLimit, origExec
+	})
+	applyMemoryWrap, systemdAvailable = true, func() bool { return true }
+	cgroupLimit = func() (uint64, bool) { return 0, false }
+	stubUnit(t, false)
+	t.Setenv("GATE_MEMORY_SCOPE", "")
+
+	capFor := func(toml string, flags ...string) string {
+		dir := t.TempDir()
+		if toml != "" {
+			qt.Assert(t, qt.IsNil(os.WriteFile(filepath.Join(dir, ".gate.toml"), []byte(toml), 0o600)))
+		}
+		got := ""
+		execReplace = func(_ string, argv, _ []string) error {
+			got = argv[slices.IndexFunc(argv, func(a string) bool { return strings.HasPrefix(a, "MemoryMax=") })]
+			return nil
+		}
+		runGateTest(t, append(append([]string{"-C", dir}, flags...), "--", "true")...)
+		return got
+	}
+	qt.Check(t, qt.Equals(capFor("[limits]\nmemory = \"8G\"\n"), "MemoryMax=8G"))
+	qt.Check(t, qt.Equals(capFor("[limits]\nmemory = \"8G\"\n", "--mem", "4G"), "MemoryMax=4G"))
+	qt.Check(t, qt.Equals(capFor(""), "MemoryMax=24G"))
+}

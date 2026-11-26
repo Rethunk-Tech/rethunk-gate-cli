@@ -638,7 +638,7 @@ Gates run with `GORACE=atexit_sleep_ms=0` unless `GORACE` is already set, so a r
 The whole run sits under one memory ceiling so callers do not wrap `gate` in
 `systemd-run --user --scope -p MemoryMax=24G`. Default 24G, swap 0.
 `.gate.toml` `[limits] memory = "16G"` is the repo; `--mem SIZE` is the run
-(flag wins). `--mem 0` and `memory = "0"` disable it.
+(flag wins); a wrapped `gate -- CMD` takes the `[limits] memory` of the project root above the directory too. `--mem 0` and `memory = "0"` disable it.
 
 On Linux with a user systemd, gate re-execs itself once, before the lock and
 any install, as

@@ -617,7 +617,9 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 	} else {
 		// Only the lock scope applies to a named command; the listing of
 		// config files and the gates stay those of a detected run.
-		configured.LockScope = wrappedConfig(dir).LockScope
+		wrapped := wrappedConfig(dir)
+		configured.LockScope = wrapped.LockScope
+		st.applyMemory(wrapped)
 	}
 
 	st.prepareGates(&project, roles)
@@ -1122,10 +1124,15 @@ func (st *runState) applyConfig(cfg config.Config, roles []string) {
 	if cfg.HasFailFast && !st.failFastSet {
 		opts.failFast = cfg.FailFast
 	}
+	st.applyMemory(cfg)
+}
+
+// applyMemory takes [limits] memory unless --mem was given.
+func (st *runState) applyMemory(cfg config.Config) {
 	if cfg.HasMemory && !st.memSet {
-		opts.memory = cfg.Memory
+		st.opts.memory = cfg.Memory
 	}
-	opts.memExplicit = st.memSet || cfg.HasMemory
+	st.opts.memExplicit = st.memSet || cfg.HasMemory
 }
 
 func missingRoles(roles []string, gates []gateSpec) []string {
