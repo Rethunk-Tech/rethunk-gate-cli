@@ -411,10 +411,13 @@ func applyQuick(ctx context.Context, gates []gateSpec, cfg config.Config, root s
 	if slices.Contains(quickRoles(cfg), "format") {
 		gates = ensureQuickFormat(gates)
 	}
-	files, err := changedFiles(ctx, root)
-	if err != nil && !all {
-		fmt.Fprintf(stderr, "gate: cannot list changed files (%v); running the full set\n", err)
-		all = true
+	var files []string
+	if !all {
+		var err error
+		if files, err = changedFiles(ctx, root); err != nil {
+			fmt.Fprintf(stderr, "gate: cannot list changed files (%v); running the full set\n", err)
+			all = true
+		}
 	}
 	return scopeQuick(gates, files, all)
 }
