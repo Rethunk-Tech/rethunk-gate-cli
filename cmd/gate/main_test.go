@@ -89,6 +89,37 @@ func TestSIGTERMEndsGateWith143AndALogTrailer(t *testing.T) {
 	qt.Check(t, qt.StringContains(strings.TrimSpace(string(data)), "interrupted"))
 }
 
+// A child that ignores the first Ctrl-C must not make gate unkillable: after
+// the first signal the handler is gone, so the second one ends gate at once
+// rather than after the stop grace.
+func TestASecondSIGINTEndsGateWhileTheChildIgnoresTheFirst(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "gate")
+	build := exec.CommandContext(t.Context(), "go", "build", "-o", bin, ".") //nolint:gosec // bin is a path under t.TempDir()
+	out, err := build.CombinedOutput()
+	qt.Assert(t, qt.IsNil(err), qt.Commentf("%s", out))
+
+	started := filepath.Join(dir, "started")
+	cmd := exec.CommandContext(t.Context(), bin, "--log", filepath.Join(dir, "gate.log"), "sh", "-c", "trap '' INT; touch "+started+"; sleep 6") //nolint:gosec // binary built above from this package
+	qt.Assert(t, qt.IsNil(cmd.Start()))
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		if _, err := os.Stat(started); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			_ = cmd.Process.Kill()
+			t.Fatal("the gated command never started")
+		}
+	}
+	qt.Assert(t, qt.IsNil(cmd.Process.Signal(syscall.SIGINT)))
+	time.Sleep(300 * time.Millisecond)
+	second := time.Now()
+	qt.Assert(t, qt.IsNil(cmd.Process.Signal(syscall.SIGINT)))
+	_ = cmd.Wait()
+	qt.Check(t, qt.IsTrue(time.Since(second) < 2*time.Second), qt.Commentf("gate outlived the second SIGINT by %s", time.Since(second)))
+}
+
 // A closed terminal or a dropped ssh session sends gate SIGHUP. Its children
 // sit in process groups of their own, out of the terminal's reach, so unless
 // gate stops them they outlive it.
