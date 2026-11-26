@@ -39,7 +39,7 @@ func TestTheProjectFileWinsPerKeyNotPerFile(t *testing.T) {
 	testutil.Write(t, home, "gate/config.toml", "[gates.test]\nrun = \"user test\"\n\n[gates.lint]\nrun = \"user lint\"\n")
 
 	root := t.TempDir()
-	testutil.Write(t, root, ProjectFile, "[gates.test]\nrun = \"project test\"\n")
+	testutil.Write(t, root, ProjectFile, "[gates.test]\nrun = \"project test\"\n\n[gates.lint]\nallow-failure = true\n")
 
 	cfg, err := Load(root)
 	qt.Assert(t, qt.IsNil(err))
@@ -48,6 +48,7 @@ func TestTheProjectFileWinsPerKeyNotPerFile(t *testing.T) {
 	qt.Check(t, qt.Equals(cfg.Gates["test"].Run, "project test"))
 	// ...and leaves the one it did not mention alone.
 	qt.Check(t, qt.Equals(cfg.Gates["lint"].Run, "user lint"))
+	qt.Check(t, qt.IsTrue(cfg.Gates["lint"].AllowFailure))
 
 	qt.Check(t, qt.HasLen(cfg.Files, 2))
 }
