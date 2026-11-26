@@ -1150,6 +1150,23 @@ jobs:
 	qt.Check(t, qt.IsTrue(hasNote(proj, "CI step `bun run db:test` (ci.yml job db) is not run: its job starts service containers")), qt.Commentf("notes = %v", proj.Notes))
 }
 
+// What an aggregate script runs beyond the gates it names is still CI's job:
+// dropping it leaves the local run green without the step, and losing its
+// ordering starts it before the gate it followed.
+func TestCIAggregateLeftoverRunsAfterTheGatesItFollowed(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	// The Makefile's ci is the one aggregate detection claims, so the
+	// package script CI runs is left to the CI-step reader.
+	testutil.Write(t, root, "Makefile", "ci:\n\ttrue\n")
+	testutil.Write(t, root, "package.json", `{"scripts":{"lint":"biome check .","verify":"bun run lint && tsc --noEmit"}}`)
+	testutil.Write(t, root, ".github/workflows/ci.yml", "on: [push]\njobs:\n  a:\n    steps:\n      - run: bun run verify\n")
+
+	verify := gateNamed(t, detect(t, root), "verify")
+	qt.Check(t, qt.DeepEquals(verify.Argv, []string{"sh", "-c", "tsc --noEmit"}))
+	qt.Check(t, qt.DeepEquals(verify.Needs, []string{"lint"}))
+}
+
 // A repository whose CI runs nothing beyond the roles is detected exactly as
 // before: no build ordering appears from nowhere.
 func TestCIScriptStepsCoveredByRolesChangeNothing(t *testing.T) {
