@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 )
 
@@ -190,5 +191,16 @@ func actionsError(res gateResult, github, machine bool) string {
 	if rec.Code != nil {
 		code = *rec.Code
 	}
-	return fmt.Sprintf("::error title=gate %s::%s %d log: %s\n", name, rec.Status, code, rec.Log)
+	return fmt.Sprintf("::error title=%s::%s %d log: %s\n",
+		actionsProperty("gate "+name), rec.Status, code, actionsData(rec.Log))
+}
+
+// actionsData escapes a workflow command's message the way GitHub reads it.
+func actionsData(s string) string {
+	return strings.NewReplacer("%", "%25", "\r", "%0D", "\n", "%0A").Replace(s)
+}
+
+// actionsProperty also escapes what ends a property value.
+func actionsProperty(s string) string {
+	return strings.NewReplacer("%", "%25", "\r", "%0D", "\n", "%0A", ":", "%3A", ",", "%2C").Replace(s)
 }

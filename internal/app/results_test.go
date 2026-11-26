@@ -57,3 +57,22 @@ func TestGitHubActionsErrorAnnotation(t *testing.T) {
 		})
 	}
 }
+
+// A name is data inside a workflow command: a comma, a colon pair or a newline
+// in it must not end the title, start a message or begin another command.
+func TestActionsErrorEscapesTheGateName(t *testing.T) {
+	t.Parallel()
+	res := gateResult{
+		spec:    gateSpec{role: "x", display: "sh -c a,b::c\n::warning::injected", argv: []string{"sh"}},
+		code:    2,
+		started: true,
+		logPath: "/tmp/x%y.log",
+	}
+	got := actionsError(res, true, false)
+	qt.Check(t, qt.Equals(got, "::error title=gate x::fail 2 log: /tmp/x%25y.log\n"))
+
+	res.spec.role = ""
+	got = actionsError(res, true, false)
+	qt.Check(t, qt.Equals(strings.Count(got, "\n"), 1), qt.Commentf("%q", got))
+	qt.Check(t, qt.StringContains(got, "gate sh -c a%2Cb%3A%3Ac%0A%3A%3Awarning%3A%3Ainjected::fail 2"))
+}
