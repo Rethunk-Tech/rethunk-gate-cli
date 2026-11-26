@@ -190,4 +190,18 @@ func TestCIGapsHashFilesGuardOnALaterKeyAndOtherConditions(t *testing.T) {
 	other := strings.Replace(later, "hashFiles('tests/**/*.csproj') != ''", "github.event_name == 'push'", 1)
 	testutil.Write(t, root, ".github/workflows/build.yml", other)
 	qt.Check(t, qt.HasLen(CIGaps(root, nil), 1))
+
+	// `**` spans zero or many directories, so either file keeps the step.
+	for _, file := range []string{"tests/x.csproj", "tests/a/b.csproj"} {
+		hit := t.TempDir()
+		testutil.Write(t, hit, ".github/workflows/build.yml", later)
+		testutil.Write(t, hit, file, "<Project/>")
+		qt.Check(t, qt.HasLen(CIGaps(hit, nil), 1), qt.Commentf("%s did not match the guard", file))
+	}
+
+	// A negated pattern is not decided, so the step stays.
+	negated := t.TempDir()
+	testutil.Write(t, negated, ".github/workflows/build.yml",
+		strings.Replace(later, "hashFiles('tests/**/*.csproj')", "hashFiles('**/*.csproj', '!tests/**')", 1))
+	qt.Check(t, qt.HasLen(CIGaps(negated, nil), 1))
 }
