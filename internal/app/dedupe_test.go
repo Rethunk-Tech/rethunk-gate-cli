@@ -298,6 +298,18 @@ func TestMerge(t *testing.T) {
 	}
 }
 
+// The same step in two directories is two runs, and a bare command with no
+// role is never a candidate for merging, so it stays in the listing.
+func TestDedupeKeepsSameStepsInOtherDirsAndRolelessGates(t *testing.T) {
+	t.Parallel()
+	spec := func(role, dir string) gateSpec {
+		return gateSpec{role: role, dir: dir, display: "go test ./...", argv: shellArgv("go test ./...")}
+	}
+	out, notes := dedupe([]gateSpec{spec("a", t.TempDir()), spec("b", t.TempDir()), spec("", t.TempDir())})
+	qt.Check(t, qt.HasLen(out, 3))
+	qt.Check(t, qt.HasLen(notes, 0))
+}
+
 // A step two gates share stays with the one whose failure counts and that
 // runs by default, whichever is declared first.
 func TestDedupeGivesASharedStepToTheGateThatCounts(t *testing.T) {
