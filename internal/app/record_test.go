@@ -90,7 +90,7 @@ func runSuite(m *testing.M) int {
 			panic(err)
 		}
 	}
-	for _, k := range []string{"CI", "GITHUB_ACTIONS", stored.StateDirEnv} {
+	for _, k := range []string{"CI", "GITHUB_ACTIONS", stored.StateDirEnv, partialFileVar} {
 		if err := os.Unsetenv(k); err != nil {
 			panic(err)
 		}
