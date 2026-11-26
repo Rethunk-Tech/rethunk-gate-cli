@@ -44,7 +44,7 @@ func Prune(maxAge time.Duration) (removed int) {
 			continue
 		}
 		if rec.Root != "" {
-			if _, err := os.Stat(rec.Root); err == nil || !os.IsNotExist(err) {
+			if _, err := os.Stat(rec.Root); !os.IsNotExist(err) {
 				continue
 			}
 		}

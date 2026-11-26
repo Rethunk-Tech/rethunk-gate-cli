@@ -99,7 +99,6 @@ func ciInvocations(root string) []ciInvocation {
 // step yields its command.
 func eachCIRunLine(root string, visit func(file string, number int, line string)) {
 	files := WorkflowFiles(root)
-	slices.Sort(files)
 	for _, file := range files {
 		rel, _ := filepath.Rel(root, file)
 		rel = filepath.ToSlash(rel)
