@@ -76,7 +76,7 @@ func writeVersion(w io.Writer, ldflags string, timeout, budget time.Duration, me
 	if !memoryOn(mem) {
 		mem = "off"
 	}
-	fmt.Fprintf(w, "defaults: timeout %s, budget %s, memory %s, logs %s (kept %d days)\n",
+	fmt.Fprintf(w, "flags and defaults: timeout %s, budget %s, memory %s, logs %s (kept %d days)\n",
 		describeTimeout(timeout), describeTimeout(budget), mem, logDir(), int(pruneAge.Hours()/24))
 }
 

@@ -123,7 +123,7 @@ Flags:
   --log PATH    write this one file instead of the default location
                 (refused when several gates run; set TMPDIR for those)
   -q, --quiet   print nothing when the gates pass
-  --version     print the version and the settings in force, then exit
+  --version     print the version, the built-in defaults and any flags given, then exit
   -h, --help    show this help and exit
 
 On GitHub Actions (GITHUB_ACTIONS=true), a failed or timed-out gate also
@@ -455,7 +455,7 @@ func (st *runState) runVerb(ctx context.Context, dir string, args []string, stdo
 		fmt.Fprint(stdout, quickHelp)
 		return Success, true
 	case (word == "doctor" || word == "record" || word == "isolate-env") && len(args) > 1:
-		fmt.Fprintf(stderr, "gate: flags go before the verb: gate %s\n", verbFlagRemedy(args[1], word))
+		fmt.Fprintln(stderr, verbFlagRefusal(args[1], word))
 		fmt.Fprintf(stderr, "gate: a program named %s is `gate -- %s`\n", word, word)
 		return InvalidUsage, true
 	case word == "list" && len(args) == 1:
@@ -464,6 +464,15 @@ func (st *runState) runVerb(ctx context.Context, dir string, args []string, stdo
 		return InvalidUsage, true
 	}
 	return Success, false
+}
+
+// verbFlagRefusal is the first line said for `gate <verb> <arg>`. isolate-env
+// has no help of its own, so moving -h before it would print the general one.
+func verbFlagRefusal(arg, verb string) string {
+	if verb == "isolate-env" && (arg == "-h" || arg == "--help") {
+		return "gate: isolate-env takes no arguments: it prints the cache variables --isolate passes through, as JSON"
+	}
+	return "gate: flags go before the verb: gate " + verbFlagRemedy(arg, verb)
 }
 
 // verbFlagRemedy is the command line that fixes `gate <verb> <arg>`: the

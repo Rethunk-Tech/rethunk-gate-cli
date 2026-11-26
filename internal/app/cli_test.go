@@ -100,6 +100,14 @@ func TestFlagAfterDoctorOrRecordIsNamed(t *testing.T) {
 	}
 }
 
+func TestIsolateEnvHelpDoesNotPointAtTheGeneralHelp(t *testing.T) {
+	t.Parallel()
+	_, stderr, code := runGateTest(t, "isolate-env", "--help")
+	qt.Check(t, qt.Equals(code, InvalidUsage))
+	qt.Check(t, qt.StringContains(stderr, "isolate-env takes no arguments"))
+	qt.Check(t, qt.IsFalse(strings.Contains(stderr, "gate --help isolate-env")))
+}
+
 func TestFailedWithRunPointsAtBareFailed(t *testing.T) {
 	t.Parallel()
 	_, stderr, code := runGateTest(t, "run", "--failed")
