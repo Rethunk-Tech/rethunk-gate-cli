@@ -386,6 +386,21 @@ func TestANeedsCycleNamesTheDeclaringFile(t *testing.T) {
 	qt.Check(t, qt.IsFalse(strings.Contains(err.Error(), filepath.Base(ProjectFile))), qt.Commentf("error = %v", err))
 }
 
+// A later file touching the same gate for another key does not take over the
+// blame for the needs an earlier file set.
+func TestANeedsCycleNamesTheFileThatSetNeeds(t *testing.T) {
+	home := isolate(t)
+	testutil.Write(t, home, "gate/config.toml", "[gates.a]\nneeds = [\"b\"]\n")
+	user := filepath.Join(home, "gate", "config.toml")
+	root := t.TempDir()
+	testutil.Write(t, root, ProjectFile, "[gates.a]\ntimeout = \"1m\"\n\n[gates.b]\nrun = \"true\"\nneeds = [\"a\"]\n")
+
+	_, err := Load(root)
+	qt.Assert(t, qt.IsNotNil(err))
+	qt.Check(t, qt.StringContains(err.Error(), user), qt.Commentf("error = %v", err))
+	qt.Check(t, qt.IsFalse(strings.Contains(err.Error(), filepath.Base(ProjectFile))), qt.Commentf("error = %v", err))
+}
+
 func TestLockScope(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
