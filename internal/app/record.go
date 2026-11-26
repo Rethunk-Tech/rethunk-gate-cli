@@ -279,14 +279,14 @@ func skipUnchanged(ctx context.Context, root string, opts options, stdout io.Wri
 	if rec.Root != stored.Canonical(root) {
 		return false
 	}
-	state := stored.ReadTree(ctx, root)
-	fresh, _ := stored.Verdict(rec.Schema, rec.Head, rec.Status, rec.Partial, rec.Exit, state)
 	// A finish time ahead of now means the clock stepped back since the run;
 	// the pass's age is unknowable, so it cannot stand in for a new run.
-	if age := time.Since(rec.Finished); !fresh || rec.Finished.IsZero() || age < 0 || age >= unchangedAge {
+	// Checked before the tree is read: neither it nor the gate list needs it.
+	if age := time.Since(rec.Finished); rec.Finished.IsZero() || age < 0 || age >= unchangedAge || !sameRunGates(opts.gates, rec.Gates) {
 		return false
 	}
-	if !sameRunGates(opts.gates, rec.Gates) || rec.Fingerprint != gatesFingerprint(ctx, opts) {
+	state := stored.ReadTree(ctx, root)
+	if fresh, _ := stored.Verdict(rec.Schema, rec.Head, rec.Status, rec.Partial, rec.Exit, state); !fresh || rec.Fingerprint != gatesFingerprint(ctx, opts) {
 		return false
 	}
 	if !opts.quiet {
