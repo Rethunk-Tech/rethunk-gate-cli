@@ -188,16 +188,17 @@ func TestCgroupCappedWalksAncestors(t *testing.T) {
 	t.Cleanup(func() { procSelfCgroup, cgroupFS = origProc, origFS })
 	procSelfCgroup, cgroupFS = proc, root
 
+	capped := func() bool { _, c := cgroupLimit(); return c }
 	write := func(dir, v string) {
 		qt.Assert(t, qt.IsNil(os.WriteFile(filepath.Join(dir, "memory.max"), []byte(v+"\n"), 0o644))) //nolint:gosec // fake cgroup file
 	}
-	qt.Check(t, qt.IsTrue(cgroupCapped()), qt.Commentf("no memory.max anywhere: a scope cannot be told apart, never re-exec"))
+	qt.Check(t, qt.IsTrue(capped()), qt.Commentf("no memory.max anywhere: a scope cannot be told apart, never re-exec"))
 	write(leaf, "max")
 	write(filepath.Dir(leaf), "max")
-	qt.Check(t, qt.IsFalse(cgroupCapped()))
+	qt.Check(t, qt.IsFalse(capped()))
 
 	write(filepath.Dir(leaf), "32212254720")
-	qt.Check(t, qt.IsTrue(cgroupCapped()))
+	qt.Check(t, qt.IsTrue(capped()))
 
 	// The smallest cap on the way up is the one in force, whichever level
 	// holds it.

@@ -253,11 +253,6 @@ var cgroupLimit = func() (limit uint64, capped bool) {
 	return limit, capped || !seen
 }
 
-func cgroupCapped() bool {
-	_, capped := cgroupLimit()
-	return capped
-}
-
 // ownCgroupFile reads a file of this process's cgroup v2 directory.
 func ownCgroupFile(name string) (string, bool) {
 	dir, ok := cgroupDir()
