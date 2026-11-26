@@ -258,3 +258,22 @@ func TestPruneDoesNotRemoveAHeldReplacement(t *testing.T) {
 	_, err = os.Stat(path)
 	qt.Check(t, qt.IsNil(err), qt.Commentf("the held lock file was unlinked"))
 }
+
+// Under scope "repo" two worktrees of one repository share a lock, where the
+// default scope gives each its own.
+func TestRepoScopeSerialisesTwoWorktrees(t *testing.T) {
+	root := lockTestRepo(t, "true")
+	other := filepath.Join(t.TempDir(), "other")
+	out, err := exec.CommandContext(t.Context(), "git", "-C", root, "worktree", "add", "--quiet", "--detach", other).CombinedOutput() //nolint:gosec // test fixture paths
+	qt.Assert(t, qt.IsNil(err), qt.Commentf("%s", out))
+	release, ok := acquireWorkspaceLock(t.Context(), root, "repo", &bytes.Buffer{})
+	qt.Assert(t, qt.IsTrue(ok))
+	defer release()
+
+	// Keyed first, so the bounded wait below only ever waits on the flock.
+	qt.Assert(t, qt.Equals(lockKey(t.Context(), other, "repo"), lockKey(t.Context(), root, "repo")))
+	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
+	defer cancel()
+	_, ok = acquireWorkspaceLock(ctx, other, "repo", &bytes.Buffer{})
+	qt.Check(t, qt.IsFalse(ok), qt.Commentf("a second worktree ran under the repo lock"))
+}
