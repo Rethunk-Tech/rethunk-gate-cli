@@ -330,3 +330,15 @@ func TestQuickFallsBackToTheFullRunWhenGitFails(t *testing.T) {
 	qt.Check(t, qt.DeepEquals(got[0].argv, []string{"gofmt", "-w", "."}))
 	qt.Check(t, qt.StringContains(stderr.String(), "running the full set"))
 }
+
+// A gate whose dir is outside the root, or above it, must not be handed
+// root-relative names: it would act on another tree's files.
+func TestQuickSkipsAGateWhoseDirIsOutsideTheRoot(t *testing.T) {
+	t.Parallel()
+	base := t.TempDir()
+	root := filepath.Join(base, "proj")
+	files := []string{"a.ts"}
+	qt.Check(t, qt.HasLen(filesUnder(root, filepath.Join(base, "sib"), files), 0))
+	qt.Check(t, qt.DeepEquals(filesUnder(root, base, files), []string{"proj/a.ts"}))
+	qt.Check(t, qt.DeepEquals(filesUnder(root, root, files), files))
+}

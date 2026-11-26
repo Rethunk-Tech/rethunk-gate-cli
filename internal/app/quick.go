@@ -260,21 +260,19 @@ func replacePathArgs(argv, files []string) []string {
 	return append(out, files...)
 }
 
-// filesUnder is the files inside dir, named relative to it.
+// filesUnder is the changed files (named from root) that sit inside dir,
+// named relative to it.
 func filesUnder(root, dir string, files []string) []string {
 	if !filepath.IsAbs(dir) {
 		dir = filepath.Join(root, dir)
 	}
-	rel, err := filepath.Rel(root, dir)
-	if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
-		return files
-	}
-	prefix := filepath.ToSlash(rel) + "/"
 	var out []string
 	for _, f := range files {
-		if after, ok := strings.CutPrefix(f, prefix); ok {
-			out = append(out, after)
+		rel, err := filepath.Rel(dir, filepath.Join(root, filepath.FromSlash(f)))
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			continue
 		}
+		out = append(out, filepath.ToSlash(rel))
 	}
 	return out
 }
