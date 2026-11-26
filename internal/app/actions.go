@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
@@ -37,8 +36,6 @@ func reportPartial(why string) {
 	_ = f.Close()
 }
 
-var githubRemote = regexp.MustCompile(`github\.com[:/]([^/\s]+/[^/\s]+?)(?:\.git)?/?$`)
-
 // runActionsAllowed is the workflows gate's body: actionlint, then the
 // repository's `uses:` against its allowed-actions settings. It is a verb so
 // the gate stays one command whose exit status is the verdict. An unreadable
@@ -66,9 +63,9 @@ func checkAllowedActions(ctx context.Context, dir string, fetch allowed.Fetcher,
 		fmt.Fprintf(stderr, "gate: allowed-actions check skipped: %s\n", why)
 		return Success
 	}
-	out, err := exec.CommandContext(ctx, "git", "-C", dir, "remote", "get-url", "origin").Output() //nolint:gosec // fixed argv, dir is detected
-	m := githubRemote.FindStringSubmatch(strings.TrimSpace(string(out)))
-	if err != nil || m == nil {
+	remote, err := originURL(ctx, dir)
+	repo := githubRepo(remote)
+	if err != nil || repo == "" {
 		return skip("origin is not a GitHub repository")
 	}
 	uses, err := allowed.Collect(dir)
@@ -82,12 +79,12 @@ func checkAllowedActions(ctx context.Context, dir string, fetch allowed.Fetcher,
 	}
 	cacheDir := filepath.Join(state, "gate", "actions-allowed")
 	if os.Getenv(actionsRefreshVar) != "" {
-		allowed.Forget(m[1], cacheDir)
+		allowed.Forget(repo, cacheDir)
 	}
-	s, err := allowed.Load(m[1], cacheDir, today, fetch)
+	s, err := allowed.Load(repo, cacheDir, today, fetch)
 	if err != nil {
-		reportPartial("allowed-actions check skipped: cannot read " + m[1] + " settings")
-		return skip("cannot read " + m[1] + " settings: " + err.Error())
+		reportPartial("allowed-actions check skipped: cannot read " + repo + " settings")
+		return skip("cannot read " + repo + " settings: " + err.Error())
 	}
 	code := Success
 	for _, f := range allowed.Check(uses, s) {

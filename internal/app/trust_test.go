@@ -91,3 +91,20 @@ func TestSymlinkGateTomlDoesNotTrustAForeignOrigin(t *testing.T) {
 	qt.Check(t, qt.StringContains(stderr, "--trust"))
 	qt.Check(t, qt.Not(qt.StringContains(stderr, "install:")))
 }
+
+func TestGithubRepo(t *testing.T) {
+	t.Parallel()
+	for remote, want := range map[string]string{
+		"https://github.com/Rethunk-Tech/x.git":          "Rethunk-Tech/x",
+		"https://GitHub.com/Rethunk-Tech/x.git":          "Rethunk-Tech/x",
+		"ssh://git@github.com:22/Rethunk-Tech/x.git":     "Rethunk-Tech/x",
+		"git@github.com:Rethunk-Tech/x":                  "Rethunk-Tech/x",
+		"https://github.com/Rethunk-Tech/x/":             "Rethunk-Tech/x",
+		"https://notgithub.com/Rethunk-Tech/x.git":       "",
+		"https://github.com.evil.example/Rethunk-Tech/x": "",
+		"https://dev.azure.com/o/p/_git/r":               "",
+		"https://github.com/Rethunk-Tech":                "",
+	} {
+		qt.Check(t, qt.Equals(githubRepo(remote), want), qt.Commentf("%s", remote))
+	}
+}

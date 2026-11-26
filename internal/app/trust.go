@@ -28,8 +28,7 @@ func trusted(ctx context.Context, root string, cfg config.Config) bool {
 	if err == nil && info.Mode().IsRegular() {
 		return true
 	}
-	out, err := exec.CommandContext(ctx, "git", "-C", root, "config", "--get", "remote.origin.url").Output() //nolint:gosec // fixed argv, root is detected
-	remote := strings.TrimSpace(string(out))
+	remote, err := originURL(ctx, root)
 	if err != nil || remote == "" {
 		return true
 	}
@@ -40,17 +39,39 @@ func trusted(ctx context.Context, root string, cfg config.Config) bool {
 	return slices.Contains(allowed, originOrg(remote))
 }
 
-// originOrg is the lowercase org (or Azure DevOps namespace) of a remote URL,
-// or "" for an unrecognised host.
-func originOrg(remote string) string {
-	var host, path string
+// originURL is the URL git would fetch origin from, with url.insteadOf applied.
+func originURL(ctx context.Context, dir string) (string, error) {
+	out, err := exec.CommandContext(ctx, "git", "-C", dir, "remote", "get-url", "origin").Output() //nolint:gosec // fixed argv, dir is detected
+	return strings.TrimSpace(string(out)), err
+}
+
+// parseRemote splits a remote URL (https, ssh:// with or without a port, or
+// scp-like) into its lowercase host and path segments.
+func parseRemote(remote string) (host string, parts []string) {
+	var path string
 	if m := scpRemote.FindStringSubmatch(remote); m != nil && !strings.Contains(remote, "://") {
 		host, path = m[1], m[2]
 	} else if u, err := url.Parse(remote); err == nil {
 		host, path = u.Hostname(), u.Path
 	}
-	parts := strings.FieldsFunc(path, func(r rune) bool { return r == '/' })
-	switch strings.ToLower(host) {
+	parts = strings.FieldsFunc(path, func(r rune) bool { return r == '/' })
+	return strings.ToLower(host), parts
+}
+
+// githubRepo is "owner/repo" for a github.com remote, or "" for any other host.
+func githubRepo(remote string) string {
+	host, parts := parseRemote(remote)
+	if host != "github.com" || len(parts) < 2 {
+		return ""
+	}
+	return parts[0] + "/" + strings.TrimSuffix(parts[1], ".git")
+}
+
+// originOrg is the lowercase org (or Azure DevOps namespace) of a remote URL,
+// or "" for an unrecognised host.
+func originOrg(remote string) string {
+	host, parts := parseRemote(remote)
+	switch host {
 	case "dev.azure.com", "ssh.dev.azure.com":
 		if len(parts) > 0 && parts[0] == "v3" {
 			parts = parts[1:]
