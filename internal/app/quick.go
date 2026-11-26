@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"maps"
 	"os"
 	"os/exec"
@@ -297,21 +299,21 @@ func filterExt(files, exts []string) []string {
 	return out
 }
 
-func changedFiles(ctx context.Context, root string) []string {
+func changedFiles(ctx context.Context, root string) ([]string, error) {
 	if root == "" {
-		return nil
+		return nil, nil
 	}
 	// diff-index, not diff: git diff refreshes the index under .git/index.lock
 	// even with GIT_OPTIONAL_LOCKS=0, so it would block a sibling's commit. The
 	// price is that a stat-dirty file with unchanged content is listed too.
-	git := func(args ...string) []string {
+	git := func(args ...string) ([]string, error) {
 		cmd := exec.CommandContext(ctx, "git", append([]string{ //nolint:gosec // fixed git argv, root is the detected project
 			"-C", root, "-c", "core.fsmonitor=",
 		}, args...)...)
 		cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
 		out, err := cmd.Output()
 		if err != nil {
-			return nil
+			return nil, err
 		}
 		var files []string
 		for name := range strings.SplitSeq(string(out), "\x00") {
@@ -319,21 +321,29 @@ func changedFiles(ctx context.Context, root string) []string {
 				files = append(files, filepath.ToSlash(name))
 			}
 		}
-		return files
+		return files, nil
+	}
+	changed, err := git("diff-index", "-z", "--name-only", "--diff-filter=d", "--relative", "HEAD")
+	if err != nil {
+		return nil, err
+	}
+	untracked, err := git("ls-files", "-z", "--others", "--exclude-standard")
+	if err != nil {
+		return nil, err
 	}
 	seen := map[string]bool{}
 	var files []string
-	for _, f := range append(git("diff-index", "-z", "--name-only", "--diff-filter=d", "--relative", "HEAD"), git("ls-files", "-z", "--others", "--exclude-standard")...) {
+	for _, f := range append(changed, untracked...) {
 		if seen[f] {
 			continue
 		}
 		seen[f] = true
 		files = append(files, f)
 	}
-	return files
+	return files, nil
 }
 
-func applyQuick(ctx context.Context, gates []gateSpec, cfg config.Config, root string, all bool) []gateSpec {
+func applyQuick(ctx context.Context, gates []gateSpec, cfg config.Config, root string, all bool, stderr io.Writer) []gateSpec {
 	gates = slices.Clone(gates)
 	hasFormat := slices.ContainsFunc(gates, func(g gateSpec) bool { return g.role == "format" })
 	for i := range gates {
@@ -345,7 +355,12 @@ func applyQuick(ctx context.Context, gates []gateSpec, cfg config.Config, root s
 	if slices.Contains(quickRoles(cfg), "format") {
 		gates = ensureQuickFormat(gates)
 	}
-	return scopeQuick(gates, changedFiles(ctx, root), all)
+	files, err := changedFiles(ctx, root)
+	if err != nil && !all {
+		fmt.Fprintf(stderr, "gate: cannot list changed files (%v); running the full set\n", err)
+		all = true
+	}
+	return scopeQuick(gates, files, all)
 }
 
 // resolveQuickTool replaces a gate that runs a scopable tool through a

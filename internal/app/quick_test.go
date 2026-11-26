@@ -1,6 +1,8 @@
 package app
 
 import (
+	"bytes"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -151,10 +153,14 @@ func TestChangedFilesSkipsDeletedAndIsRelativeToTheProject(t *testing.T) {
 	qt.Assert(t, qt.IsNil(os.WriteFile(hook, []byte("#!/bin/sh\ntouch "+marker+"\n"), 0o700)))                         //nolint:gosec // fixture must be executable
 	out, err := exec.CommandContext(t.Context(), "git", "-C", root, "config", "core.fsmonitor", hook).CombinedOutput() //nolint:gosec // fixture paths
 	qt.Assert(t, qt.IsNil(err), qt.Commentf("%s", out))
-	qt.Check(t, qt.DeepEquals(changedFiles(t.Context(), filepath.Join(root, "svc")), []string{"a.go", "c.go"}))
+	got, err := changedFiles(t.Context(), filepath.Join(root, "svc"))
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.DeepEquals(got, []string{"a.go", "c.go"}))
 	_, err = os.Stat(marker)
 	qt.Check(t, qt.IsTrue(os.IsNotExist(err)), qt.Commentf("changedFiles ran the repository's fsmonitor hook"))
-	qt.Check(t, qt.HasLen(changedFiles(t.Context(), ""), 0))
+	empty, err := changedFiles(t.Context(), "")
+	qt.Check(t, qt.IsNil(err))
+	qt.Check(t, qt.HasLen(empty, 0))
 }
 
 func TestQuickWriteModeAndScoping(t *testing.T) {
@@ -205,7 +211,7 @@ func TestQuickResolvesScriptAndShellGatesAndFmt(t *testing.T) {
 		{role: "lint", argv: []string{"bun", "run", "lint"}, dir: dir, display: "bun run lint"},
 		{role: "typecheck", argv: []string{"bun", "run", "multi"}, dir: dir, display: "bun run multi"},
 	}
-	got := applyQuick(t.Context(), gates, config.Config{}, "", true)
+	got := applyQuick(t.Context(), gates, config.Config{}, "", true, io.Discard)
 	qt.Assert(t, qt.HasLen(got, 3))
 	qt.Check(t, qt.Equals(got[0].role, "format"))
 	qt.Check(t, qt.DeepEquals(got[0].argv, []string{"golangci-lint", "fmt", "./..."}))
@@ -258,7 +264,9 @@ func TestChangedFilesKeepsNonASCIINames(t *testing.T) {
 	testutil.Write(t, root, "a.go", "package a\n")
 	committedRepo(t, root)
 	testutil.Write(t, root, "café.go", "package a\n")
-	qt.Check(t, qt.DeepEquals(changedFiles(t.Context(), root), []string{"café.go"}))
+	got, err := changedFiles(t.Context(), root)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.DeepEquals(got, []string{"café.go"}))
 }
 
 // A gate that runs in a subdirectory takes the changed files under it, named
@@ -303,8 +311,22 @@ func TestChangedFilesLeavesTheIndexUntouched(t *testing.T) {
 	index := filepath.Join(root, ".git", "index")
 	before, err := os.Stat(index)
 	qt.Assert(t, qt.IsNil(err))
-	changedFiles(t.Context(), root)
+	_, err = changedFiles(t.Context(), root)
+	qt.Assert(t, qt.IsNil(err))
 	after, err := os.Stat(index)
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.IsTrue(os.SameFile(before, after)), qt.Commentf("git diff rewrote .git/index"))
+}
+
+// A git failure must not read as "nothing changed": quick runs the gates
+// whole and says why.
+func TestQuickFallsBackToTheFullRunWhenGitFails(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	gates := []gateSpec{{role: "format", argv: []string{"gofmt", "-w", "."}, display: "gofmt -w ."}}
+	var stderr bytes.Buffer
+	got := applyQuick(t.Context(), gates, config.Config{}, root, false, &stderr)
+	qt.Assert(t, qt.HasLen(got, 1))
+	qt.Check(t, qt.DeepEquals(got[0].argv, []string{"gofmt", "-w", "."}))
+	qt.Check(t, qt.StringContains(stderr.String(), "running the full set"))
 }

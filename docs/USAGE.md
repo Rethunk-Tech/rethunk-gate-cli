@@ -420,7 +420,9 @@ run in that order, format first.
 Changed files vs HEAD (staged, unstaged, untracked) are passed to tools that
 take paths: biome, ruff, gofmt, and golangci-lint (`--new-from-rev=HEAD`).
 tsc and go vet stay whole-project. `gate quick --all` drops the scoping.
-No changed files matching a scoped tool skips that gate.
+No changed files matching a scoped tool skips that gate. When git cannot list
+the changes (not a repository, a `safe.directory` refusal), quick prints why on
+stderr and runs the gates over the whole project.
 
 Detection is the project's usual set. `.gate.toml` may name a different list:
 
