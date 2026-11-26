@@ -682,3 +682,56 @@ func TestReadTreeIgnoresAStatOnlyChange(t *testing.T) {
 	testutilWrite(t, repo, "f", "b\n")
 	qt.Check(t, qt.Not(qt.Equals(ReadTree(t.Context(), repo).Status, clean.Status)))
 }
+
+func TestReadTreeFollowsAnUntrackedNestedRepoWithNoCommit(t *testing.T) {
+	t.Parallel()
+	repo := t.TempDir()
+	git := gitFixture(t, repo)
+	testutilWrite(t, repo, "f", "a\n")
+	git("add", "f")
+	git("commit", "--quiet", "-m", "first")
+	lib := filepath.Join(repo, "lib")
+	gitFixture(t, lib)
+	testutilWrite(t, lib, "in.txt", "a\n")
+
+	before := ReadTree(t.Context(), repo)
+	qt.Assert(t, qt.IsTrue(before.OK))
+	testutilWrite(t, lib, "in.txt", "b\n")
+	qt.Check(t, qt.Not(qt.Equals(ReadTree(t.Context(), repo).Status, before.Status)), qt.Commentf("an edit inside a nested repo with no commit did not move the hash"))
+}
+
+// hash-object --stdin-paths C-unquotes a line that starts with a double quote,
+// which would hash a different file than the one named.
+func TestReadTreeHashesAFileNamedWithALeadingQuote(t *testing.T) {
+	t.Parallel()
+	repo := t.TempDir()
+	git := gitFixture(t, repo)
+	testutilWrite(t, repo, "f", "a\n")
+	git("add", "f")
+	git("commit", "--quiet", "-m", "first")
+	testutilWrite(t, repo, `"a"`, "one\n")
+	testutilWrite(t, repo, "a", "other\n")
+
+	before := ReadTree(t.Context(), repo)
+	qt.Assert(t, qt.IsTrue(before.OK))
+	testutilWrite(t, repo, `"a"`, "two\n")
+	qt.Check(t, qt.Not(qt.Equals(ReadTree(t.Context(), repo).Status, before.Status)), qt.Commentf("an edit to a file named \"a\" did not move the hash"))
+}
+
+func TestReadTreeSeesAnEmptyIntentToAddFile(t *testing.T) {
+	t.Parallel()
+	repo := t.TempDir()
+	git := gitFixture(t, repo)
+	testutilWrite(t, repo, "f", "a\n")
+	git("add", "f")
+	git("commit", "--quiet", "-m", "first")
+	clean := ReadTree(t.Context(), repo)
+	testutilWrite(t, repo, "n", "")
+	git("add", "-N", "n")
+
+	empty := ReadTree(t.Context(), repo)
+	qt.Check(t, qt.IsTrue(empty.Dirty))
+	qt.Check(t, qt.Not(qt.Equals(empty.Status, clean.Status)))
+	testutilWrite(t, repo, "n", "x\n")
+	qt.Check(t, qt.Not(qt.Equals(ReadTree(t.Context(), repo).Status, empty.Status)))
+}

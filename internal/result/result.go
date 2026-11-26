@@ -353,7 +353,8 @@ func readPaths(worktree, untracked []byte) (paths, submodules []string) {
 // The whole list goes in one `--stdin-paths` call, which is the difference
 // between one git spawn and one per fifty files on a tree with a large
 // unignored build directory. A path carrying a newline cannot be one line of
-// that list and is hashed from argv instead.
+// that list, and one starting with a double quote would be C-unquoted by
+// --stdin-paths into a different file, so both are hashed from argv instead.
 func hashChanged(root string, paths []string, git gitRead) ([]byte, bool) {
 	if len(paths) == 0 {
 		return nil, true
@@ -371,7 +372,7 @@ func hashChanged(root string, paths []string, git gitRead) ([]byte, bool) {
 		if handled := hashlessEntry(root, p, &buf); handled {
 			continue
 		}
-		if strings.ContainsRune(p, '\n') {
+		if needsArgv(p) {
 			argv = append(argv, p)
 			continue
 		}
@@ -395,6 +396,11 @@ func hashChanged(root string, paths []string, git gitRead) ([]byte, bool) {
 		buf.Write(out)
 	}
 	return buf.Bytes(), true
+}
+
+// needsArgv reports a path --stdin-paths cannot carry faithfully.
+func needsArgv(p string) bool {
+	return strings.ContainsRune(p, '\n') || strings.HasPrefix(p, `"`)
 }
 
 // dropStatOnly removes the raw diff-files records of regular files whose bytes
@@ -427,7 +433,7 @@ func dropStatOnly(root string, worktree []byte, git gitRead) ([]byte, bool) {
 		f := strings.Fields(string(header))
 		unchangedMode := len(f) == 5 && f[4] == "M" && f[0] == ":"+f[1] && (f[1] == "100644" || f[1] == "100755")
 		if unchangedMode {
-			if worktreePath(r.path) && !strings.ContainsRune(r.path, '\n') && !blocksHash(root, r.path) {
+			if worktreePath(r.path) && !needsArgv(r.path) && !blocksHash(root, r.path) {
 				r.id = f[2]
 				stdin = append(append(stdin, r.path...), '\n')
 				cand = append(cand, len(recs))
