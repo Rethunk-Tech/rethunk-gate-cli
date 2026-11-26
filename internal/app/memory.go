@@ -168,14 +168,19 @@ func enclosingLowerNote(size string) string {
 
 // shouldScopeRun is whether this process must re-exec itself under a memory
 // scope: wrapping on, cap enabled, not started by a systemd unit, a user
-// systemd to open one, and no enclosing memory.max at all: systemd-run --scope
-// opens a sibling unit, so re-exec'ing would leave the caller's cap and quota.
-func shouldScopeRun(size string) bool {
+// systemd to open one, and either no enclosing memory.max at all or, for a
+// size the caller asked for, one above it. systemd-run --scope opens a sibling
+// unit, so the scope carries the enclosing cpu and pids limits itself.
+func shouldScopeRun(size string, explicit bool) bool {
 	if !applyMemoryWrap || !memoryOn(size) || startedByUnit() || !systemdAvailable() {
 		return false
 	}
-	_, capped := cgroupLimit()
-	return !capped
+	limit, capped := cgroupLimit()
+	if !capped {
+		return true
+	}
+	want, ok := parseSizeBytes(size)
+	return explicit && ok && limit > 0 && want < limit
 }
 
 // scopeRun re-execs gate under one systemd scope for the whole run. Gates run
@@ -183,8 +188,8 @@ func shouldScopeRun(size string) bool {
 // gate would be a sibling cgroup, outside this one. A failed exec continues
 // uncapped; a size systemd cannot parse would fail the run after the exec, so
 // config.ParseMemory refuses every form systemd refuses.
-func scopeRun(size string) {
-	if !shouldScopeRun(size) {
+func scopeRun(size string, explicit bool) {
+	if !shouldScopeRun(size, explicit) {
 		return
 	}
 	exe, err := os.Executable()
@@ -200,7 +205,15 @@ func scopeRun(size string) {
 	// exec, so when gate itself is the command of an outer scope the default
 	// name is taken. A unit name of our own cannot clash.
 	if i := slices.Index(argv, "--"); i > 0 {
-		argv = slices.Insert(argv, i, "--unit="+scopeUnitName())
+		props := []string{"--unit=" + scopeUnitName()}
+		cpu, pids := cgroupQuota()
+		if cpu != "" {
+			props = append(props, "-p", "CPUQuota="+cpu)
+		}
+		if pids != "" {
+			props = append(props, "-p", "TasksMax="+pids)
+		}
+		argv = slices.Insert(argv, i, props...)
 	}
 	_ = execReplace(path, argv, os.Environ())
 }
@@ -251,6 +264,34 @@ var cgroupLimit = func() (limit uint64, capped bool) {
 		}
 	}
 	return limit, capped || !seen
+}
+
+// cgroupQuota is the tightest cpu.max (as a systemd CPUQuota percentage) and
+// pids.max on the way from this process's cgroup to the root, "" for none. A
+// sibling scope does not inherit them, so scopeRun restates them or the run
+// would escape the caller's quota.
+var cgroupQuota = func() (cpu, pids string) {
+	dir, ok := cgroupDir()
+	var best float64
+	var bestPids uint64
+	for ; ok && len(dir) > len(cgroupFS); dir = filepath.Dir(dir) {
+		if data, err := os.ReadFile(filepath.Clean(filepath.Join(dir, "cpu.max"))); err == nil {
+			var quota, period float64
+			if n, _ := fmt.Sscanf(string(data), "%f %f", &quota, &period); n == 2 && period > 0 {
+				if pct := quota * 100 / period; best == 0 || pct < best {
+					best = pct
+					cpu = strconv.FormatFloat(pct, 'f', -1, 64) + "%"
+				}
+			}
+		}
+		if data, err := os.ReadFile(filepath.Clean(filepath.Join(dir, "pids.max"))); err == nil {
+			if n, err := strconv.ParseUint(strings.TrimSpace(string(data)), 10, 64); err == nil && (bestPids == 0 || n < bestPids) {
+				bestPids = n
+				pids = strconv.FormatUint(n, 10)
+			}
+		}
+	}
+	return cpu, pids
 }
 
 // ownCgroupFile reads a file of this process's cgroup v2 directory.

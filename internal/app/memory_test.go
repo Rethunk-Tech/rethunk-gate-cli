@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -135,14 +136,14 @@ func TestScopeRunDecision(t *testing.T) {
 			applyMemoryWrap = tc.wrap
 			systemdAvailable = func() bool { return tc.systemd }
 			cgroupLimit = func() (uint64, bool) { return 0, tc.capped }
-			qt.Check(t, qt.Equals(shouldScopeRun(tc.size), tc.wantWrapp))
+			qt.Check(t, qt.Equals(shouldScopeRun(tc.size, true), tc.wantWrapp))
 
 			var gotArgv []string
 			execReplace = func(_ string, argv, _ []string) error {
 				gotArgv = argv
 				return nil
 			}
-			scopeRun(tc.size)
+			scopeRun(tc.size, true)
 			qt.Check(t, qt.Equals(gotArgv != nil, tc.wantWrapp))
 			if tc.wantWrapp {
 				qt.Check(t, qt.Equals(gotArgv[6], "MemoryMax="+tc.size))
@@ -221,13 +222,13 @@ func TestScopeRunUnderEnclosingCap(t *testing.T) {
 		want  bool
 		note  string
 	}{
-		{"requested below enclosing", "4G", 40 * g, false, "memory cap 4G not applied: already under a 40G cap"},
+		{"requested below enclosing", "4G", 40 * g, true, "memory cap 4G not applied: already under a 40G cap"},
 		{"requested above enclosing", "64G", 40 * g, false, "memory cap 64G not applied: an enclosing 40G cap is lower"},
 		{"requested equals enclosing", "40G", 40 * g, false, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cgroupLimit = func() (uint64, bool) { return tc.limit, true }
-			qt.Check(t, qt.Equals(shouldScopeRun(tc.size), tc.want))
+			qt.Check(t, qt.Equals(shouldScopeRun(tc.size, true), tc.want))
 			qt.Check(t, qt.Equals(enclosingLowerNote(tc.size), tc.note))
 		})
 	}
@@ -291,7 +292,7 @@ func TestScopeRunSkipsAUnitsProcess(t *testing.T) {
 		{"/user.slice/user@1000.service/app.slice/bosun-live.service", false},
 	} {
 		qt.Assert(t, qt.IsNil(os.WriteFile(proc, []byte("0::"+tc.path+"\n"), 0o600)))
-		qt.Check(t, qt.Equals(shouldScopeRun("24G"), tc.want), qt.Commentf("%s", tc.path))
+		qt.Check(t, qt.Equals(shouldScopeRun("24G", true), tc.want), qt.Commentf("%s", tc.path))
 	}
 }
 
@@ -351,4 +352,40 @@ func TestRunReportsAnOOMKillWhateverTheExitCode(t *testing.T) {
 
 	_, stderr, _ = runGateTest(t, "--mem", "24G", "true")
 	qt.Check(t, qt.Not(qt.StringContains(stderr, "OOM")))
+}
+
+func TestScopeRunCarriesEnclosingQuota(t *testing.T) {
+	origWrap, origAvail, origLimit, origQuota, origExec := applyMemoryWrap, systemdAvailable, cgroupLimit, cgroupQuota, execReplace
+	t.Cleanup(func() {
+		applyMemoryWrap, systemdAvailable, cgroupLimit, cgroupQuota, execReplace = origWrap, origAvail, origLimit, origQuota, origExec
+	})
+	applyMemoryWrap, systemdAvailable = true, func() bool { return true }
+	stubUnit(t, false)
+	cgroupLimit = func() (uint64, bool) { return 0, false }
+	cgroupQuota = func() (string, string) { return "10%", "512" }
+	var argv []string
+	execReplace = func(_ string, a, _ []string) error { argv = a; return nil }
+	scopeRun("24G", false)
+	qt.Check(t, qt.IsTrue(slices.Contains(argv, "CPUQuota=10%")))
+	qt.Check(t, qt.IsTrue(slices.Contains(argv, "TasksMax=512")))
+}
+
+func TestCgroupQuotaWalksToTheTightestAncestor(t *testing.T) {
+	origProc, origFS, origQuota := procSelfCgroup, cgroupFS, cgroupQuota
+	t.Cleanup(func() { procSelfCgroup, cgroupFS, cgroupQuota = origProc, origFS, origQuota })
+	root := t.TempDir()
+	procSelfCgroup, cgroupFS = filepath.Join(root, "proc"), filepath.Join(root, "fs")
+	leaf := filepath.Join(cgroupFS, "a", "b")
+	qt.Assert(t, qt.IsNil(os.MkdirAll(leaf, 0o750)))
+	qt.Assert(t, qt.IsNil(os.WriteFile(procSelfCgroup, []byte("0::/a/b\n"), 0o600)))
+	write := func(dir, name, v string) {
+		qt.Assert(t, qt.IsNil(os.WriteFile(filepath.Join(dir, name), []byte(v), 0o600)))
+	}
+	write(leaf, "cpu.max", "max 100000\n")
+	write(leaf, "pids.max", "max\n")
+	write(filepath.Dir(leaf), "cpu.max", "10000 100000\n")
+	write(filepath.Dir(leaf), "pids.max", "256\n")
+	cpu, pids := cgroupQuota()
+	qt.Check(t, qt.Equals(cpu, "10%"))
+	qt.Check(t, qt.Equals(pids, "256"))
 }
