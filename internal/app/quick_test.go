@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -391,4 +392,47 @@ func TestChangedFilesListsInsideInitialisedSubmodules(t *testing.T) {
 	got, err := changedFiles(t.Context(), root)
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.ContentEquals(got, []string{"vendor/sub", "vendor/sub/a.ts", "vendor/sub/new.ts"}))
+}
+
+// A commit made inside a submodule that the parent has not recorded yet is a
+// change, though the submodule's own worktree is clean; so is one in a nested
+// submodule.
+func TestChangedFilesCountsUnrecordedSubmoduleCommits(t *testing.T) {
+	t.Parallel()
+	base := t.TempDir()
+	env := append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
+	run := func(dir string, args ...string) {
+		t.Helper()
+		cmd := exec.CommandContext(t.Context(), "git", append([]string{"-c", "user.name=t", "-c", "user.email=t@t", "-c", "protocol.file.allow=always", "-C", dir}, args...)...) //nolint:gosec // fixed fixture git argv
+		cmd.Env = env
+		out, err := cmd.CombinedOutput()
+		qt.Assert(t, qt.IsNil(err), qt.Commentf("git %v: %s", args, out))
+	}
+	inner := filepath.Join(base, "innersrc")
+	testutil.Write(t, inner, "i.ts", "export {}\n")
+	committedRepo(t, inner)
+	sub := filepath.Join(base, "subsrc")
+	testutil.Write(t, sub, "a.ts", "export {}\n")
+	committedRepo(t, sub)
+	run(sub, "submodule", "add", "--quiet", inner, "deep")
+	run(sub, "commit", "--quiet", "-m", "chore: add deep")
+	root := filepath.Join(base, "proj")
+	testutil.Write(t, root, "main.go", "package a\n")
+	committedRepo(t, root)
+	run(root, "submodule", "add", "--quiet", sub, "vendor/sub")
+	run(root, "submodule", "update", "--init", "--recursive", "--quiet")
+	run(root, "commit", "--quiet", "-m", "chore: add sub")
+
+	vendor := filepath.Join(root, "vendor", "sub")
+	testutil.Write(t, vendor, "b.ts", "export {}\n")
+	run(vendor, "add", "b.ts")
+	run(vendor, "commit", "--quiet", "-m", "chore: b")
+	testutil.Write(t, vendor, "deep/j.ts", "export {}\n")
+	run(filepath.Join(vendor, "deep"), "add", "j.ts")
+	run(filepath.Join(vendor, "deep"), "commit", "--quiet", "-m", "chore: j")
+
+	got, err := changedFiles(t.Context(), root)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsTrue(slices.Contains(got, "vendor/sub/b.ts")), qt.Commentf("got %v", got))
+	qt.Check(t, qt.IsTrue(slices.Contains(got, "vendor/sub/deep/j.ts")), qt.Commentf("got %v", got))
 }
