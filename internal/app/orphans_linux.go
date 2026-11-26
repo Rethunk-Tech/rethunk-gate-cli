@@ -18,14 +18,21 @@ import (
 //
 // A process in the middle of execve reads an empty environ while its exe link
 // already resolves, so those are read again for a short while. Processes that
-// keep an empty environment (some services) cost the whole wait.
-func killOrphans(entry string) {
+// keep an empty environment (some services) would cost the whole wait, so a
+// process that started before the gate's command (start ticks below since, 0
+// for unknown) is skipped: it cannot be a descendant.
+func killOrphans(entry string, since uint64) {
 	want := []byte(entry)
 	dirs, _ := filepath.Glob("/proc/[0-9]*")
 	var pending []string
 	for _, dir := range dirs {
 		if pid, err := strconv.Atoi(filepath.Base(dir)); err != nil || pid == os.Getpid() {
 			continue
+		}
+		if since > 0 {
+			if start := statStart(dir); start > 0 && start < since {
+				continue
+			}
 		}
 		if judge(dir, want) {
 			pending = append(pending, dir)
@@ -44,6 +51,35 @@ func killOrphans(entry string) {
 		}
 		pending = still
 	}
+}
+
+// processStart is the start time, in clock ticks since boot, of pid; 0 when
+// it cannot be read.
+func processStart(pid int) uint64 {
+	return statStart(filepath.Join("/proc", strconv.Itoa(pid)))
+}
+
+// statStart reads field 22 of dir/stat. The command name in field 2 may hold
+// spaces and parentheses, so fields count from the last ')'.
+func statStart(dir string) uint64 {
+	data, err := os.ReadFile(filepath.Clean(filepath.Join(dir, "stat")))
+	if err != nil {
+		return 0
+	}
+	_, rest, ok := bytes.CutLast(data, []byte{')'})
+	if !ok {
+		return 0
+	}
+	fields := bytes.Fields(rest)
+	// fields[0] is field 3 (state), so field 22 is fields[19].
+	if len(fields) < 20 {
+		return 0
+	}
+	n, err := strconv.ParseUint(string(fields[19]), 10, 64)
+	if err != nil {
+		return 0
+	}
+	return n
 }
 
 // judge kills the process behind dir when its environment carries want, and

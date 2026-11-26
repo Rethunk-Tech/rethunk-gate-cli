@@ -1360,7 +1360,12 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 	cmd.Stderr = sink
 
 	started := time.Now()
-	runErr := cmd.Run()
+	runErr := cmd.Start()
+	var childStart uint64
+	if runErr == nil {
+		childStart = processStart(cmd.Process.Pid)
+		runErr = cmd.Wait()
+	}
 	// Wait returning means the command is gone, not its group: a worker that
 	// ignored SIGINT, or is still handling it, gets the rest of the grace.
 	if !killBy.IsZero() {
@@ -1368,7 +1373,7 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 	}
 	res.elapsed = time.Since(started)
 	res.started = true
-	killOrphans(runEntry)
+	killOrphans(runEntry, childStart)
 
 	// Whether the command left a partial last line has to be read before
 	// close finalises it, so the trailer below starts on a line of its own

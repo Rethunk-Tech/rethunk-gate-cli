@@ -4,6 +4,7 @@ package app
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -37,4 +38,32 @@ func TestGateKillsASetsidChildItLeftBehind(t *testing.T) {
 	}
 	t.Errorf("setsid child %d is still running after the gate passed", pid)
 	_ = os.Remove(pidFile)
+}
+
+// A process that started before the gate's command cannot be its descendant,
+// even when its environment carries the run's entry.
+func TestKillOrphansSkipsProcessesOlderThanTheCommand(t *testing.T) {
+	entry := "GATE_TEST_ORPHAN=" + t.Name()
+	cmd := exec.CommandContext(t.Context(), "sleep", "300")
+	cmd.Env = append(os.Environ(), entry)
+	qt.Assert(t, qt.IsNil(cmd.Start()))
+	done := make(chan struct{})
+	go func() { _ = cmd.Wait(); close(done) }()
+	t.Cleanup(func() { _ = cmd.Process.Kill(); <-done })
+
+	start := processStart(cmd.Process.Pid)
+	qt.Assert(t, qt.Not(qt.Equals(start, uint64(0))))
+
+	killOrphans(entry, start+1000)
+	select {
+	case <-done:
+		t.Fatal("a process older than the command was killed")
+	case <-time.After(100 * time.Millisecond):
+	}
+	killOrphans(entry, start)
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a process as new as the command, carrying the entry, survived")
+	}
 }
