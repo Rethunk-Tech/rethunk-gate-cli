@@ -179,3 +179,10 @@ func TestForgetDropsOnlyThatRepository(t *testing.T) {
 	qt.Check(t, qt.IsNotNil(errA))
 	qt.Check(t, qt.IsNil(errB))
 }
+
+func TestCheckAllowsGithubOwnedAndFoldsPatternCase(t *testing.T) {
+	t.Parallel()
+	s := Settings{AllowedActions: "selected", GithubOwnedAllowed: true, PatternsAllowed: []string{"Foo/*"}}
+	got := Check([]Use{{Ref: "github/codeql-action@v3"}, {Ref: "foo/bar@v1"}}, s)
+	qt.Check(t, qt.HasLen(got, 0), qt.Commentf("%v", got))
+}

@@ -113,3 +113,17 @@ func TestReportPartialWritesToTheParentsFile(t *testing.T) {
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.StringContains(string(data), "allowed-actions check skipped"))
 }
+
+// A finding that only warns is printed and never turns the gate red.
+func TestActionsAllowedWarnOnlyFindingPasses(t *testing.T) {
+	dir := actionsRepo(t, "git@github.com:o/r.git")
+	fetch := func(p string) ([]byte, error) {
+		if p == "repos/o/r/actions/permissions" {
+			return []byte(`{"allowed_actions":"selected"}`), nil
+		}
+		return []byte(`{"github_owned_allowed":true,"verified_allowed":true,"patterns_allowed":[]}`), nil
+	}
+	var stderr bytes.Buffer
+	qt.Check(t, qt.Equals(checkAllowedActions(t.Context(), dir, fetch, "2026-11-21", &stderr), Success))
+	qt.Check(t, qt.StringContains(stderr.String(), "EndBug/label-sync@v2"))
+}
