@@ -65,7 +65,7 @@ func (s Step) Instrumented() (plain, how string) {
 // subshell, or a step that changes the shell itself like `cd` or `export` --
 // is one step: its parts cannot be run apart and mean the same thing.
 func Work(dir, command string) []Step {
-	pkg, _ := readPackageJSON(filepath.Join(dir, "package.json"))
+	pkg, _ := ReadPackageJSON(filepath.Join(dir, "package.json"))
 	tasks, _ := readTurboTasks(dir)
 	w := walker{dir: dir, pkg: pkg, tasks: tasks}
 	return w.steps(command, false, nil)
@@ -73,7 +73,7 @@ func Work(dir, command string) []Step {
 
 type walker struct {
 	dir   string
-	pkg   packageJSON
+	pkg   PackageJSON
 	tasks map[string]turboTask
 }
 

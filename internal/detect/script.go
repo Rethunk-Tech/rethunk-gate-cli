@@ -48,7 +48,7 @@ func ScriptLines(dir string, s Step) ([][]string, bool) {
 	if !ok {
 		return nil, false
 	}
-	pkg, _ := readPackageJSON(filepath.Join(dir, "package.json"))
+	pkg, _ := ReadPackageJSON(filepath.Join(dir, "package.json"))
 	r := scriptReader{root: root, pkg: pkg, seen: map[string]bool{}}
 	r.file(path, 0)
 	return r.lines, len(r.lines) > 0
@@ -58,11 +58,11 @@ func ScriptLines(dir string, s Step) ([][]string, bool) {
 // (RunsIn), or, for a package script whose body cannot be taken apart into
 // steps, every `&&` part of that body.
 func Covered(dir string, s Step, lines [][]string) bool {
-	pkg, _ := readPackageJSON(filepath.Join(dir, "package.json"))
+	pkg, _ := ReadPackageJSON(filepath.Join(dir, "package.json"))
 	return covered(dir, pkg, s, lines, nil)
 }
 
-func covered(dir string, pkg packageJSON, s Step, lines [][]string, seen []string) bool {
+func covered(dir string, pkg PackageJSON, s Step, lines [][]string, seen []string) bool {
 	if s.RunsIn(lines) {
 		return true
 	}
@@ -116,7 +116,7 @@ func (s Step) RunsIn(lines [][]string) bool {
 
 type scriptReader struct {
 	root  *os.Root
-	pkg   packageJSON
+	pkg   PackageJSON
 	seen  map[string]bool
 	lines [][]string
 }

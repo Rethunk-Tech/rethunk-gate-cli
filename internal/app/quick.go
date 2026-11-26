@@ -2,9 +2,7 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"maps"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -12,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/config"
+	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/detect"
 )
 
 var defaultQuickGates = []string{"format", "lint", "typecheck"}
@@ -400,14 +399,8 @@ func quickTokens(g gateSpec) (tokens []string, viaScript bool) {
 	default:
 		return nil, false
 	}
-	data, err := os.ReadFile(filepath.Clean(filepath.Join(g.dir, "package.json")))
-	if err != nil {
-		return nil, false
-	}
-	var pkg struct {
-		Scripts map[string]string `json:"scripts"`
-	}
-	if json.Unmarshal(data, &pkg) != nil {
+	pkg, ok := detect.ReadPackageJSON(filepath.Join(g.dir, "package.json"))
+	if !ok {
 		return nil, false
 	}
 	return plainCommand(pkg.Scripts[script]), true

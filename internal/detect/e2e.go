@@ -23,7 +23,7 @@ func IsE2E(dir, name string, argv []string) bool {
 	if e2eName(name) {
 		return true
 	}
-	pkg, _ := readPackageJSON(filepath.Join(dir, "package.json"))
+	pkg, _ := ReadPackageJSON(filepath.Join(dir, "package.json"))
 	return runsE2E(strings.Join(argv, " "), pkg.Scripts, nil)
 }
 

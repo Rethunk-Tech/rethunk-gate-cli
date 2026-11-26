@@ -243,7 +243,7 @@ func ciRunsToolchain(root, chain string) bool {
 	if len(files) == 0 || !slices.ContainsFunc(ciTools, func(t ciTool) bool { return t.toolchain == chain }) {
 		return true
 	}
-	pkg, _ := readPackageJSON(filepath.Join(root, "package.json"))
+	pkg, _ := ReadPackageJSON(filepath.Join(root, "package.json"))
 	found := false
 	eachCIRunLine(root, func(_ string, _ int, line string) {
 		found = found || ciRunsChain(root, pkg, line, chain, 0)
@@ -254,7 +254,7 @@ func ciRunsToolchain(root, chain string) bool {
 // ciRunsChain reports whether one shell line invokes chain's tools, directly
 // or through the make target or package script it names. Files are read,
 // never run.
-func ciRunsChain(root string, pkg packageJSON, command, chain string, depth int) bool {
+func ciRunsChain(root string, pkg PackageJSON, command, chain string, depth int) bool {
 	if slices.ContainsFunc(invocationsIn(command, "", 0), func(inv ciInvocation) bool { return inv.chain == chain }) {
 		return true
 	}

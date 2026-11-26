@@ -49,7 +49,7 @@ func ciScriptGates(proj *Project) {
 	if len(steps) == 0 {
 		return
 	}
-	pkg, ok := readPackageJSON(filepath.Join(proj.Root, "package.json"))
+	pkg, ok := ReadPackageJSON(filepath.Join(proj.Root, "package.json"))
 	if !ok {
 		return
 	}
@@ -80,7 +80,7 @@ func ciScriptGates(proj *Project) {
 // ciGateBuilder collects the gates CI steps add to a project.
 type ciGateBuilder struct {
 	proj    *Project
-	pkg     packageJSON
+	pkg     PackageJSON
 	runner  []string
 	turbo   string
 	added   []Gate

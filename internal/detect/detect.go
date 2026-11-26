@@ -349,7 +349,7 @@ func aggregateOwnGate(proj *Project, aggregate Gate) (Gate, bool) {
 	if !strings.HasPrefix(aggregate.Source, packageSource) {
 		return Gate{}, false
 	}
-	pkg, ok := readPackageJSON(filepath.Join(proj.Root, "package.json"))
+	pkg, ok := ReadPackageJSON(filepath.Join(proj.Root, "package.json"))
 	if !ok {
 		return Gate{}, false
 	}

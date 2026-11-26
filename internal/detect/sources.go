@@ -116,7 +116,7 @@ func makefileGates(root string) []Gate {
 // anywhere, split into the ones a default run takes and the browser, watch or
 // update ones it must not. With a plain test they stay unreached and noted.
 func fallbackTests(root string, fromPackage bool, runner []string) (plain, browser []string) {
-	pkg, _ := readPackageJSON(filepath.Join(root, "package.json"))
+	pkg, _ := ReadPackageJSON(filepath.Join(root, "package.json"))
 	targets := makefileTargets(root)
 	if _, ok := pkg.Scripts["test"]; ok || targets["test"] {
 		return nil, nil
@@ -216,7 +216,7 @@ func makefileTargets(root string) map[string]bool {
 func unreachedTests(root string) []string {
 	var names []string
 	var reached strings.Builder
-	pkg, _ := readPackageJSON(filepath.Join(root, "package.json"))
+	pkg, _ := ReadPackageJSON(filepath.Join(root, "package.json"))
 	for name, body := range pkg.Scripts {
 		if slices.Contains(collectedNames, name) {
 			reached.WriteString(body + "\n")
@@ -239,7 +239,7 @@ func unreachedTests(root string) []string {
 	return out
 }
 
-type packageJSON struct {
+type PackageJSON struct {
 	Scripts      map[string]string `json:"scripts"`
 	Dependencies map[string]string `json:"dependencies"`
 	DevDeps      map[string]string `json:"devDependencies"`
@@ -248,25 +248,25 @@ type packageJSON struct {
 	PackageManager string `json:"packageManager"`
 }
 
-func (p packageJSON) hasWorkspaces() bool {
+func (p PackageJSON) hasWorkspaces() bool {
 	return len(p.Workspaces) > 0 && string(p.Workspaces) != "null"
 }
 
-func readPackageJSON(path string) (packageJSON, bool) {
+func ReadPackageJSON(path string) (PackageJSON, bool) {
 	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
-		return packageJSON{}, false
+		return PackageJSON{}, false
 	}
-	var pkg packageJSON
+	var pkg PackageJSON
 	if err := json.Unmarshal(data, &pkg); err != nil {
-		return packageJSON{}, false
+		return PackageJSON{}, false
 	}
 	return pkg, true
 }
 
 // packageJSONGates reads the scripts a project declares.
 func packageJSONGates(root, workspace string) []Gate {
-	pkg, ok := readPackageJSON(filepath.Join(root, "package.json"))
+	pkg, ok := ReadPackageJSON(filepath.Join(root, "package.json"))
 	if !ok {
 		return nil
 	}
@@ -344,7 +344,7 @@ func yarnBerry(workspace string) bool {
 	if exists(filepath.Join(workspace, ".yarnrc.yml")) || exists(filepath.Join(workspace, ".yarn", "releases")) {
 		return true
 	}
-	pkg, _ := readPackageJSON(filepath.Join(workspace, "package.json"))
+	pkg, _ := ReadPackageJSON(filepath.Join(workspace, "package.json"))
 	ver, ok := strings.CutPrefix(pkg.PackageManager, "yarn@")
 	if !ok {
 		return false
@@ -615,7 +615,7 @@ func pythonConventionGates(root string, proj *Project) (gates []Gate, skipped []
 }
 
 func nodeConventionGates(root string, proj *Project) (gates []Gate, skipped []Skip) {
-	if pkg, ok := readPackageJSON(filepath.Join(root, "package.json")); ok {
+	if pkg, ok := ReadPackageJSON(filepath.Join(root, "package.json")); ok {
 		// The RESOLVED path, not the bare name: biome and tsc usually live in
 		// node_modules/.bin and are absent from PATH, so a bare name would be
 		// found by detection and then fail to execute.
@@ -728,7 +728,7 @@ func markdownConventionGates(root string, proj *Project) (gates []Gate, skipped 
 	if len(configs) == 0 {
 		return nil, nil
 	}
-	if pkg, ok := readPackageJSON(filepath.Join(root, "package.json")); ok {
+	if pkg, ok := ReadPackageJSON(filepath.Join(root, "package.json")); ok {
 		for _, script := range pkg.Scripts {
 			if strings.Contains(script, "markdownlint-cli2") {
 				return nil, nil
@@ -798,7 +798,7 @@ func projectDeclaresCanonVerify(root string) bool {
 			return true
 		}
 	}
-	if pkg, ok := readPackageJSON(filepath.Join(root, "package.json")); ok {
+	if pkg, ok := ReadPackageJSON(filepath.Join(root, "package.json")); ok {
 		for _, script := range pkg.Scripts {
 			if strings.Contains(script, "canon verify") {
 				return true
@@ -1125,7 +1125,7 @@ func turboGates(workspace string, proj *Project) []Gate {
 	var member map[string]string
 	scoped := proj.Root != workspace
 	if scoped {
-		pkg, _ := readPackageJSON(filepath.Join(proj.Root, "package.json"))
+		pkg, _ := ReadPackageJSON(filepath.Join(proj.Root, "package.json"))
 		member = pkg.Scripts
 	}
 
@@ -1508,7 +1508,7 @@ func shellJoin(argv []string) string {
 
 // nodeTool is name's resolved path, or where it will be once the frozen
 // install has run, when package.json declares dep and an install is due.
-func nodeTool(root string, proj *Project, pkg packageJSON, name, dep string) string {
+func nodeTool(root string, proj *Project, pkg PackageJSON, name, dep string) string {
 	if bin := resolve(root, proj, name); bin != "" {
 		return bin
 	}
@@ -1623,7 +1623,7 @@ func WholeCIRoot(ctx context.Context, dir string, argv []string) (string, bool) 
 	if argv[0] == "make" {
 		defined = slices.ContainsFunc(makefileGates(root), func(g Gate) bool { return g.Name == name })
 	} else {
-		pkg, ok := readPackageJSON(filepath.Join(root, "package.json"))
+		pkg, ok := ReadPackageJSON(filepath.Join(root, "package.json"))
 		_, has := pkg.Scripts[name]
 		defined = ok && has
 	}
