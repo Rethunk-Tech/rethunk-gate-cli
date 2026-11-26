@@ -219,13 +219,13 @@ func TestGitFilesDropsFilesMissingFromTheWorktree(t *testing.T) {
 	if out, err := add.CombinedOutput(); err != nil {
 		t.Fatalf("git add: %v: %s", err, out)
 	}
-	if err := os.Remove(filepath.Join(root, "b.sh")); err != nil {
+	if err := os.Remove(filepath.Join(root, "a.sh")); err != nil {
 		t.Fatal(err)
 	}
 
 	scripts, ok := gitScripts(t.Context(), root)
 	qt.Assert(t, qt.IsTrue(ok))
-	qt.Check(t, qt.DeepEquals(scripts, []string{"a.sh"}), qt.Commentf("scripts = %v", scripts))
+	qt.Check(t, qt.DeepEquals(scripts, []string{"b.sh"}), qt.Commentf("scripts = %v", scripts))
 }
 
 // bun collects *.test.*, *.spec.*, *_test.* and *_spec.* -- not `.test.`

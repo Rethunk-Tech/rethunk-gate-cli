@@ -892,6 +892,7 @@ func TestCIRunPackageInASubdirectoryIsOneGate(t *testing.T) {
 	// No lockfile of its own: a workspace member, covered by its workspace.
 	testutil.Write(t, root, "member/package.json", `{"scripts":{"test":"bun test"}}`)
 
+	qt.Check(t, qt.DeepEquals(ciPackageDirs(root), []string{"frontend", "member"}))
 	proj := detect(t, root)
 	g := gateNamed(t, proj, "frontend")
 	qt.Check(t, qt.Equals(g.Dir, front))
@@ -1597,7 +1598,7 @@ func TestNestedProjectsKeepFormatAndTheirSkippedRoles(t *testing.T) {
 	testutil.WriteExecutable(t, root, "rs/node_modules/.bin/cargo-fmt")
 	proj := detect(t, root)
 	qt.Check(t, qt.StringContains(gateNamed(t, proj, "rs").Summary, "cargo fmt --check"))
-	qt.Check(t, qt.IsTrue(slices.ContainsFunc(proj.Skipped, func(s Skip) bool { return s.Role == "lint" || s.Role == "vuln" })),
+	qt.Check(t, qt.IsTrue(slices.ContainsFunc(proj.Skipped, func(s Skip) bool { return s.Gate == "rs" && (s.Role == "lint" || s.Role == "vuln") })),
 		qt.Commentf("skipped = %v", proj.Skipped))
 }
 

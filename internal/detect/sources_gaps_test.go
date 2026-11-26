@@ -94,3 +94,17 @@ func TestFallbackTestGatesWithOnlyBrowserScripts(t *testing.T) {
 	qt.Assert(t, qt.HasLen(gates, 1))
 	qt.Check(t, qt.Equals(gates[0].Name, "test:e2e"))
 }
+
+// "^build" listed before a role edge must not hide the edge after it.
+func TestTurboCaretDepBeforeARoleEdgeStillSerialises(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	testutil.Write(t, dir, "package.json", `{"scripts":{"test":"vitest run","typecheck":"tsc --noEmit"}}`)
+	testutil.Write(t, dir, "turbo.json", `{"tasks":{"test":{"dependsOn":["^build","typecheck"]},"typecheck":{}}}`)
+	testutil.Write(t, dir, "bun.lock", "")
+	testutil.WriteExecutable(t, dir, "node_modules/.bin/turbo")
+
+	proj := detect(t, dir)
+	qt.Check(t, qt.IsTrue(gateNamed(t, proj, "test").Serial))
+	qt.Check(t, qt.IsTrue(gateNamed(t, proj, "typecheck").Serial))
+}
