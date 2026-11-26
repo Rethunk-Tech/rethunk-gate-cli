@@ -87,3 +87,12 @@ func TestFixBadFlagIsOneLine(t *testing.T) {
 	qt.Check(t, qt.StringContains(stderr, "gate fix --help"))
 	qt.Check(t, qt.IsTrue(strings.Count(stderr, "\n") <= 3), qt.Commentf("stderr = %q", stderr))
 }
+
+func TestFlagAfterDoctorOrRecordIsNamed(t *testing.T) {
+	t.Parallel()
+	for _, verb := range []string{"doctor", "record"} {
+		_, stderr, code := runGateTest(t, verb, "--bogus")
+		qt.Check(t, qt.Equals(code, InvalidUsage))
+		qt.Check(t, qt.StringContains(stderr, "flags go before the verb: gate --bogus "+verb))
+	}
+}

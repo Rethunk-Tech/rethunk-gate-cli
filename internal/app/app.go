@@ -453,7 +453,7 @@ func (st *runState) runVerb(ctx context.Context, dir string, args []string, stdo
 		fmt.Fprint(stdout, quickHelp)
 		return Success, true
 	case (word == "doctor" || word == "record") && len(args) > 1:
-		fmt.Fprintf(stderr, "gate: flags go before the verb: gate -C <path> %s\n", word)
+		fmt.Fprintf(stderr, "gate: flags go before the verb: gate %s\n", verbFlagRemedy(args[1], word))
 		fmt.Fprintf(stderr, "gate: a program named %s is `gate -- %s`\n", word, word)
 		return InvalidUsage, true
 	case word == "list" && len(args) == 1:
@@ -462,6 +462,15 @@ func (st *runState) runVerb(ctx context.Context, dir string, args []string, stdo
 		return InvalidUsage, true
 	}
 	return Success, false
+}
+
+// verbFlagRemedy is the command line that fixes `gate <verb> <arg>`: the
+// typed flag moves before the verb, anything else is a path for -C.
+func verbFlagRemedy(arg, verb string) string {
+	if strings.HasPrefix(arg, "-") {
+		return arg + " " + verb
+	}
+	return "-C <path> " + verb
 }
 
 // splitRun separates the gate names after `run` from a command to wrap.
