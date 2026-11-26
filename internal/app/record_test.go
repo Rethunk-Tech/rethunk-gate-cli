@@ -76,6 +76,7 @@ func runSuite(m *testing.M) int {
 	for k, v := range map[string]string{
 		"XDG_STATE_HOME":  filepath.Join(dir, "state"),
 		"XDG_CONFIG_HOME": filepath.Join(dir, "config"),
+		"XDG_CACHE_HOME":  filepath.Join(dir, "cache"),
 		"TMPDIR":          filepath.Join(dir, "tmp"),
 		// GATE_TMPDIR is where each run makes the temp dir its children
 		// share, and what the startup sweep reads. Pointed at the scratch
