@@ -257,7 +257,13 @@ func replacePathArgs(argv, files []string) []string {
 			out = out[:n-1]
 		}
 	}
-	return append(out, files...)
+	for _, f := range files {
+		if strings.HasPrefix(f, "-") {
+			f = "./" + f
+		}
+		out = append(out, f)
+	}
+	return out
 }
 
 // filesUnder is the changed files (named from root) that sit inside dir,

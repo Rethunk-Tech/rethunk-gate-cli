@@ -342,3 +342,12 @@ func TestQuickSkipsAGateWhoseDirIsOutsideTheRoot(t *testing.T) {
 	qt.Check(t, qt.DeepEquals(filesUnder(root, base, files), []string{"proj/a.ts"}))
 	qt.Check(t, qt.DeepEquals(filesUnder(root, root, files), files))
 }
+
+// A changed file named like a flag must reach the tool as a path.
+func TestQuickPrefixesDashNamedFiles(t *testing.T) {
+	t.Parallel()
+	g := gateSpec{role: "format", argv: []string{"gofmt", "-w", "."}}
+	got, skip := scopeGate(g, []string{"-s.go", "a.go"})
+	qt.Assert(t, qt.IsFalse(skip))
+	qt.Check(t, qt.DeepEquals(got.argv, []string{"gofmt", "-w", "./-s.go", "a.go"}))
+}
