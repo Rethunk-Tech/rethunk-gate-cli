@@ -2244,14 +2244,6 @@ func TestNDJSONNamesInterruptedCancelledNotFoundAndTimedOut(t *testing.T) {
 	for _, r := range nf {
 		check(r, "not-found", int(NotFound))
 	}
-
-	stdout, stderr, _ = runGateTest(t, "--ndjson", "--timeout", "1s", "--", "sleep", "30")
-	to := ndjson(stdout)
-	qt.Assert(t, qt.Equals(len(to), 1), qt.Commentf("stdout = %q stderr = %q", stdout, stderr))
-	for _, r := range to {
-		check(r, "timeout", int(TimedOut))
-		qt.Check(t, qt.StringContains(r.Reason, "exceeded 1s"))
-	}
 }
 
 type failWriter struct{}
@@ -3301,6 +3293,7 @@ func TestNDJSONTimeoutKillKeepsCode124(t *testing.T) {
 	qt.Assert(t, qt.IsNotNil(r.Code))
 	qt.Check(t, qt.Equals(*r.Code, int(TimedOut)))
 	qt.Check(t, qt.Equals(r.Timeout, describeTimeout(50*time.Millisecond)))
+	qt.Check(t, qt.StringContains(r.Reason, "exceeded 50ms"))
 }
 
 // --force-cache rewrites a `go test` gate so Go's own cache cannot answer
