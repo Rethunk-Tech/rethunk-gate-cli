@@ -890,3 +890,72 @@ func TestBunAuditSkipsADifferentVulnCommand(t *testing.T) {
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.StringContains(r.Reason, "already in the named post-state"))
 }
+
+// The serial key lands in the named table, never a later one.
+func TestSerialKeyStaysInItsOwnTable(t *testing.T) {
+	isolatePath(t)
+	dir := t.TempDir()
+	testutil.Write(t, dir, "package.json",
+		`{"dependencies":{"next":"15.0.0"},"scripts":{"build":"true","typecheck":"true"}}`)
+	testutil.Write(t, dir, ".gate.toml", "[gates.build]\ntimeout = \"5m\"\n\n[gates.lint]\nserial = false\n")
+
+	applyNamed(t, dir, "next-build-typecheck-race", false)
+
+	body, err := os.ReadFile(filepath.Clean(filepath.Join(dir, ".gate.toml")))
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.StringContains(string(body), "[gates.build]\nserial = true\ntimeout"))
+	qt.Check(t, qt.StringContains(string(body), "[gates.lint]\nserial = false"))
+}
+
+func TestEnableInputWalksEachMatchingStepOnItsOwn(t *testing.T) {
+	t.Parallel()
+	step := "      - uses: Rethunk-Tech/gh-actions/setup-go@v1.14\n"
+	withInput := step + "        with:\n          run-govulncheck: \"true\"\n"
+	added := step + "        with:\n          run-govulncheck: \"true\"\n"
+	for name, c := range map[string]struct{ in, want string }{
+		"two steps lacking it": {step + step, added + added},
+		"a later step has it, not this": {
+			step + "        with:\n          cache: true\n" + withInput,
+			added + "          cache: true\n" + withInput,
+		},
+	} {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "ci.yml")
+		testutil.Write(t, dir, "ci.yml", "jobs:\n  a:\n    steps:\n"+c.in)
+		r, err := Apply(doctor.Finding{
+			Check: "ci-govulncheck-off",
+			Path:  path,
+			Fix:   `set run-govulncheck: "true" on the setup-go step`,
+		}, false)
+		qt.Assert(t, qt.IsNil(err), qt.Commentf(name))
+		qt.Assert(t, qt.Equals(r.Outcome, Applied), qt.Commentf("%s: %s", name, r.Reason))
+		body, err := os.ReadFile(filepath.Clean(path))
+		qt.Assert(t, qt.IsNil(err))
+		qt.Check(t, qt.Equals(string(body), "jobs:\n  a:\n    steps:\n"+c.want), qt.Commentf(name))
+	}
+}
+
+// Only the shared-action line is repinned: another action at the same ref is
+// not ours to move.
+func TestPinLeavesAnotherActionAtTheSameRef(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	const sha = "e04e0afa3e00c59e33030fdbc7df29c15000357b"
+	path := filepath.Join(dir, "ci.yml")
+	other := "      - uses: actions/checkout@" + sha + "\n"
+	testutil.Write(t, dir, "ci.yml",
+		"jobs:\n  a:\n    steps:\n"+other+"      - uses: Rethunk-Tech/gh-actions/setup-go@"+sha+"\n")
+
+	r, err := Apply(doctor.Finding{
+		Check: "actions-stale-ref",
+		Path:  path,
+		What:  "shared action pinned to " + sha,
+		Fix:   "bump to " + doctor.KnownGoodActionsTag + " or newer",
+	}, false)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Assert(t, qt.Equals(r.Outcome, Applied))
+	body, err := os.ReadFile(filepath.Clean(path))
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.StringContains(string(body), other))
+	qt.Check(t, qt.StringContains(string(body), "setup-go@"+testSHA))
+}
