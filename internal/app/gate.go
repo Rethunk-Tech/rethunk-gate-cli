@@ -128,11 +128,13 @@ func quickRaceExit(env []string) []string {
 
 // options is one resolved invocation of gate.
 type options struct {
-	tail    int
-	logPath string
-	quiet   bool
-	serial  bool
-	list    bool
+	// timeoutSet is whether --timeout set the limit, which then beats a gate's own key.
+	timeoutSet bool
+	tail       int
+	logPath    string
+	quiet      bool
+	serial     bool
+	list       bool
 	// jsonList prints the listing as JSON instead of as text. Output only:
 	// it changes nothing about detection, scheduling or the exit status.
 	jsonList bool
@@ -1054,7 +1056,7 @@ func report(results []gateResult, opts options, stdout, stderr io.Writer) Code {
 		}
 	}
 	if sawTimeout {
-		writeTimeoutRemedy(stderr, killed, killedAfter)
+		writeTimeoutRemedy(stderr, killed, killedAfter, opts.timeoutSet)
 	}
 	writeFailedSteps(stderr, results)
 	if collapse && aggregate == Success {
@@ -1219,9 +1221,13 @@ func reportRan(res gateResult, opts options, quote func(io.Writer, *lineTracker)
 // A gate with a role has a home in .gate.toml, which is where a project's one
 // genuinely slow gate belongs; a command the caller named has none, so only
 // the flag applies to it.
-func writeTimeoutRemedy(w io.Writer, role string, limit time.Duration) {
+func writeTimeoutRemedy(w io.Writer, role string, limit time.Duration, flagSet bool) {
 	if role == "" {
 		fmt.Fprintln(w, "gate: raise it with --timeout 5m, or --timeout 0 to run with no limit")
+		return
+	}
+	if flagSet {
+		fmt.Fprintln(w, "gate: raise it with a larger --timeout (it overrides a gate's own timeout key), or --timeout 0 to run with no limit")
 		return
 	}
 	// A suggested --timeout gets passed on every later run and overrides the

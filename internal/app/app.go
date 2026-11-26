@@ -674,6 +674,7 @@ func (st *runState) prepareGates(project *detect.Project, roles []string) {
 	}
 	// The flag is the most local statement of intent, so it beats a gate's own
 	// key; a gate that names none takes the default.
+	opts.timeoutSet = st.timeoutSet
 	for i := range opts.gates {
 		if st.timeoutSet || !opts.gates[i].hasTimeout {
 			opts.gates[i].timeout = st.timeout

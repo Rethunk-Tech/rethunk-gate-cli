@@ -2384,8 +2384,9 @@ func TestTimeoutNamesItsRemedy(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	testutil.Write(t, root, "Makefile", "test:\n\tsleep 10\n")
+	testutil.Write(t, root, ".gate.toml", "[gates.test]\ntimeout = \"50ms\"\n")
 
-	_, stderr, code := runGateTest(t, "-C", root, "--timeout", "50ms", "run", "test")
+	_, stderr, code := runGateTest(t, "-C", root, "run", "test")
 	qt.Assert(t, qt.Equals(code, TimedOut), qt.Commentf("stderr = %q", stderr))
 	// The per-gate key, named with the gate it belongs to: one slow gate in a
 	// project of fast ones is the usual shape, and --timeout is the wrong
@@ -2393,6 +2394,19 @@ func TestTimeoutNamesItsRemedy(t *testing.T) {
 	qt.Check(t, qt.StringContains(stderr, `timeout = "1s"`))
 	qt.Check(t, qt.Not(qt.StringContains(stderr, "--timeout 5m")))
 	qt.Check(t, qt.StringContains(stderr, "[gates.test]"))
+}
+
+// --timeout beats a gate's own key, so naming the key would be advice that
+// changes nothing.
+func TestTimeoutRemedyWhenTheFlagSetTheLimitNamesTheFlag(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "test:\n\tsleep 10\n")
+
+	_, stderr, code := runGateTest(t, "-C", root, "--timeout", "50ms", "run", "test")
+	qt.Assert(t, qt.Equals(code, TimedOut), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.StringContains(stderr, "--timeout 0"))
+	qt.Check(t, qt.Not(qt.StringContains(stderr, ".gate.toml")), qt.Commentf("stderr = %q", stderr))
 }
 
 // A command the caller named has no .gate.toml entry to configure, so
