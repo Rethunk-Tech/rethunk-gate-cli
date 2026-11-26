@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/config"
 	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/testutil"
@@ -290,4 +291,20 @@ func TestQuickSelectsRolePartsOfACIRunPackage(t *testing.T) {
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
 	qt.Check(t, qt.StringContains(stdout, "biome check"), qt.Commentf("listing = %q", stdout))
 	qt.Check(t, qt.Not(qt.StringContains(stdout, "bun test")), qt.Commentf("listing = %q", stdout))
+}
+
+func TestChangedFilesLeavesTheIndexUntouched(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, "a.go", "package a\n")
+	committedRepo(t, root)
+	old := time.Now().Add(-time.Hour)
+	qt.Assert(t, qt.IsNil(os.Chtimes(filepath.Join(root, "a.go"), old, old)))
+	index := filepath.Join(root, ".git", "index")
+	before, err := os.Stat(index)
+	qt.Assert(t, qt.IsNil(err))
+	changedFiles(t.Context(), root)
+	after, err := os.Stat(index)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsTrue(os.SameFile(before, after)), qt.Commentf("git diff rewrote .git/index"))
 }

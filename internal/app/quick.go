@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"maps"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -300,10 +301,14 @@ func changedFiles(ctx context.Context, root string) []string {
 	if root == "" {
 		return nil
 	}
+	// diff-index, not diff: git diff refreshes the index under .git/index.lock
+	// even with GIT_OPTIONAL_LOCKS=0, so it would block a sibling's commit. The
+	// price is that a stat-dirty file with unchanged content is listed too.
 	git := func(args ...string) []string {
 		cmd := exec.CommandContext(ctx, "git", append([]string{ //nolint:gosec // fixed git argv, root is the detected project
 			"-C", root, "-c", "core.fsmonitor=",
 		}, args...)...)
+		cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
 		out, err := cmd.Output()
 		if err != nil {
 			return nil
@@ -318,7 +323,7 @@ func changedFiles(ctx context.Context, root string) []string {
 	}
 	seen := map[string]bool{}
 	var files []string
-	for _, f := range append(git("diff", "-z", "--name-only", "--diff-filter=d", "--relative", "HEAD"), git("ls-files", "-z", "--others", "--exclude-standard")...) {
+	for _, f := range append(git("diff-index", "-z", "--name-only", "--diff-filter=d", "--relative", "HEAD"), git("ls-files", "-z", "--others", "--exclude-standard")...) {
 		if seen[f] {
 			continue
 		}
