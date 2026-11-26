@@ -1312,7 +1312,7 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 	// invariant.
 	cmd.WaitDelay = stopGrace
 	cmd.Dir = spec.dir
-	cmd.Env = childPWD(quickRaceExit(pinTempDir(opts.tempDir, markRoot(spec.root, spec.dir))), spec.dir)
+	cmd.Env = childPWD(quickRaceExit(pinTempDir(opts.tempDir, childEnviron())), spec.dir)
 	// Appended after the process environment, so the gate wins over an
 	// inherited value the way a prefix on the command line would. os/exec
 	// keeps the last of duplicate keys, which is what makes appending an
