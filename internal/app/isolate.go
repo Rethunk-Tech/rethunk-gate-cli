@@ -94,11 +94,6 @@ func matchPrePushHook(argv []string) bool {
 	return false
 }
 
-// isPrePushHook reads a process list, nearest first, for a pre-push hook.
-func isPrePushHook(procs [][]string) bool {
-	return slices.ContainsFunc(procs, matchPrePushHook)
-}
-
 // gitValueOptions are the global options that take their value as the next
 // argument, so the word after one is not the subcommand.
 var gitValueOptions = map[string]bool{
@@ -195,11 +190,11 @@ func isolatedEnv(env []string, home string) []string {
 		}
 		return fallback
 	}
-	dir := func(base, elem string) string { return filepath.Join(base, elem) }
-	xdgCache := pick("XDG_CACHE_HOME", dir(callerHome, ".cache"))
-	xdgData := pick("XDG_DATA_HOME", dir(callerHome, ".local/share"))
-	gopath := pick("GOPATH", dir(callerHome, "go"))
-	state := pick(stored.StateDirEnv, pick("XDG_STATE_HOME", dir(callerHome, ".local/state")))
+	xdgCache := pick("XDG_CACHE_HOME", filepath.Join(callerHome, ".cache"))
+	xdgData := pick("XDG_DATA_HOME", filepath.Join(callerHome, ".local/share"))
+	gopath := pick("GOPATH", filepath.Join(callerHome, "go"))
+	// callerHome is never empty here, so StateDirFrom cannot fail.
+	state, _ := stored.StateDirFrom(lookup, callerHome)
 
 	out := make([]string, 0, len(env)+15)
 	for _, e := range env {
@@ -224,17 +219,17 @@ func isolatedEnv(env []string, home string) []string {
 		"GIT_CONFIG_NOSYSTEM=1",
 		stored.StateDirEnv+"="+state,
 		"GOPATH="+gopath,
-		"GOMODCACHE="+pick("GOMODCACHE", dir(gopath, "pkg/mod")),
-		"GOCACHE="+pick("GOCACHE", dir(xdgCache, "go-build")),
-		"npm_config_cache="+pick("npm_config_cache", dir(callerHome, ".npm")),
-		"PNPM_CONFIG_STORE_DIR="+pick("PNPM_CONFIG_STORE_DIR", dir(xdgData, "pnpm/store")),
-		"BUN_INSTALL_CACHE_DIR="+pick("BUN_INSTALL_CACHE_DIR", dir(callerHome, ".bun/install/cache")),
-		"UV_CACHE_DIR="+pick("UV_CACHE_DIR", dir(xdgCache, "uv")),
-		"GOLANGCI_LINT_CACHE="+pick("GOLANGCI_LINT_CACHE", dir(xdgCache, "golangci-lint")),
-		"PLAYWRIGHT_BROWSERS_PATH="+pick("PLAYWRIGHT_BROWSERS_PATH", dir(xdgCache, "ms-playwright")),
+		"GOMODCACHE="+pick("GOMODCACHE", filepath.Join(gopath, "pkg/mod")),
+		"GOCACHE="+pick("GOCACHE", filepath.Join(xdgCache, "go-build")),
+		"npm_config_cache="+pick("npm_config_cache", filepath.Join(callerHome, ".npm")),
+		"PNPM_CONFIG_STORE_DIR="+pick("PNPM_CONFIG_STORE_DIR", filepath.Join(xdgData, "pnpm/store")),
+		"BUN_INSTALL_CACHE_DIR="+pick("BUN_INSTALL_CACHE_DIR", filepath.Join(callerHome, ".bun/install/cache")),
+		"UV_CACHE_DIR="+pick("UV_CACHE_DIR", filepath.Join(xdgCache, "uv")),
+		"GOLANGCI_LINT_CACHE="+pick("GOLANGCI_LINT_CACHE", filepath.Join(xdgCache, "golangci-lint")),
+		"PLAYWRIGHT_BROWSERS_PATH="+pick("PLAYWRIGHT_BROWSERS_PATH", filepath.Join(xdgCache, "ms-playwright")),
 		// rustup finds its toolchains and default through these; under the fresh HOME it would report none.
-		"RUSTUP_HOME="+pick("RUSTUP_HOME", dir(callerHome, ".rustup")),
-		"CARGO_HOME="+pick("CARGO_HOME", dir(callerHome, ".cargo")),
+		"RUSTUP_HOME="+pick("RUSTUP_HOME", filepath.Join(callerHome, ".rustup")),
+		"CARGO_HOME="+pick("CARGO_HOME", filepath.Join(callerHome, ".cargo")),
 		// the CLI stores global tools under $DOTNET_CLI_HOME/.dotnet; under the fresh HOME the list is empty.
 		"DOTNET_CLI_HOME="+pick("DOTNET_CLI_HOME", callerHome),
 	)

@@ -521,15 +521,23 @@ const StateDirEnv = "GATE_STATE_DIR"
 // ~/.local/state where that is unset or not absolute, which is what the XDG
 // spec says a reader must then assume.
 func StateDir() (string, error) {
-	if dir := os.Getenv(StateDirEnv); filepath.IsAbs(dir) {
+	return StateDirFrom(os.Getenv, "")
+}
+
+// StateDirFrom is StateDir over an arbitrary lookup. home is used when the
+// lookup yields no absolute state directory; empty means os.UserHomeDir.
+func StateDirFrom(lookup func(string) string, home string) (string, error) {
+	if dir := lookup(StateDirEnv); filepath.IsAbs(dir) {
 		return dir, nil
 	}
-	if dir := os.Getenv("XDG_STATE_HOME"); filepath.IsAbs(dir) {
+	if dir := lookup("XDG_STATE_HOME"); filepath.IsAbs(dir) {
 		return dir, nil
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
+	if home == "" {
+		var err error
+		if home, err = os.UserHomeDir(); err != nil {
+			return "", err
+		}
 	}
 	return filepath.Join(home, ".local", "state"), nil
 }

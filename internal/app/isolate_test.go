@@ -160,7 +160,7 @@ func TestPrePushHookIsRecognisedFromItsAncestry(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			qt.Check(t, qt.Equals(isPrePushHook(tc.procs), tc.want))
+			qt.Check(t, qt.Equals(slices.ContainsFunc(tc.procs, matchPrePushHook), tc.want))
 		})
 	}
 }
@@ -242,6 +242,7 @@ func TestIsolatedEnvKeepsTheCallersStateDir(t *testing.T) {
 	has := func(env []string, want string) bool { return slices.Contains(env, want) }
 	qt.Check(t, qt.IsTrue(has(isolatedEnv([]string{"HOME=/home/u", "XDG_STATE_HOME=/st"}, "/tmp/fresh"), "GATE_STATE_DIR=/st")))
 	qt.Check(t, qt.IsTrue(has(isolatedEnv([]string{"HOME=/home/u"}, "/tmp/fresh"), "GATE_STATE_DIR=/home/u/.local/state")))
+	qt.Check(t, qt.IsTrue(has(isolatedEnv([]string{"HOME=/home/u", "XDG_STATE_HOME=rel"}, "/tmp/fresh"), "GATE_STATE_DIR=/home/u/.local/state")))
 	t.Setenv("GATE_STATE_DIR", "/st")
 	dir, err := stored.StateDir()
 	qt.Assert(t, qt.IsNil(err))
