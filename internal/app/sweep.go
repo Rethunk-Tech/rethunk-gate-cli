@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	stored "github.com/Rethunk-Tech/rethunk-gate-cli/internal/result"
 )
 
 // runTempPrefix names the directory a run's children share, followed by the
@@ -45,11 +47,45 @@ func newRunTempDir(base string) (string, error) {
 // sweepOrphans removes what killed runs left behind and reports how many
 // entries each part of the sweep removed. Housekeeping never fails a run: an
 // entry that will not go is simply still there for the next sweep.
-func sweepOrphans() (runs, builds, homes, logs int) {
+func sweepOrphans() (runs, builds, homes, logs, locks int) {
 	if base := childTempDir(); base != "" {
 		runs, builds = sweepTemp(base)
 	}
-	return runs, builds, sweepHomes(isolatedHomeBase()), pruneLogs(logDir())
+	homes = sweepHomes(isolatedHomeBase())
+	// The log and lock directories hold tens of thousands of entries, so
+	// walking them is paced rather than done on every run.
+	if due(filepath.Join(logDir(), ".pruned"), logPruneEvery) {
+		logs, locks = pruneLogs(logDir()), pruneLocks()
+	}
+	if due(filepath.Join(logDir(), ".pruned-results"), resultPruneEvery) {
+		stored.Prune(resultMaxAge)
+	}
+	return runs, builds, homes, logs, locks
+}
+
+// logPruneEvery paces the log and lock walk; resultPruneEvery the results one.
+const (
+	logPruneEvery    = time.Hour
+	resultPruneEvery = 24 * time.Hour
+	// resultMaxAge: a record whose root is gone is kept this long, long enough
+	// that a scratch checkout deleted and recreated within the month keeps its
+	// duration history.
+	resultMaxAge = 30 * 24 * time.Hour
+)
+
+// due reports whether stamp is older than every (or missing), and renews it.
+// A stamp that cannot be written makes the work run every time, which is slow
+// but never wrong.
+func due(stamp string, every time.Duration) bool {
+	if info, err := os.Stat(stamp); err == nil && time.Since(info.ModTime()) < every {
+		return false
+	}
+	if err := os.WriteFile(stamp, nil, 0o600); err != nil {
+		return true
+	}
+	now := time.Now()
+	_ = os.Chtimes(stamp, now, now)
+	return true
 }
 
 // sweepHomes removes throwaway HOMEs a killed run never got to delete: the
@@ -83,12 +119,12 @@ func sweepHomes(base string) (n int) {
 // the line, not the sweep: a passing run prints nothing at all, and the
 // leftovers still go.
 func reportSweep(w io.Writer, quiet bool) {
-	runs, builds, homes, logs := sweepOrphans()
-	if quiet || runs+builds+homes+logs == 0 {
+	runs, builds, homes, logs, locks := sweepOrphans()
+	if quiet || runs+builds+homes+logs+locks == 0 {
 		return
 	}
-	fmt.Fprintf(w, "gate: removed %d dead run dir(s), %d go-build dir(s), %d isolated home(s), %d log(s) older than %d days\n",
-		runs, builds, homes, logs, int(pruneAge.Hours()/24))
+	fmt.Fprintf(w, "gate: removed %d dead run dir(s), %d go-build dir(s), %d isolated home(s), %d log(s) older than %d days, %d idle lock(s)\n",
+		runs, builds, homes, logs, int(pruneAge.Hours()/24), locks)
 }
 
 // prepareTempDirs sweeps what killed runs left, then makes this run's own

@@ -199,3 +199,39 @@ func TestLockKeyWithoutPathFormatStillKeysTheWorktree(t *testing.T) {
 	qt.Check(t, qt.Equals(lockKey(ctx, sub, "repo"), lockKey(ctx, root, "repo")),
 		qt.Commentf("repo scope keyed separately when git lacked --path-format"))
 }
+
+// A lock nobody holds goes once it is old; a held one stays, however old.
+func TestPruneLocksSkipsHeldAndYoung(t *testing.T) {
+	dir, err := lockDir()
+	qt.Assert(t, qt.IsNil(err))
+	qt.Assert(t, qt.IsNil(os.MkdirAll(dir, 0o700)))
+	old := time.Now().Add(-2 * pruneAge)
+	mk := func(name string, age time.Time) string {
+		p := filepath.Join(dir, name)
+		qt.Assert(t, qt.IsNil(os.WriteFile(p, nil, 0o600)))
+		qt.Assert(t, qt.IsNil(os.Chtimes(p, age, age)))
+		return p
+	}
+	idle, held, young := mk("idle.lock", old), mk("held.lock", old), mk("young.lock", time.Now())
+	f, err := os.Open(held) //nolint:gosec // a file this test just made
+	qt.Assert(t, qt.IsNil(err))
+	defer func() { _ = f.Close() }()
+	ok, err := tryLock(f)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Assert(t, qt.IsTrue(ok))
+
+	qt.Check(t, qt.Equals(pruneLocks(), 1))
+	for p, want := range map[string]bool{idle: false, held: true, young: true} {
+		_, err := os.Stat(p)
+		qt.Check(t, qt.Equals(err == nil, want), qt.Commentf("%s", p))
+	}
+}
+
+func TestDueRunsOncePerInterval(t *testing.T) {
+	stamp := filepath.Join(t.TempDir(), ".s")
+	qt.Check(t, qt.IsTrue(due(stamp, time.Hour)))
+	qt.Check(t, qt.IsFalse(due(stamp, time.Hour)))
+	past := time.Now().Add(-2 * time.Hour)
+	qt.Assert(t, qt.IsNil(os.Chtimes(stamp, past, past)))
+	qt.Check(t, qt.IsTrue(due(stamp, time.Hour)))
+}

@@ -56,12 +56,19 @@ func gitLockPath(ctx context.Context, dir string, args ...string) (string, bool)
 	return strings.TrimSpace(string(out)), true
 }
 
-func lockPath(key string) (string, error) {
+func lockDir() (string, error) {
 	base, err := os.UserCacheDir()
 	if err != nil {
 		return "", err
 	}
-	dir := filepath.Join(base, "gate", "locks")
+	return filepath.Join(base, "gate", "locks"), nil
+}
+
+func lockPath(key string) (string, error) {
+	dir, err := lockDir()
+	if err != nil {
+		return "", err
+	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
@@ -89,30 +96,40 @@ func acquireWorkspaceLock(ctx context.Context, dir, scope string, stderr io.Writ
 	if err != nil {
 		return func() {}, true
 	}
-	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600) //nolint:gosec // path is built from the user cache dir and a hash
-	if err != nil {
-		return func() {}, true
-	}
+	var f *os.File
 	announced := false
+open:
 	for {
-		locked, err := tryLock(f)
+		f, err = os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600) //nolint:gosec // path is built from the user cache dir and a hash
 		if err != nil {
-			_ = f.Close()
 			return func() {}, true
 		}
-		if locked {
-			break
+		for {
+			locked, err := tryLock(f)
+			if err != nil {
+				_ = f.Close()
+				return func() {}, true
+			}
+			if locked {
+				break
+			}
+			if !announced {
+				announced = true
+				fmt.Fprintln(stderr, "gate: waiting for the gate already running here"+holderNote(f))
+			}
+			select {
+			case <-ctx.Done():
+				_ = f.Close()
+				return nil, false
+			case <-time.After(lockPoll):
+			}
 		}
-		if !announced {
-			announced = true
-			fmt.Fprintln(stderr, "gate: waiting for the gate already running here"+holderNote(f))
+		// pruneLocks unlinks an unheld file while holding it, so a lock won on
+		// an unlinked inode excludes nobody: open the new file instead.
+		if linked(f, path) {
+			break open
 		}
-		select {
-		case <-ctx.Done():
-			_ = f.Close()
-			return nil, false
-		case <-time.After(lockPoll):
-		}
+		_ = f.Close()
 	}
 	_ = f.Truncate(0)
 	_, _ = f.WriteAt([]byte(fmt.Sprintf("%d %d\n", os.Getpid(), time.Now().Unix())), 0)
@@ -132,4 +149,49 @@ func holderNote(f *os.File) string {
 		return ""
 	}
 	return fmt.Sprintf(" (pid %s, started %s)", fields[0], time.Unix(secs, 0).Format("15:04:05"))
+}
+
+// linked reports whether f is still the file at path.
+func linked(f *os.File, path string) bool {
+	held, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	current, err := os.Stat(path)
+	return err == nil && os.SameFile(held, current)
+}
+
+// pruneLocks removes lock files untouched for pruneAge that no run holds, and
+// returns how many. A file is unlinked while its flock is held, and a waiter
+// that won the same inode sees it is no longer linked and reopens
+// (acquireWorkspaceLock), so a removal never lets two runs share a workspace.
+func pruneLocks() (removed int) {
+	dir, err := lockDir()
+	if err != nil {
+		return 0
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0
+	}
+	cutoff := time.Now().Add(-pruneAge)
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".lock") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil || info.ModTime().After(cutoff) {
+			continue
+		}
+		path := filepath.Join(dir, e.Name())
+		f, err := os.Open(path) //nolint:gosec // a name read from the lock dir
+		if err != nil {
+			continue
+		}
+		if locked, _ := tryLock(f); locked && os.Remove(path) == nil {
+			removed++
+		}
+		_ = f.Close()
+	}
+	return removed
 }
