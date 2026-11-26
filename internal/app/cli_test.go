@@ -78,3 +78,12 @@ func TestHelpDescribesLoadWaitAsTheCodeDoesIt(t *testing.T) {
 	qt.Check(t, qt.StringContains(gateHelp, "3x the CPU count"))
 	qt.Check(t, qt.StringContains(gateHelp, "GATE_MAX_LOAD"))
 }
+
+func TestFixBadFlagIsOneLine(t *testing.T) {
+	t.Parallel()
+	_, stderr, code := runGateTest(t, "fix", "--bogus")
+	qt.Check(t, qt.Equals(code, InvalidUsage))
+	qt.Check(t, qt.StringContains(stderr, "gate: flag provided but not defined: -bogus"))
+	qt.Check(t, qt.StringContains(stderr, "gate fix --help"))
+	qt.Check(t, qt.IsTrue(strings.Count(stderr, "\n") <= 3), qt.Commentf("stderr = %q", stderr))
+}

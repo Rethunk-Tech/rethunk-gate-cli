@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/doctor"
 	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/fix"
@@ -55,13 +56,19 @@ type fixedFinding struct {
 
 func parseFixArgs(args []string, stderr io.Writer) (dryRun, ok, help bool) {
 	fs := flag.NewFlagSet("fix", flag.ContinueOnError)
-	fs.SetOutput(stderr)
+	var flagOut strings.Builder
+	fs.SetOutput(&flagOut)
 	fs.Usage = func() {}
 	fs.BoolVar(&dryRun, "dry-run", false, "")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return false, true, true
 		}
+		msg := strings.TrimSpace(flagOut.String())
+		if msg == "" {
+			msg = err.Error()
+		}
+		fmt.Fprintf(stderr, "gate: %s\n", msg)
 		return false, false, false
 	}
 	if fs.NArg() != 0 {
@@ -94,8 +101,7 @@ func runFix(ctx context.Context, dir string, args []string, asJSON bool, stdout,
 		return Success
 	}
 	if !ok {
-		fmt.Fprintln(stderr, "gate: fix takes no arguments besides --dry-run")
-		fmt.Fprint(stderr, fixHelp)
+		fmt.Fprintln(stderr, "gate: fix takes no arguments besides --dry-run; run 'gate fix --help' for usage")
 		return InvalidUsage
 	}
 
