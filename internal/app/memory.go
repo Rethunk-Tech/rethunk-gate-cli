@@ -117,7 +117,7 @@ func memoryNote(size string) string {
 	if !memoryOn(size) {
 		return ""
 	}
-	if limit, capped := cgroupLimit(); capped && !tighterThan(size, limit) {
+	if limit, capped := cgroupLimit(); capped {
 		if limit == 0 {
 			return "memory cap " + size + " unused: no cgroup memory controller visible"
 		}
@@ -151,35 +151,31 @@ func announceMemoryCap(stderr io.Writer, opts options) {
 	}
 }
 
-// enclosingLowerNote says an enclosing cap is tighter than the one asked for,
-// which is the cap that really applies. Only worth saying for a request the
+// enclosingLowerNote says an enclosing cap differs from the one asked for; the
+// enclosing one is the cap that really applies. Only worth saying for a request the
 // caller made: the default would repeat it on every run under a small cap.
 func enclosingLowerNote(size string) string {
 	limit, capped := cgroupLimit()
 	want, ok := parseSizeBytes(size)
-	if !capped || !ok || limit == 0 || want <= limit {
+	if !capped || !ok || limit == 0 || want == limit {
 		return ""
+	}
+	if want < limit {
+		return "memory cap " + size + " not applied: already under a " + formatSize(limit) + " cap"
 	}
 	return "memory cap " + size + " not applied: an enclosing " + formatSize(limit) + " cap is lower"
 }
 
-// tighterThan is whether size is below the enclosing memory.max, so a nested
-// scope would lower the cap. Gate's own scope sets memory.max to exactly size,
-// so the re-exec'd child sees it equal and does not loop.
-func tighterThan(size string, limit uint64) bool {
-	want, ok := parseSizeBytes(size)
-	return ok && limit > 0 && want < limit
-}
-
 // shouldScopeRun is whether this process must re-exec itself under a memory
 // scope: wrapping on, cap enabled, not started by a systemd unit, a user
-// systemd to open one, and no enclosing memory.max at or below size.
+// systemd to open one, and no enclosing memory.max at all: systemd-run --scope
+// opens a sibling unit, so re-exec'ing would leave the caller's cap and quota.
 func shouldScopeRun(size string) bool {
 	if !applyMemoryWrap || !memoryOn(size) || startedByUnit() || !systemdAvailable() {
 		return false
 	}
-	limit, capped := cgroupLimit()
-	return !capped || tighterThan(size, limit)
+	_, capped := cgroupLimit()
+	return !capped
 }
 
 // scopeRun re-execs gate under one systemd scope for the whole run. Gates run

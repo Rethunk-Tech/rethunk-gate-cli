@@ -220,8 +220,8 @@ func TestScopeRunUnderEnclosingCap(t *testing.T) {
 		want  bool
 		note  string
 	}{
-		{"requested below enclosing", "4G", 40 * g, true, ""},
-		{"default below enclosing", defaultMemory, 40 * g, true, ""},
+		{"requested below enclosing", "4G", 40 * g, false, "memory cap 4G not applied: already under a 40G cap"},
+		{"default below enclosing", defaultMemory, 40 * g, false, "memory cap 24G not applied: already under a 40G cap"},
 		{"requested above enclosing", "64G", 40 * g, false, "memory cap 64G not applied: an enclosing 40G cap is lower"},
 		{"requested equals enclosing", "40G", 40 * g, false, ""},
 	} {
@@ -247,8 +247,8 @@ func TestMemoryNoteNamesWhyTheCapIsNotTheRequestedOne(t *testing.T) {
 		want    string
 	}{
 		{"same cap in force", "24G", 24 * g, true, "", true, ""},
-		{"smaller request under a larger cap is scoped", "8G", 30 * g, true, "", true, ""},
-		{"smaller request, no user systemd", "8G", 30 * g, true, "", false, "memory cap 8G unused: systemd-run --user is unavailable"},
+		{"smaller request under a larger cap is not scoped", "8G", 30 * g, true, "", true, ""},
+		{"smaller request, no user systemd", "8G", 30 * g, true, "", false, ""},
 		{"larger request under a smaller cap", "24G", 8 * g, true, "", true, ""},
 		{"no memory controller visible", "8G", 0, true, "", true, "memory cap 8G unused: no cgroup memory controller visible"},
 		{"started by a unit", "24G", 0, false, "abc", true, "memory cap 24G unused: started by a systemd unit, whose own limits apply"},
