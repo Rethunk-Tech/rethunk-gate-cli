@@ -138,11 +138,11 @@ func TestProcArgvReadsTheParentOfAProcessNamedWithAParenthesis(t *testing.T) {
 	t.Parallel()
 	sleep, err := exec.LookPath("sleep")
 	qt.Assert(t, qt.IsNil(err))
-	raw, err := os.ReadFile(sleep) //nolint:gosec // the host sleep binary
-	qt.Assert(t, qt.IsNil(err))
+	// A symlink gives the kernel the odd comm without writing a binary: exec of
+	// a just-written file fails with ETXTBSY while a parallel test forks.
 	bin := filepath.Join(t.TempDir(), "a) S 7 x")
-	qt.Assert(t, qt.IsNil(os.WriteFile(bin, raw, 0o700))) //nolint:gosec // fixture must be executable
-	cmd := exec.CommandContext(t.Context(), bin, "30")    //nolint:gosec // fixture binary
+	qt.Assert(t, qt.IsNil(os.Symlink(sleep, bin)))
+	cmd := exec.CommandContext(t.Context(), bin, "30") //nolint:gosec // fixture binary
 	qt.Assert(t, qt.IsNil(cmd.Start()))
 	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
 
