@@ -121,7 +121,7 @@ func TestVerbWithTrailingFlagsPointsAtTheFlagOrder(t *testing.T) {
 		want string
 	}{
 		{[]string{"doctor", "-C", "x"}, "gate -C <path> doctor"},
-		{[]string{"doctor", "--tail", "3"}, "gate -C <path> doctor"},
+		{[]string{"doctor", "--tail", "3"}, "gate --tail doctor"},
 		{[]string{"record", "-C", "x"}, "gate -C <path> record"},
 		{[]string{"list"}, "gate --list"},
 		{[]string{"quick", "--list"}, "gate --list quick"},

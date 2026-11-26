@@ -467,7 +467,7 @@ func (st *runState) runVerb(ctx context.Context, dir string, args []string, stdo
 // verbFlagRemedy is the command line that fixes `gate <verb> <arg>`: the
 // typed flag moves before the verb, anything else is a path for -C.
 func verbFlagRemedy(arg, verb string) string {
-	if strings.HasPrefix(arg, "-") {
+	if strings.HasPrefix(arg, "-") && arg != "-C" {
 		return arg + " " + verb
 	}
 	return "-C <path> " + verb
