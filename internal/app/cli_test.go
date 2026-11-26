@@ -67,6 +67,9 @@ func TestRunHelpAndFlagsAfterRun(t *testing.T) {
 	stdout, stderr, code := runGateTest(t, "run", "--help")
 	qt.Check(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
 	qt.Check(t, qt.StringContains(stdout, "run NAME"))
+	short, _, code := runGateTest(t, "run", "-h")
+	qt.Check(t, qt.Equals(code, Success))
+	qt.Check(t, qt.Equals(short, stdout))
 
 	_, stderr, code = runGateTest(t, "run", "canon", "--serial")
 	qt.Check(t, qt.Equals(code, InvalidUsage))

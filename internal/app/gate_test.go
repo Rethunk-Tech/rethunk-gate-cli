@@ -3817,4 +3817,16 @@ func TestRunReportsUnexecutableFileAsNotRun(t *testing.T) {
 	_, stderr, code := runGateTest(t, "--log", tempLog(t), path)
 	qt.Check(t, qt.Equals(code, NotFound), qt.Commentf("stderr = %q", stderr))
 	qt.Check(t, qt.StringContains(stderr, "permission denied"))
+	qt.Check(t, qt.Not(qt.StringContains(stderr, "fork/exec")), qt.Commentf("the path is repeated: %q", stderr))
+}
+
+// An executable file with no interpreter line is the same could-not-run outcome.
+func TestRunReportsAnExecutableWithNoInterpreterAsNotRun(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "noshebang.sh")
+	qt.Assert(t, qt.IsNil(os.WriteFile(path, []byte("true\n"), 0o600)))
+	qt.Assert(t, qt.IsNil(os.Chmod(path, 0o700))) //nolint:gosec // the exec bit is what makes it fail with ENOEXEC
+	_, stderr, code := runGateTest(t, "--log", tempLog(t), path)
+	qt.Check(t, qt.Equals(code, NotFound), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.StringContains(stderr, "exec format error"))
 }
