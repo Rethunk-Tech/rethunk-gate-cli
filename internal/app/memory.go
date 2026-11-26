@@ -104,20 +104,16 @@ func userSystemdAvailable() bool {
 }
 
 // memoryNote says why the requested cap will not be the one in force, or ""
-// when it will be (or none was asked for). A looser-than-enclosing cap is
-// only worth saying for an explicit request: the default would repeat it on
-// every run under a small cap, with no remedy for the caller.
-func memoryNote(size string, explicit bool) string {
+// when it will be (or none was asked for). A cap at or above the enclosing one
+// is silent here; announceMemoryCap names it for an explicit request only, as
+// the default would repeat it on every run under a small cap.
+func memoryNote(size string) string {
 	if !memoryOn(size) {
 		return ""
 	}
-	if limit, capped := cgroupLimit(); capped {
+	if limit, capped := cgroupLimit(); capped && !tighterThan(size, limit) {
 		if limit == 0 {
 			return "memory cap " + size + " unused: no cgroup memory controller visible"
-		}
-		// Only a looser cap in force loses protection; a stricter one is noise.
-		if want, ok := parseSizeBytes(size); ok && explicit && limit > 0 && want < limit {
-			return "memory cap " + size + " not applied: already under a " + formatSize(limit) + " cap"
 		}
 		return ""
 	}
@@ -140,7 +136,7 @@ func announceMemoryCap(stderr io.Writer, opts options) {
 	if !applyMemoryWrap || opts.quiet {
 		return
 	}
-	note := memoryNote(opts.memory, opts.memExplicit)
+	note := memoryNote(opts.memory)
 	if note == "" && opts.memExplicit {
 		note = enclosingLowerNote(opts.memory)
 	}
@@ -161,13 +157,23 @@ func enclosingLowerNote(size string) string {
 	return "memory cap " + size + " not applied: an enclosing " + formatSize(limit) + " cap is lower"
 }
 
+// tighterThan is whether size is below the enclosing memory.max, so a nested
+// scope would lower the cap. Gate's own scope sets memory.max to exactly size,
+// so the re-exec'd child sees it equal and does not loop.
+func tighterThan(size string, limit uint64) bool {
+	want, ok := parseSizeBytes(size)
+	return ok && limit > 0 && want < limit
+}
+
 // shouldScopeRun is whether this process must re-exec itself under a memory
-// scope: wrapping on, cap enabled, not already inside a memory-capped cgroup
-// (gate's own scope included; the child finds it by its memory.max), not
-// started by a systemd unit, and a user systemd to open one.
+// scope: wrapping on, cap enabled, not started by a systemd unit, a user
+// systemd to open one, and no enclosing memory.max at or below size.
 func shouldScopeRun(size string) bool {
-	return applyMemoryWrap && memoryOn(size) && !startedByUnit() &&
-		systemdAvailable() && !cgroupCapped()
+	if !applyMemoryWrap || !memoryOn(size) || startedByUnit() || !systemdAvailable() {
+		return false
+	}
+	limit, capped := cgroupLimit()
+	return !capped || tighterThan(size, limit)
 }
 
 // scopeRun re-execs gate under one systemd scope for the whole run. Gates run
