@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -42,6 +43,39 @@ func reportPartial(why string) {
 // answer (offline, no gh auth, not a GitHub repository) skips the second half
 // with a note and never fails; an action that cannot be judged warns.
 func runActionsAllowed(ctx context.Context, dir string, args []string, stdout, stderr io.Writer) Code {
+	return runActionsAllowedWith(ctx, dir, args, ghFetch(ctx, dir), stdout, stderr)
+}
+
+// runActionsAllowedWith takes the settings fetcher so a test can stand in for
+// gh. `--json` skips the linter and prints the findings as a JSON array.
+func runActionsAllowedWith(ctx context.Context, dir string, args []string, fetch allowed.Fetcher, stdout, stderr io.Writer) Code {
+	today := time.Now().UTC().Format(time.DateOnly)
+	if len(args) == 1 && args[0] == "--json" {
+		findings, code := allowedFindings(ctx, dir, fetch, today, stderr)
+		if code == Fatal {
+			return code
+		}
+		type row struct {
+			Ref    string `json:"ref"`
+			File   string `json:"file"`
+			Line   int    `json:"line"`
+			Level  string `json:"level"`
+			Reason string `json:"reason"`
+		}
+		rows := make([]row, 0, len(findings))
+		for _, f := range findings {
+			level := "warn"
+			if f.Fail {
+				level = "fail"
+			}
+			rows = append(rows, row{f.Use.Ref, f.Use.File, f.Use.Line, level, f.Reason})
+		}
+		if err := json.NewEncoder(stdout).Encode(rows); err != nil {
+			fmt.Fprintf(stderr, "gate: %v\n", err)
+			return Fatal
+		}
+		return code
+	}
 	if len(args) != 1 {
 		fmt.Fprintln(stderr, "gate: actions-allowed takes the workflow linter to run first")
 		return InvalidUsage
@@ -55,10 +89,20 @@ func runActionsAllowed(ctx context.Context, dir string, args []string, stdout, s
 		fmt.Fprintf(stderr, "gate: %v\n", err)
 		return Fatal
 	}
-	return checkAllowedActions(ctx, dir, ghFetch(ctx, dir), time.Now().UTC().Format(time.DateOnly), stderr)
+	return checkAllowedActions(ctx, dir, fetch, today, stderr)
 }
 
 func checkAllowedActions(ctx context.Context, dir string, fetch allowed.Fetcher, today string, stderr io.Writer) Code {
+	findings, code := allowedFindings(ctx, dir, fetch, today, stderr)
+	for _, f := range findings {
+		fmt.Fprintf(stderr, "gate: %s\n", f)
+	}
+	return code
+}
+
+// allowedFindings returns what the settings refuse or cannot judge; the code
+// is 1 when any is a failure, Fatal when the workflows cannot be read.
+func allowedFindings(ctx context.Context, dir string, fetch allowed.Fetcher, today string, stderr io.Writer) ([]allowed.Finding, Code) {
 	skip := func(why string) Code {
 		fmt.Fprintf(stderr, "gate: allowed-actions check skipped: %s\n", why)
 		return Success
@@ -66,16 +110,16 @@ func checkAllowedActions(ctx context.Context, dir string, fetch allowed.Fetcher,
 	remote, err := originURL(ctx, dir)
 	repo := githubRepo(remote)
 	if err != nil || repo == "" {
-		return skip("origin is not a GitHub repository")
+		return nil, skip("origin is not a GitHub repository")
 	}
 	uses, err := allowed.Collect(dir)
 	if err != nil {
 		fmt.Fprintf(stderr, "gate: %v\n", err)
-		return Fatal
+		return nil, Fatal
 	}
 	state, err := stored.StateDir()
 	if err != nil {
-		return skip(err.Error())
+		return nil, skip(err.Error())
 	}
 	cacheDir := filepath.Join(state, "gate", "actions-allowed")
 	if os.Getenv(actionsRefreshVar) != "" {
@@ -84,16 +128,16 @@ func checkAllowedActions(ctx context.Context, dir string, fetch allowed.Fetcher,
 	s, err := allowed.Load(repo, cacheDir, today, fetch)
 	if err != nil {
 		reportPartial("allowed-actions check skipped: cannot read " + repo + " settings")
-		return skip("cannot read " + repo + " settings: " + err.Error())
+		return nil, skip("cannot read " + repo + " settings: " + err.Error())
 	}
+	findings := allowed.Check(uses, s)
 	code := Success
-	for _, f := range allowed.Check(uses, s) {
-		fmt.Fprintf(stderr, "gate: %s\n", f)
+	for _, f := range findings {
 		if f.Fail {
 			code = Code(1)
 		}
 	}
-	return code
+	return findings, code
 }
 
 func ghFetch(ctx context.Context, dir string) allowed.Fetcher {

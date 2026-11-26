@@ -433,6 +433,11 @@ A program named like one of gate's own words (`doctor`, `run`, `fix`, `record`,
 `quick`, `completion`, `man`, and the hidden `actions-allowed`) is run as
 `gate -- <word>`, for example `gate -- quick`.
 
+`gate actions-allowed --json` takes no linter: it prints a JSON array with one
+object per `uses:` the repository's allowed-actions settings refuse or cannot
+judge (`ref`, `file`, `line`, `level` `fail` or `warn`, `reason`), and exits 1
+when any is `fail`. An unreadable setting prints `[]` and a note on stderr.
+
 ## Configuration
 
 Needed only for a check detection cannot infer, or an order it cannot see.

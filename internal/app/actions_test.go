@@ -127,3 +127,20 @@ func TestActionsAllowedWarnOnlyFindingPasses(t *testing.T) {
 	qt.Check(t, qt.Equals(checkAllowedActions(t.Context(), dir, fetch, "2026-11-21", &stderr), Success))
 	qt.Check(t, qt.StringContains(stderr.String(), "EndBug/label-sync@v2"))
 }
+
+func TestActionsAllowedJSONNeedsNoLinter(t *testing.T) {
+	dir := actionsRepo(t, "git@github.com:o/r.git")
+	fetch := func(p string) ([]byte, error) {
+		if p == "repos/o/r/actions/permissions" {
+			return []byte(`{"allowed_actions":"selected"}`), nil
+		}
+		return []byte(`{"patterns_allowed":[]}`), nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := runActionsAllowedWith(t.Context(), dir, []string{"--json"}, fetch, &stdout, &stderr)
+	qt.Check(t, qt.Equals(code, Code(1)))
+	qt.Check(t, qt.JSONEquals(stdout.Bytes(), []map[string]any{{
+		"ref": "EndBug/label-sync@v2", "file": ".github/workflows/ci.yml", "line": 4,
+		"level": "fail", "reason": "not GitHub-owned and matches no patterns_allowed entry",
+	}}))
+}
