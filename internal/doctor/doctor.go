@@ -889,17 +889,15 @@ func stepMentionsInput(body, action, input string) bool {
 // YAMLStep is the line range of the workflow step containing line i.
 func YAMLStep(lines []string, i int) (start, end int, ok bool) {
 	start = i
+	var di int
 	for start >= 0 {
-		if _, isDash := yamlDash(lines[start]); isDash {
+		if ind, isDash := yamlDash(lines[start]); isDash {
+			di = ind
 			break
 		}
 		start--
 	}
 	if start < 0 {
-		return 0, 0, false
-	}
-	di, ok := yamlDash(lines[start])
-	if !ok {
 		return 0, 0, false
 	}
 	end = start + 1

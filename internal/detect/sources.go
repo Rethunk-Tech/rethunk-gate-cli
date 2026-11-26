@@ -1018,7 +1018,7 @@ const gitDeadline = 5 * time.Second
 // a repository, or a machine without git.
 func walkScripts(root string) []string {
 	var found []string
-	if err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -1037,10 +1037,7 @@ func walkScripts(root string) []string {
 			}
 		}
 		return nil
-	}); err != nil {
-		slices.Sort(found)
-		return found
-	}
+	})
 	slices.Sort(found)
 	return found
 }
