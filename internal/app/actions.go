@@ -112,6 +112,9 @@ func allowedFindings(ctx context.Context, dir string, fetch allowed.Fetcher, tod
 	if err != nil || repo == "" {
 		return nil, skip("origin is not a GitHub repository")
 	}
+	if top, err := exec.CommandContext(ctx, "git", "-C", dir, "rev-parse", "--show-toplevel").Output(); err == nil { //nolint:gosec // fixed argv, dir is detected
+		dir = strings.TrimSpace(string(top))
+	}
 	uses, err := allowed.Collect(dir)
 	if err != nil {
 		fmt.Fprintf(stderr, "gate: %v\n", err)

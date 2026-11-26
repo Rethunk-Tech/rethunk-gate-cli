@@ -144,3 +144,18 @@ func TestActionsAllowedJSONNeedsNoLinter(t *testing.T) {
 		"level": "fail", "reason": "not GitHub-owned and matches no patterns_allowed entry",
 	}}))
 }
+
+func TestActionsAllowedFromASubdirectoryReadsTheRepoWorkflows(t *testing.T) {
+	dir := actionsRepo(t, "git@github.com:o/r.git")
+	sub := filepath.Join(dir, "docs")
+	qt.Assert(t, qt.IsNil(os.MkdirAll(sub, 0o750)))
+	fetch := func(p string) ([]byte, error) {
+		if p == "repos/o/r/actions/permissions" {
+			return []byte(`{"allowed_actions":"selected"}`), nil
+		}
+		return []byte(`{"patterns_allowed":[]}`), nil
+	}
+	var stdout, stderr bytes.Buffer
+	code := runActionsAllowedWith(t.Context(), sub, []string{"--json"}, fetch, &stdout, &stderr)
+	qt.Check(t, qt.Equals(code, Code(1)), qt.Commentf("stdout = %s", stdout.String()))
+}
