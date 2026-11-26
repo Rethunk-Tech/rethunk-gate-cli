@@ -1037,3 +1037,26 @@ func TestLastFailedNameRerunsInterruptedAndNotFound(t *testing.T) {
 	}
 	qt.Check(t, qt.Equals(lastFailedName(result{Name: "g", Status: "ok"}), ""))
 }
+
+// A configured gate the wrapped aggregate never runs makes the pass partial:
+// the bare gate set would have failed on it.
+func TestNamedWholeCIWithAConfigGateWritesAPartialRecord(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	makeBin, err := exec.LookPath("make")
+	qt.Assert(t, qt.IsNil(err))
+	bin := t.TempDir()
+	qt.Assert(t, qt.IsNil(os.Symlink(makeBin, filepath.Join(bin, "make"))))
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "check:\n\t@:\n")
+	testutil.Write(t, root, ".gate.toml", "[gates.extra]\nrun = \"false\"\n")
+	committedRepo(t, root)
+	gitBin, err := exec.LookPath("git")
+	qt.Assert(t, qt.IsNil(err))
+	qt.Assert(t, qt.IsNil(os.Symlink(gitBin, filepath.Join(bin, "git"))))
+	t.Setenv("PATH", bin)
+
+	_, stderr, code := runGateTest(t, "-C", root, "make", "check")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("%q", stderr))
+	_, _, code = runGateTest(t, "-C", root, "record")
+	qt.Check(t, qt.Not(qt.Equals(code, Success)))
+}

@@ -556,9 +556,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		return code
 	}
 	if len(command) > 0 {
-		if root, ok := detect.WholeCIRoot(ctx, dir, command); ok {
-			st.wholeCI = root
-		}
+		st.wholeCI = wholeCIRoot(ctx, dir, command)
 		opts.gates = append(opts.gates, gateSpec{
 			argv:    command,
 			display: strings.Join(command, " "),
@@ -704,6 +702,20 @@ func (st *runState) announceAndCheckLog(dir string, project detect.Project, stde
 		return InvalidUsage, false
 	}
 	return Success, true
+}
+
+// wholeCIRoot is the project root when command is its whole CI. Detection
+// never sees .gate.toml gates, which a bare run would also run or override, so
+// any of them makes the pass partial.
+func wholeCIRoot(ctx context.Context, dir string, command []string) string {
+	root, ok := detect.WholeCIRoot(ctx, dir, command)
+	if !ok {
+		return ""
+	}
+	if cfg, err := config.Load(root); err != nil || len(cfg.Gates) > 0 {
+		return ""
+	}
+	return root
 }
 
 // setBudget records the project root and the wall-time budget for the run.
