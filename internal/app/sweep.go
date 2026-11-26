@@ -21,7 +21,8 @@ const runTempPrefix = "gr-"
 // after. It carries no pid, and it is where nearly all of the litter lands.
 const goBuildPrefix = "go-build"
 
-// isolatedHomePrefix names a gate's throwaway HOME.
+// isolatedHomePrefix names a gate's throwaway HOME, followed by the owning
+// pid in base 36 as runTempPrefix does, so a long run's HOME is not swept.
 const isolatedHomePrefix = "gate-home-"
 
 // orphanRunAge is how long a dead run's directory is left alone. Long enough
@@ -60,6 +61,10 @@ func sweepHomes(base string) (n int) {
 	}
 	for _, e := range entries {
 		if !e.IsDir() || !strings.HasPrefix(e.Name(), isolatedHomePrefix) {
+			continue
+		}
+		// A name without a readable pid predates the pid, and ages out.
+		if pid, ok := pidFromName(e.Name(), isolatedHomePrefix); ok && pidAlive(pid) {
 			continue
 		}
 		info, err := e.Info()
@@ -149,8 +154,11 @@ func sweepTemp(base string) (runs, builds int) {
 }
 
 // runTempPID reads the pid out of a gr-<base-36 pid>-<random> name.
-func runTempPID(name string) (int, bool) {
-	rest, ok := strings.CutPrefix(name, runTempPrefix)
+func runTempPID(name string) (int, bool) { return pidFromName(name, runTempPrefix) }
+
+// pidFromName reads the pid out of a <prefix><base-36 pid>-<random> name.
+func pidFromName(name, prefix string) (int, bool) {
+	rest, ok := strings.CutPrefix(name, prefix)
 	if !ok {
 		return 0, false
 	}

@@ -186,3 +186,14 @@ func TestSweepRemovesStaleIsolatedHomes(t *testing.T) {
 	qt.Check(t, qt.IsTrue(exists(fresh)))
 	qt.Check(t, qt.IsTrue(exists(other)))
 }
+
+// A home named for a live pid belongs to a run still going, however old.
+func TestSweepKeepsOldHomeOfLivePid(t *testing.T) {
+	base := t.TempDir()
+	live := filepath.Join(base, isolatedHomePrefix+strconv.FormatInt(int64(os.Getpid()), 36)+"-x")
+	qt.Assert(t, qt.IsNil(os.Mkdir(live, 0o700)))
+	aged(t, live, 2*orphanRunAge)
+
+	qt.Check(t, qt.Equals(sweepHomes(base), 0))
+	qt.Check(t, qt.IsTrue(exists(live)))
+}

@@ -1253,7 +1253,7 @@ func runOne(ctx context.Context, spec gateSpec, opts options) gateResult {
 	isolated := isolateAware(opts, spec)
 	home := ""
 	if isolated {
-		dir, err := os.MkdirTemp(isolatedHomeBase(), isolatedHomePrefix)
+		dir, err := os.MkdirTemp(isolatedHomeBase(), isolatedHomePrefix+strconv.FormatInt(int64(os.Getpid()), 36)+"-")
 		if err != nil {
 			res.fatalErr = fmt.Errorf("cannot create an isolated HOME: %w", err)
 			return res
