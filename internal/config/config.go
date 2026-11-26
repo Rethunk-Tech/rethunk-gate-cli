@@ -19,6 +19,7 @@ import (
 	pathpkg "path"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -228,6 +229,9 @@ func ParseTimeout(value string) (time.Duration, error) {
 	return d, nil
 }
 
+// maxMemoryBytes is the ceiling ParseMemory accepts.
+const maxMemoryBytes = 4 << 60
+
 // ParseMemory reads a memory ceiling wherever one is written -- the --mem
 // flag and [limits] memory both come through here, so `24G`, `16G` and a
 // disabling `0` mean the same thing in either place. The string is kept as
@@ -245,12 +249,31 @@ func ParseMemory(value string) (string, error) {
 	for i < len(value) && value[i] >= '0' && value[i] <= '9' {
 		i++
 	}
+	shift := uint(0)
 	if i < len(value) {
 		switch value[i:] {
-		case "K", "M", "G", "T", "P", "E":
+		case "K":
+			shift = 10
+		case "M":
+			shift = 20
+		case "G":
+			shift = 30
+		case "T":
+			shift = 40
+		case "P":
+			shift = 50
+		case "E":
+			shift = 60
 		default:
 			return "", fmt.Errorf("wants a size like 24G or 0, got %q", value)
 		}
+	}
+	// The kernel reads a ceiling of 2^63 bytes or more back as "max", which
+	// makes the re-exec under systemd-run look uncapped and loop; systemd
+	// itself refuses 16E.
+	n, err := strconv.ParseUint(value[:i], 10, 64)
+	if err != nil || n > maxMemoryBytes>>shift {
+		return "", fmt.Errorf("wants a size like 24G or 0, got %q", value)
 	}
 	return value, nil
 }

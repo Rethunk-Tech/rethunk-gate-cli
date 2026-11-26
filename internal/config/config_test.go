@@ -523,12 +523,12 @@ func TestQuickGatesFromToml(t *testing.T) {
 
 func TestParseMemoryTakesOnlyWhatSystemdTakes(t *testing.T) {
 	t.Parallel()
-	for _, ok := range []string{"0", "1024", "512M", "24G", "1T", "1K", "1P", "1E"} {
+	for _, ok := range []string{"0", "1024", "512M", "24G", "1T", "1K", "1P", "1E", "4E", "4611686018427387904"} {
 		got, err := ParseMemory(ok)
 		qt.Check(t, qt.IsNil(err), qt.Commentf("%q", ok))
 		qt.Check(t, qt.Equals(got, ok))
 	}
-	for _, bad := range []string{"", "g", "1g", "512m", "1GiB", "1GB", "1k", "1e", "-1G", "1.5G", "01G", "1 G"} {
+	for _, bad := range []string{"", "g", "1g", "512m", "1GiB", "1GB", "1k", "1e", "-1G", "1.5G", "01G", "1 G", "8E", "16E", "5E", "4611686018427387905", "99999999999999999999"} {
 		_, err := ParseMemory(bad)
 		qt.Check(t, qt.IsNotNil(err), qt.Commentf("%q", bad))
 	}
