@@ -3900,3 +3900,30 @@ func TestRunReportsAnExecutableWithNoInterpreterAsNotRun(t *testing.T) {
 	qt.Check(t, qt.Equals(code, NotFound), qt.Commentf("stderr = %q", stderr))
 	qt.Check(t, qt.StringContains(stderr, "exec format error"))
 }
+
+// -C names a directory to enter: a path that is missing or not a directory is
+// refused, and a directory that is no repository is only a project with no
+// gate to list.
+func TestChdirErrorForms(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	file := filepath.Join(dir, "f")
+	qt.Assert(t, qt.IsNil(os.WriteFile(file, nil, 0o600)))
+	for _, tc := range []struct {
+		name, path, want string
+		code             Code
+	}{
+		{"missing", filepath.Join(dir, "nope"), "no such file or directory", Fatal},
+		{"file", file, "not a directory", Fatal},
+		{"non-repo", t.TempDir(), "", Success},
+	} {
+		_, stderr, code := runGateTest(t, "-C", tc.path, "--list")
+		qt.Check(t, qt.Equals(code, tc.code), qt.Commentf("%s: stderr = %q", tc.name, stderr))
+		if tc.want == "" {
+			qt.Check(t, qt.Not(qt.StringContains(stderr, "cannot enter")), qt.Commentf("%s: %q", tc.name, stderr))
+			continue
+		}
+		qt.Check(t, qt.StringContains(stderr, "cannot enter"), qt.Commentf("%s: %q", tc.name, stderr))
+		qt.Check(t, qt.StringContains(stderr, tc.want), qt.Commentf("%s: %q", tc.name, stderr))
+	}
+}
