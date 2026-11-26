@@ -151,6 +151,7 @@ func IsRole(name string) bool { return slices.Contains(gateOrder, name) }
 // ls-files for the shell gate: a fixed argv, with core.fsmonitor emptied so a
 // repository cannot name a program for git to run.
 func Detect(ctx context.Context, dir string) (Project, error) {
+	ctx = context.WithValue(ctx, filesMemoKey{}, &filesMemo{m: map[string]filesResult{}})
 	proj, err := detectOne(ctx, dir)
 	if err != nil {
 		return proj, err

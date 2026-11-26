@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -746,6 +747,10 @@ func markdownConventionGates(root string, proj *Project) (gates []Gate, skipped 
 }
 
 func shellConventionGates(ctx context.Context, root string, proj *Project) (gates []Gate, skipped []Skip) {
+	// A nested package keeps only its declared roles and format, never shell.
+	if ctx.Value(nestedPackageKey{}) != nil {
+		return nil, nil
+	}
 	// Shell scripts belong to no toolchain, so nothing above ever claims
 	// them: 23 of 55 repositories in this fleet carry scripts outside their
 	// vendored directories, and two had to declare a shellcheck gate by hand
@@ -958,13 +963,48 @@ func gitScripts(ctx context.Context, root string) ([]string, bool) {
 	if !ok {
 		return nil, false
 	}
-	return slices.DeleteFunc(all, func(name string) bool { return !strings.HasSuffix(name, ".sh") }), true
+	return slices.DeleteFunc(slices.Clone(all), func(name string) bool { return !strings.HasSuffix(name, ".sh") }), true
 }
 
 // gitFiles lists the files git tracks or would track under root,
 // slash-separated, sorted. Callers filter: the argv stays a constant, which is
 // what makes running git here safe.
 func gitFiles(ctx context.Context, root string) ([]string, bool) {
+	if m, _ := ctx.Value(filesMemoKey{}).(*filesMemo); m != nil {
+		return m.get(root, func() ([]string, bool) { return listGitFiles(ctx, root) })
+	}
+	return listGitFiles(ctx, root)
+}
+
+type (
+	filesMemoKey     struct{}
+	nestedPackageKey struct{}
+)
+
+// filesMemo holds one Detect's git listings, so the shell gate and nested
+// discovery over the same root spawn git once.
+type filesMemo struct {
+	mu sync.Mutex
+	m  map[string]filesResult
+}
+
+type filesResult struct {
+	files []string
+	ok    bool
+}
+
+func (m *filesMemo) get(root string, list func() ([]string, bool)) ([]string, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if r, hit := m.m[root]; hit {
+		return r.files, r.ok
+	}
+	files, ok := list()
+	m.m[root] = filesResult{files, ok}
+	return files, ok
+}
+
+func listGitFiles(ctx context.Context, root string) ([]string, bool) {
 	ctx, cancel := context.WithTimeout(ctx, gitDeadline)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git",
@@ -1324,7 +1364,7 @@ func gateNestedPackage(ctx context.Context, proj *Project, rel string) {
 		proj.Notes = append(proj.Notes, "CI runs "+name+"/, and "+enteredBy+" already enters it; not gated twice")
 		return
 	}
-	sub, err := detectOne(ctx, dir)
+	sub, err := detectOne(context.WithValue(ctx, nestedPackageKey{}, true), dir)
 	if err != nil {
 		return
 	}
