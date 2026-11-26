@@ -486,7 +486,7 @@ func dropCorepack(body string) (string, string) {
 		if !isCorepackEnable(line) {
 			continue
 		}
-		start, end, ok := stepContaining(lines, i)
+		start, end, ok := doctor.YAMLStep(lines, i)
 		if !ok {
 			return body, "corepack enable is not a step that can be dropped"
 		}
@@ -523,47 +523,6 @@ func isCorepackEnable(line string) bool {
 	val = strings.TrimSpace(val)
 	val = strings.Trim(val, `"'`)
 	return val == "corepack enable"
-}
-
-func stepContaining(lines []string, i int) (start, end int, ok bool) {
-	start = i
-	for start >= 0 {
-		if _, isDash := dashIndent(lines[start]); isDash {
-			break
-		}
-		start--
-	}
-	if start < 0 {
-		return 0, 0, false
-	}
-	di, ok := dashIndent(lines[start])
-	if !ok {
-		return 0, 0, false
-	}
-	end = start + 1
-	for end < len(lines) {
-		line := lines[end]
-		if strings.TrimSpace(line) == "" {
-			end++
-			continue
-		}
-		if ind, isDash := dashIndent(line); isDash && ind <= di {
-			break
-		}
-		if indentOf(line) <= di {
-			break
-		}
-		end++
-	}
-	return start, end, true
-}
-
-func dashIndent(line string) (int, bool) {
-	s := strings.TrimLeft(line, " ")
-	if !strings.HasPrefix(s, "- ") && s != "-" {
-		return 0, false
-	}
-	return len(line) - len(s), true
 }
 
 func indentOf(line string) int {

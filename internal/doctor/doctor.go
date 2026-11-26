@@ -854,10 +854,10 @@ func stepHasProject(body, action string, bases, markers []string) bool {
 			continue
 		}
 		wd := ""
-		if start, end, ok := yamlStep(lines, i); ok {
+		if start, end, ok := YAMLStep(lines, i); ok {
 			for _, l := range lines[start:end] {
-				if v, found := strings.CutPrefix(strings.TrimSpace(l), "working-directory:"); found {
-					wd = strings.Trim(strings.TrimSpace(v), `"'`)
+				if strings.HasPrefix(strings.TrimSpace(l), "working-directory:") {
+					wd = yamlScalar(l, "working-directory:")
 				}
 			}
 		}
@@ -882,7 +882,7 @@ func stepMentionsInput(body, action, input string) bool {
 		if !strings.Contains(line, action) {
 			continue
 		}
-		start, end, ok := yamlStep(lines, i)
+		start, end, ok := YAMLStep(lines, i)
 		if !ok {
 			if strings.Contains(line, input) {
 				return true
@@ -898,7 +898,8 @@ func stepMentionsInput(body, action, input string) bool {
 	return false
 }
 
-func yamlStep(lines []string, i int) (start, end int, ok bool) {
+// YAMLStep is the line range of the workflow step containing line i.
+func YAMLStep(lines []string, i int) (start, end int, ok bool) {
 	start = i
 	for start >= 0 {
 		if _, isDash := yamlDash(lines[start]); isDash {
