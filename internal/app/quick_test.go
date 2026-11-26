@@ -2,6 +2,7 @@ package app
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -143,13 +144,22 @@ func TestChangedFilesSkipsDeletedAndIsRelativeToTheProject(t *testing.T) {
 	testutil.Write(t, root, "svc/c.go", "package a\n")
 	testutil.Write(t, root, "other.go", "package o // x\n")
 	qt.Assert(t, qt.IsNil(os.Remove(filepath.Join(root, "svc", "b.go"))))
+	// A repository-chosen fsmonitor hook must never run.
+	marker := filepath.Join(root, "..", "fsmonitor-ran")
+	hook := filepath.Join(t.TempDir(), "hook.sh")
+	qt.Assert(t, qt.IsNil(os.WriteFile(hook, []byte("#!/bin/sh\ntouch "+marker+"\n"), 0o700)))                         //nolint:gosec // fixture must be executable
+	out, err := exec.CommandContext(t.Context(), "git", "-C", root, "config", "core.fsmonitor", hook).CombinedOutput() //nolint:gosec // fixture paths
+	qt.Assert(t, qt.IsNil(err), qt.Commentf("%s", out))
 	qt.Check(t, qt.DeepEquals(changedFiles(t.Context(), filepath.Join(root, "svc")), []string{"a.go", "c.go"}))
+	_, err = os.Stat(marker)
+	qt.Check(t, qt.IsTrue(os.IsNotExist(err)), qt.Commentf("changedFiles ran the repository's fsmonitor hook"))
 	qt.Check(t, qt.HasLen(changedFiles(t.Context(), ""), 0))
 }
 
 func TestQuickWriteModeAndScoping(t *testing.T) {
 	qt.Check(t, qt.DeepEquals(writeModeArgv([]string{"ruff", "check", "."}), []string{"ruff", "format", "."}))
 	qt.Check(t, qt.DeepEquals(writeModeArgv([]string{"ruff", "format", "--check", "."}), []string{"ruff", "format", "."}))
+	qt.Check(t, qt.DeepEquals(writeModeArgv([]string{"ruff", "format", "--diff", "."}), []string{"ruff", "format", "."}))
 	qt.Check(t, qt.DeepEquals(writeModeArgv([]string{"dotnet", "format", "--verify-no-changes"}), []string{"dotnet", "format"}))
 	// A lint-only golangci-lint project formats the whole tree with --all and
 	// only the changed files otherwise.
