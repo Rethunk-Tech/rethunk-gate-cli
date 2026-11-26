@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/config"
+	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/detect"
 	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/doctor"
 	"github.com/pelletier/go-toml/v2"
 )
@@ -89,7 +90,7 @@ func Apply(f doctor.Finding, dryRun bool) (Result, error) {
 	case "dependabot-npm-in-bun":
 		return applyWorkflow(f, dryRun, dependabotToBun(filepath.Dir(filepath.Dir(f.Path))))
 	case "npx-in-bun-workspace":
-		return applyWorkflow(f, dryRun, replaceNpx)
+		return applyWorkflow(f, dryRun, replaceNpx(f.Path))
 	case "actions-floating-ref", "actions-stale-ref":
 		return applyWorkflow(f, dryRun, pinSharedAction(f))
 	default:
@@ -309,24 +310,24 @@ func splitLines(body string) []string {
 
 // --- workflow edits ---
 
-func replaceNpx(body string) (string, string) {
-	if !strings.Contains(body, "npx ") {
-		return body, "named npx invocation not found"
+func replaceNpx(path string) func(string) (string, string) {
+	return func(body string) (string, string) {
+		if !strings.Contains(body, "npx ") {
+			return body, "named npx invocation not found"
+		}
+		if json.Valid([]byte(strings.TrimSpace(body))) {
+			return replaceNpxInScripts(path, body)
+		}
+		return strings.ReplaceAll(body, "npx ", "bunx "), ""
 	}
-	if json.Valid([]byte(strings.TrimSpace(body))) {
-		return replaceNpxInScripts(body)
-	}
-	return strings.ReplaceAll(body, "npx ", "bunx "), ""
 }
 
 // replaceNpxInScripts splices script values only. Doctor flags npx inside
 // scripts, and a whole-file ReplaceAll would rewrite a description that
 // mentions the same words.
-func replaceNpxInScripts(body string) (string, string) {
-	var pkg struct {
-		Scripts map[string]string `json:"scripts"`
-	}
-	if err := json.Unmarshal([]byte(body), &pkg); err != nil {
+func replaceNpxInScripts(path, body string) (string, string) {
+	pkg, ok := detect.ReadPackageJSON(path)
+	if !ok {
 		return body, "named npx invocation not found"
 	}
 	next := body

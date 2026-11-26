@@ -8,7 +8,6 @@ package doctor
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -441,12 +440,13 @@ func checkGoRace(root string, proj detect.Project, cfg config.Config, add func(F
 			take(readFile(filepath.Join(dir, name)))
 		}
 		take(packageScripts(dir))
-		for _, wd := range []string{".github/workflows", ".azuredevops/pipelines"} {
-			entries, _ := os.ReadDir(filepath.Join(dir, wd))
-			for _, e := range entries {
-				if !e.IsDir() && detect.IsYAML(e.Name()) {
-					take(readFile(filepath.Join(dir, wd, e.Name())))
-				}
+		for _, f := range detect.WorkflowFiles(dir) {
+			take(readFile(f))
+		}
+		entries, _ := os.ReadDir(filepath.Join(dir, ".azuredevops", "pipelines"))
+		for _, e := range entries {
+			if !e.IsDir() && detect.IsYAML(e.Name()) {
+				take(readFile(filepath.Join(dir, ".azuredevops", "pipelines", e.Name())))
 			}
 		}
 	}
@@ -473,10 +473,8 @@ func checkGoRace(root string, proj detect.Project, cfg config.Config, add func(F
 // packageScripts joins a package.json's script bodies, leaving out its
 // dependency names and description.
 func packageScripts(dir string) string {
-	var pkg struct {
-		Scripts map[string]string `json:"scripts"`
-	}
-	if json.Unmarshal([]byte(readFile(filepath.Join(dir, "package.json"))), &pkg) != nil {
+	pkg, ok := detect.ReadPackageJSON(filepath.Join(dir, "package.json"))
+	if !ok {
 		return ""
 	}
 	var b strings.Builder
@@ -517,8 +515,10 @@ func checkNoCI(proj detect.Project, cfg config.Config, add func(Finding)) {
 	// a member never has a .github of its own, so judging from proj.Root would
 	// fire on the majority shape.
 	// Azure DevOps repositories run CI from pipeline YAML, not .github.
+	if len(detect.WorkflowFiles(repo)) > 0 {
+		return
+	}
 	for _, ci := range []string{
-		filepath.Join(".github", "workflows"),
 		filepath.Join(".azuredevops", "pipelines"),
 		"azure-pipelines.yml",
 	} {
@@ -715,10 +715,7 @@ func usesYarnOrPnpm(roots []string) bool {
 				return true
 			}
 		}
-		var pkg struct {
-			PackageManager string `json:"packageManager"`
-		}
-		if json.Unmarshal([]byte(readFile(filepath.Join(root, "package.json"))), &pkg) == nil &&
+		if pkg, ok := detect.ReadPackageJSON(filepath.Join(root, "package.json")); ok &&
 			(strings.HasPrefix(pkg.PackageManager, "yarn@") || strings.HasPrefix(pkg.PackageManager, "pnpm@")) {
 			return true
 		}
@@ -1083,14 +1080,8 @@ func hasAggregatingGate(body string) bool {
 // prose, not an invocation, and flagging it would teach people to skip the
 // output the same way a stale pin they cannot act on would.
 func checkNpxInPackageScripts(root string, proj detect.Project, add func(Finding)) {
-	body := readFile(filepath.Join(root, "package.json"))
-	if body == "" {
-		return
-	}
-	var pkg struct {
-		Scripts map[string]string `json:"scripts"`
-	}
-	if err := json.Unmarshal([]byte(body), &pkg); err != nil {
+	pkg, ok := detect.ReadPackageJSON(filepath.Join(root, "package.json"))
+	if !ok {
 		return
 	}
 	invokes := false

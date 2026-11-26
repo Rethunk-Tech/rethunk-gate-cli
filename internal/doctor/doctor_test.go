@@ -988,3 +988,17 @@ func TestClippyOffCountsADirectStepAndPrefersTheGatingWorkflow(t *testing.T) {
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.IsFalse(reported(findings, "ci-clippy-off")), qt.Commentf("%v", checkNames(findings)))
 }
+
+// A workflows directory holding no YAML runs nothing, so it is no CI.
+func TestAWorkflowsDirectoryWithoutYAMLIsNoCI(t *testing.T) {
+	isolatePath(t)
+
+	repo := t.TempDir()
+	testutil.Write(t, repo, "go.mod", "module demo\n\ngo 1.26\n")
+	testutil.Write(t, repo, ".git/HEAD", "ref: refs/heads/main\n")
+	testutil.Write(t, repo, ".github/workflows/.gitkeep", "")
+
+	findings, err := Run(t.Context(), repo)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsTrue(reported(findings, "no-ci")), qt.Commentf("findings = %v", checkNames(findings)))
+}

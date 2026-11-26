@@ -702,7 +702,7 @@ var auditBunScript = "/usr/local/src/com.github/Rethunk-Tech/gh-actions/audit-bu
 func workflowConventionGates(root string, proj *Project) (gates []Gate, skipped []Skip) {
 	// actionlint runs on a different toolchain from everything above, so it
 	// overlaps cleanly with whatever else the project has.
-	if exists(filepath.Join(root, ".github", "workflows")) {
+	if len(WorkflowFiles(root)) > 0 {
 		if bin := resolve(root, proj, "actionlint"); bin != "" {
 			gates = append(gates, Gate{
 				// "workflows", not "ci": this lints the workflow files, which

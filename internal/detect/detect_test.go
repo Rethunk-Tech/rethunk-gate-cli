@@ -1612,3 +1612,17 @@ func TestTestLikeScriptsRunAsTestWhenNoPlainTestExists(t *testing.T) {
 	g = gateNamed(t, detect(t, root), "test")
 	qt.Check(t, qt.DeepEquals(g.Argv, []string{"make", "tests"}))
 }
+
+// A workflows directory with no YAML has nothing for actionlint to read, and
+// actionlint exits 3 on it.
+func TestNoWorkflowsGateForADirectoryWithoutYAML(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	testutil.Write(t, dir, "go.mod", "module demo\n\ngo 1.26\n")
+	testutil.Write(t, dir, ".github/workflows/.gitkeep", "")
+	testutil.Write(t, dir, ".github/workflows/ci.yml.disabled", "jobs: {}\n")
+	testutil.WriteExecutable(t, dir, "node_modules/.bin/actionlint")
+
+	proj := detect(t, dir)
+	qt.Check(t, qt.IsFalse(slices.ContainsFunc(proj.Gates, func(g Gate) bool { return g.Name == "workflows" })))
+}
