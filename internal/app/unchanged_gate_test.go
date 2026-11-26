@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-quicktest/qt"
 
@@ -231,4 +232,35 @@ func TestFingerprintMovesWithIgnoredFilesUnderTheRoot(t *testing.T) {
 	qt.Check(t, qt.Not(qt.Equals(after, before)), qt.Commentf("go.work change"))
 	testutil.Write(t, root, "pkg/a/.env", "X=2\n")
 	qt.Check(t, qt.Not(qt.Equals(gatesFingerprint(t.Context(), opts), after)), qt.Commentf("nested .env change"))
+}
+
+// A limit derived from a gate's own history follows the machine's load, so
+// hashing it would make every rerun miss the fingerprint; a limit the caller
+// set is part of the run.
+func TestFingerprintIgnoresADerivedTimeoutButNotAnExplicitOne(t *testing.T) {
+	fp := func(timeout time.Duration, derived bool) string {
+		gates := []gateSpec{{argv: []string{"sh", "-c", "true"}, timeout: timeout, derivedTimeout: derived}}
+		return gatesFingerprint(t.Context(), options{gates: gates})
+	}
+	qt.Check(t, qt.Equals(fp(time.Second, true), fp(2*time.Second, true)), qt.Commentf("a derived limit moved the fingerprint"))
+	qt.Check(t, qt.Not(qt.Equals(fp(time.Second, false), fp(2*time.Second, false))), qt.Commentf("an explicit limit did not"))
+}
+
+// A gate run through make or sh on a Go project still builds with the Go
+// toolchain, so an upgrade must move the fingerprint although no gate argv
+// names go.
+func TestFingerprintMovesWithTheToolchainAManifestNames(t *testing.T) {
+	root := t.TempDir()
+	testutil.Write(t, root, "go.mod", "module x\n")
+	bin := t.TempDir()
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	fp := func(version string) string {
+		testutil.Write(t, bin, "go", "#!/bin/sh\necho go version "+version+"\n")
+		qt.Assert(t, qt.IsNil(os.Chmod(filepath.Join(bin, "go"), 0o700))) //nolint:gosec // fixture must be executable
+		toolVersionMu.Lock()
+		clear(toolVersionCache)
+		toolVersionMu.Unlock()
+		return gatesFingerprint(t.Context(), options{root: root, gates: []gateSpec{{argv: []string{"sh", "-c", "true"}}}})
+	}
+	qt.Check(t, qt.Not(qt.Equals(fp("go1.1"), fp("go1.2"))), qt.Commentf("a toolchain upgrade left the fingerprint alone"))
 }
