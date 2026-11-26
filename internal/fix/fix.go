@@ -119,27 +119,49 @@ func done(f doctor.Finding, dryRun bool) Result {
 }
 
 func applyWorkflow(f doctor.Finding, dryRun bool, edit func(string) (string, string)) (Result, error) {
-	body, err := os.ReadFile(f.Path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return skip(f, "file named by the finding is missing"), nil
-		}
+	return editFile(f, f.Path, dryRun, false, edit)
+}
+
+// editFile reads path, applies edit and writes the result unless dryRun. edit
+// returns the new body, or a reason to skip. A missing file is an empty body
+// when missingOK, else a skip.
+func editFile(f doctor.Finding, path string, dryRun, missingOK bool, edit func(string) (string, string)) (Result, error) {
+	var body string
+	data, err := os.ReadFile(filepath.Clean(path))
+	switch {
+	case err == nil:
+		body = string(data)
+	case errors.Is(err, os.ErrNotExist) && missingOK:
+	case errors.Is(err, os.ErrNotExist):
+		return skip(f, "file named by the finding is missing"), nil
+	default:
 		return Result{}, fmt.Errorf("%s: %w", f.Check, err)
 	}
-	next, reason := edit(string(body))
+	next, reason := edit(body)
 	if reason != "" {
 		return skip(f, reason), nil
 	}
-	if next == string(body) {
+	if next == body {
 		return skip(f, "already in the named post-state"), nil
 	}
 	if dryRun {
 		return done(f, true), nil
 	}
-	if err := writeFile(f.Path, next); err != nil {
+	if err := writeFile(path, next); err != nil {
 		return Result{}, fmt.Errorf("%s: %w", f.Check, err)
 	}
 	return done(f, false), nil
+}
+
+// gateTOMLEdit guards a .gate.toml edit: a file that does not decode strictly
+// is not a mechanical edit.
+func gateTOMLEdit(edit func(string) (string, string)) func(string) (string, string) {
+	return func(body string) (string, string) {
+		if _, ok := decodeGateTOML(body); !ok {
+			return "", "existing .gate.toml is not a mechanical edit"
+		}
+		return edit(body)
+	}
 }
 
 // writeFile confines the write to the finding's own directory, so a crafted
@@ -171,33 +193,13 @@ func writeFile(path, body string) (err error) {
 
 func applySerialTOML(f doctor.Finding, dryRun bool) (Result, error) {
 	path := filepath.Join(filepath.Dir(f.Path), config.ProjectFile)
-	var body string
-	data, err := os.ReadFile(filepath.Clean(path))
-	switch {
-	case err == nil:
-		body = string(data)
-		if _, ok := decodeGateTOML(body); !ok {
-			return skip(f, "existing .gate.toml is not a mechanical edit"), nil
+	return editFile(f, path, dryRun, true, gateTOMLEdit(func(body string) (string, string) {
+		next, ok := setSerial(body, []string{"build", "typecheck"})
+		if !ok {
+			return "", "could not set serial without guessing at TOML"
 		}
-	case errors.Is(err, os.ErrNotExist):
-		body = ""
-	default:
-		return Result{}, fmt.Errorf("%s: %w", f.Check, err)
-	}
-	next, ok := setSerial(body, []string{"build", "typecheck"})
-	if !ok {
-		return skip(f, "could not set serial without guessing at TOML"), nil
-	}
-	if next == body {
-		return skip(f, "already in the named post-state"), nil
-	}
-	if dryRun {
-		return done(f, true), nil
-	}
-	if err := writeFile(path, next); err != nil {
-		return Result{}, fmt.Errorf("%s: %w", f.Check, err)
-	}
-	return done(f, false), nil
+		return next, ""
+	}))
 }
 
 func decodeGateTOML(body string) (config.File, bool) {
@@ -634,34 +636,29 @@ func dependabotToBun(root string) func(string) (string, string) {
 
 // --- bun-no-audit ---
 
-const bunAuditGate = "\n[gates.vuln]\nrun = \"bun /usr/local/src/com.github/Rethunk-Tech/gh-actions/audit-bun/audit.ts\"\n"
+const (
+	bunAuditRun  = "bun /usr/local/src/com.github/Rethunk-Tech/gh-actions/audit-bun/audit.ts"
+	bunAuditGate = "\n[gates.vuln]\nrun = \"" + bunAuditRun + "\"\n"
+)
 
 func applyBunAudit(f doctor.Finding, dryRun bool) (Result, error) {
 	path := filepath.Join(filepath.Dir(f.Path), config.ProjectFile)
-	var body string
-	data, err := os.ReadFile(filepath.Clean(path))
-	switch {
-	case err == nil:
-		body = string(data)
-		if _, ok := decodeGateTOML(body); !ok {
-			return skip(f, "existing .gate.toml is not a mechanical edit"), nil
+	return editFile(f, path, dryRun, true, gateTOMLEdit(func(body string) (string, string) {
+		if g, ok := decodedVuln(body); ok {
+			if g.Run == bunAuditRun {
+				return body, ""
+			}
+			return "", "existing [gates.vuln] runs a different command"
 		}
-		if strings.Contains(body, "[gates.vuln]") {
-			return skip(f, "already in the named post-state"), nil
+		if body == "" {
+			return strings.TrimPrefix(bunAuditGate, "\n"), ""
 		}
-	case errors.Is(err, os.ErrNotExist):
-	default:
-		return Result{}, fmt.Errorf("%s: %w", f.Check, err)
-	}
-	if dryRun {
-		return done(f, true), nil
-	}
-	next := body + bunAuditGate
-	if body == "" {
-		next = strings.TrimPrefix(bunAuditGate, "\n")
-	}
-	if err := writeFile(path, next); err != nil {
-		return Result{}, fmt.Errorf("%s: %w", f.Check, err)
-	}
-	return done(f, false), nil
+		return body + bunAuditGate, ""
+	}))
+}
+
+func decodedVuln(body string) (config.FileGate, bool) {
+	cfg, _ := decodeGateTOML(body)
+	g, ok := cfg.Gates["vuln"]
+	return g, ok
 }

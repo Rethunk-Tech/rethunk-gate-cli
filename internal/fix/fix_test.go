@@ -874,3 +874,19 @@ func TestPinSkipsWhenTheCommitIsUnresolved(t *testing.T) {
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.Equals(string(got), string(before)))
 }
+
+func TestBunAuditSkipsADifferentVulnCommand(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	testutil.Write(t, dir, ".gate.toml", "[gates.vuln]\nrun = \"echo hi\"\n")
+	f := doctor.Finding{Check: "bun-no-audit", Path: filepath.Join(dir, "ci.yml")}
+	r, err := Apply(f, false)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.Equals(r.Outcome, Skipped))
+	qt.Check(t, qt.StringContains(r.Reason, "different command"))
+
+	testutil.Write(t, dir, ".gate.toml", bunAuditGate[1:])
+	r, err = Apply(f, false)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.StringContains(r.Reason, "already in the named post-state"))
+}
