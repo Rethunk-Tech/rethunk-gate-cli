@@ -100,6 +100,19 @@ func TestAnnounceMemoryCapSkipsAndNotes(t *testing.T) {
 // Asking for more than an enclosing cap allows is said, because the lower cap
 // is the one in force; the default is not, or every run under a small cap would
 // repeat it.
+func TestMemFlagOnAWrappedCommandNamesALowerEnclosingCap(t *testing.T) {
+	origWrap, origAvail, origLimit := applyMemoryWrap, systemdAvailable, cgroupLimit
+	t.Cleanup(func() { applyMemoryWrap, systemdAvailable, cgroupLimit = origWrap, origAvail, origLimit })
+	applyMemoryWrap, systemdAvailable = true, func() bool { return true }
+	cgroupLimit = func() (uint64, bool) { return 24 << 30, true }
+	stubUnit(t, false)
+
+	var stderr bytes.Buffer
+	code := Run(t.Context(), "v", []string{"-C", t.TempDir(), "--mem", "48G", "--", "true"}, &bytes.Buffer{}, &stderr)
+	qt.Check(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr.String()))
+	qt.Check(t, qt.StringContains(stderr.String(), "memory cap 48G not applied: an enclosing 24G cap is lower"))
+}
+
 func TestAnnounceMemoryCapNamesALowerEnclosingCapWhenAsked(t *testing.T) {
 	origWrap, origAvail, origLimit := applyMemoryWrap, systemdAvailable, cgroupLimit
 	t.Cleanup(func() { applyMemoryWrap, systemdAvailable, cgroupLimit = origWrap, origAvail, origLimit })
