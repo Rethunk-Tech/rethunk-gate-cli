@@ -512,6 +512,9 @@ func (st *runState) splitRun(args []string, explicit bool, stdout, stderr io.Wri
 			case r == "-h" || r == "--help":
 				fmt.Fprint(stdout, runHelp)
 				return nil, nil, Success, false
+			case r == "--failed":
+				fmt.Fprintln(stderr, "gate: run gate --failed (it selects the gates itself)")
+				return nil, nil, InvalidUsage, false
 			case strings.HasPrefix(r, "-"):
 				fmt.Fprintf(stderr, "gate: flags go before run (gate %s run NAME)\n", r)
 				return nil, nil, InvalidUsage, false

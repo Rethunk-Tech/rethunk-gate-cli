@@ -99,3 +99,10 @@ func TestFlagAfterDoctorOrRecordIsNamed(t *testing.T) {
 		qt.Check(t, qt.StringContains(stderr, "flags go before the verb: gate --bogus "+verb))
 	}
 }
+
+func TestFailedWithRunPointsAtBareFailed(t *testing.T) {
+	t.Parallel()
+	_, stderr, code := runGateTest(t, "run", "--failed")
+	qt.Check(t, qt.Equals(code, InvalidUsage))
+	qt.Check(t, qt.StringContains(stderr, "run gate --failed"))
+}
