@@ -1,6 +1,7 @@
 package app
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/go-quicktest/qt"
@@ -49,4 +50,31 @@ func TestHiddenGeneratorsAnswerHelp(t *testing.T) {
 		qt.Check(t, qt.Equals(code, Success), qt.Commentf("gate %v: stderr = %q", tc.args, stderr))
 		qt.Check(t, qt.Equals(stdout, tc.help))
 	}
+}
+
+// A bad flag value is answered by its one-line error and a pointer, not by the
+// whole usage block.
+func TestBadFlagValueDoesNotDumpHelp(t *testing.T) {
+	t.Parallel()
+	_, stderr, code := runGateTest(t, "--tail", "abc", "true")
+	qt.Check(t, qt.Equals(code, InvalidUsage))
+	qt.Check(t, qt.StringContains(stderr, "gate --help"))
+	qt.Check(t, qt.IsTrue(strings.Count(stderr, "\n") <= 3), qt.Commentf("stderr = %q", stderr))
+}
+
+func TestRunHelpAndFlagsAfterRun(t *testing.T) {
+	t.Parallel()
+	stdout, stderr, code := runGateTest(t, "run", "--help")
+	qt.Check(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.StringContains(stdout, "run NAME"))
+
+	_, stderr, code = runGateTest(t, "run", "canon", "--serial")
+	qt.Check(t, qt.Equals(code, InvalidUsage))
+	qt.Check(t, qt.StringContains(stderr, "flags go before run"))
+}
+
+func TestHelpDescribesLoadWaitAsTheCodeDoesIt(t *testing.T) {
+	t.Parallel()
+	qt.Check(t, qt.StringContains(gateHelp, "3x the CPU count"))
+	qt.Check(t, qt.StringContains(gateHelp, "GATE_MAX_LOAD"))
 }

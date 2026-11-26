@@ -141,6 +141,12 @@ Run 'gate doctor --help' for what doctor checks, 'gate fix --help' for apply,
 Full reference: docs/USAGE.md
 `
 
+const runHelp = `usage: gate [flags] run NAME...
+
+Runs the named gates of this project (see gate --list). Flags go before run:
+gate --serial run lint test. A program named run is gate -- run.
+`
+
 // doctorHelp must not outgrow the top-level help. A subcommand whose help
 // outgrows the tool's own stops being read.
 const doctorHelp = `usage: gate [-C <path>] [--json] doctor
@@ -462,7 +468,7 @@ func (st *runState) runVerb(ctx context.Context, dir string, args []string, stdo
 // `run` is how a gate is named, and the only word gate claims that takes
 // arguments: `gate test` is /usr/bin/test, `gate run test` is the gate.
 // See AGENTS.md, The words gate claims.
-func (st *runState) splitRun(args []string, explicit bool, stderr io.Writer) (command, roles []string, code Code, ok bool) {
+func (st *runState) splitRun(args []string, explicit bool, stdout, stderr io.Writer) (command, roles []string, code Code, ok bool) {
 	command = args
 	if !explicit && len(command) > 0 && command[0] == "quick" {
 		for _, a := range command[1:] {
@@ -488,6 +494,16 @@ func (st *runState) splitRun(args []string, explicit bool, stderr io.Writer) (co
 			fmt.Fprintln(stderr, "gate: run wants at least one gate name, e.g. `gate run lint test`")
 			fmt.Fprintln(stderr, "gate: run `gate --list` for what this project has, or bare `gate` to run all of it")
 			return nil, nil, InvalidUsage, false
+		}
+		for _, r := range roles {
+			switch {
+			case r == "-h" || r == "--help":
+				fmt.Fprint(stdout, runHelp)
+				return nil, nil, Success, false
+			case strings.HasPrefix(r, "-"):
+				fmt.Fprintf(stderr, "gate: flags go before run (gate %s run NAME)\n", r)
+				return nil, nil, InvalidUsage, false
+			}
 		}
 	}
 	if st.opts.failed && len(roles) > 0 {
@@ -551,7 +567,7 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		}
 	}
 
-	command, roles, code, ok := st.splitRun(args, explicit, stderr)
+	command, roles, code, ok := st.splitRun(args, explicit, stdout, stderr)
 	if !ok {
 		return code
 	}
@@ -576,7 +592,6 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		}
 	}
 
-	st.opts.root = project.Root
 	st.prepareGates(&project, roles)
 	if err := checkNeedsOrder(opts.gates, opts.serial); err != nil {
 		fmt.Fprintf(stderr, "gate: %v\n", err)
