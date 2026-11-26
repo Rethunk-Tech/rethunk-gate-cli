@@ -156,6 +156,7 @@ run = "bun run more"
 	qt.Check(t, qt.StringContains(out, "note: dropped all (`bun run both`): one, two already run everything it does"))
 	qt.Check(t, qt.StringContains(out, "wider      tool-c --strict"))
 	qt.Check(t, qt.StringContains(out, "note: split wider to `tool-c --strict`: one, two already run the rest"))
+	qt.Check(t, qt.StringContains(out, "needs one, two"))
 }
 
 // The split is what runs, not only what is listed: each step once.
@@ -281,6 +282,12 @@ func TestMerge(t *testing.T) {
 			},
 		},
 		{
+			name: "needs union and the only isolate answer",
+			keep: gateSpec{role: "a", source: "cfg", needs: []string{"x"}},
+			lose: gateSpec{role: "b", source: "pkg", needs: []string{"build", "x"}, hasIsolate: true, isolate: true},
+			want: gateSpec{role: "a", source: "cfg; also b from pkg", needs: []string{"build", "x"}, hasIsolate: true, isolate: true},
+		},
+		{
 			name: "keep timeout wins",
 			keep: gateSpec{role: "a", source: "cfg", hasTimeout: true, timeout: time.Minute},
 			lose: gateSpec{role: "b", source: "pkg", hasTimeout: true, timeout: time.Second, env: map[string]string{"Z": "from-lose"}},
@@ -295,6 +302,9 @@ func TestMerge(t *testing.T) {
 		qt.Check(t, qt.Equals(got.timeout, c.want.timeout), qt.Commentf("%s timeout", c.name))
 		qt.Check(t, qt.Equals(got.source, c.want.source), qt.Commentf("%s source", c.name))
 		qt.Check(t, qt.DeepEquals(got.env, c.want.env), qt.Commentf("%s env", c.name))
+		qt.Check(t, qt.DeepEquals(got.needs, c.want.needs), qt.Commentf("%s needs", c.name))
+		qt.Check(t, qt.Equals(got.hasIsolate, c.want.hasIsolate), qt.Commentf("%s hasIsolate", c.name))
+		qt.Check(t, qt.Equals(got.isolate, c.want.isolate), qt.Commentf("%s isolate", c.name))
 	}
 }
 
@@ -357,4 +367,21 @@ run = "bun run test:all"
 	qt.Check(t, qt.StringContains(plain, "vitest.js.config.ts"))
 	qt.Check(t, qt.Not(qt.StringContains(plain, "playwright")))
 	qt.Check(t, qt.Not(qt.StringContains(plain, "e2e, skipped")))
+}
+
+// A split aggregate left with only a browser step is one e2e gate, not an
+// empty default part beside a ":e2e" one.
+func TestDedupeSplitWithOnlyABrowserStepMakesNoEmptyPart(t *testing.T) {
+	t.Parallel()
+	root := dedupeProject(t,
+		`"test":"vitest run","test:playwright":"playwright test","all":"bun run test && bun run test:playwright"`, `
+[gates.test]
+run = "bun run test"
+
+[gates.all]
+run = "bun run all"
+`)
+	out := listDedupe(t, root)
+	qt.Check(t, qt.Not(qt.StringContains(out, "all:e2e")))
+	qt.Check(t, qt.StringContains(out, "playwright test"))
 }
