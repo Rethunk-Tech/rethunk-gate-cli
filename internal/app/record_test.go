@@ -973,6 +973,20 @@ func TestUnchangedTreeForceRuns(t *testing.T) {
 	qt.Check(t, qt.Equals(markerHits(t, marker, "ran"), 2), qt.Commentf("--force was skipped"))
 }
 
+// NDJSON consumers need their lines, not the "unchanged" text line.
+// --force-cache is not tested apart: it sets TURBO_FORCE in every gate's env,
+// so the fingerprint already differs and a replay cannot happen.
+func TestUnchangedTreeNdjsonRuns(t *testing.T) {
+	root, marker := unchangedSkipRepo(t)
+	_, stderr, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+
+	stdout, stderr, code := runGateTest(t, "-C", root, "--ndjson")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+	qt.Check(t, qt.Not(qt.StringContains(stdout, "unchanged since")), qt.Commentf("stdout = %q", stdout))
+	qt.Check(t, qt.Equals(markerHits(t, marker, "ran"), 2), qt.Commentf("--ndjson was skipped"))
+}
+
 func TestUnchangedTreeE2ERuns(t *testing.T) {
 	root, marker := unchangedSkipRepo(t)
 	_, stderr, code := runGateTest(t, "-C", root)
