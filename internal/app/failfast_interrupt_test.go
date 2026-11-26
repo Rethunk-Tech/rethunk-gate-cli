@@ -38,6 +38,36 @@ func TestUserInterruptBeatsAFailFastFailure(t *testing.T) {
 	qt.Check(t, qt.Equals(code, Interrupted), qt.Commentf("stderr = %q", errBuf.String()))
 }
 
+// Fail-fast cancels slow first; the user's stop then makes the recorded status
+// an interrupt, not a cancellation.
+func TestUserStopRecordsInterruptedNotCancelled(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	root := t.TempDir()
+	started := filepath.Join(root, "slow-started")
+	failed := filepath.Join(root, "fast-failed")
+	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
+	testutil.Write(t, root, ".gate.toml", detectNoCanon+"[gates.fast]\nrun = 'while [ ! -f "+started+" ]; do sleep 0.01; done; touch "+failed+"; exit 7'\n\n"+
+		"[gates.slow]\nrun = 'trap \"sleep 0.15; exit 0\" INT; touch "+started+"; while :; do sleep 0.01; done'\n")
+	committedRepo(t, root)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	var out, errBuf bytes.Buffer
+	done := make(chan Code, 1)
+	go func() {
+		done <- Run(ctx, "v0.0.0-test", []string{"-C", root, "--timeout", "0", "--fail-fast"}, &out, &errBuf)
+	}()
+	waitFor(t, failed)
+	time.Sleep(20 * time.Millisecond)
+	cancel()
+	qt.Assert(t, qt.Equals(<-done, Interrupted), qt.Commentf("stderr = %q", errBuf.String()))
+
+	for _, g := range readRecord(t, root).Gates {
+		if g.Name == "slow" {
+			qt.Check(t, qt.Equals(g.Status, "interrupted"))
+		}
+	}
+}
+
 // Fail-fast interrupts the others for a command's own non-allowed failure.
 // A skip, an interrupt, a gate that never started, and an allowed failure
 // are not that: treating them as a trigger would cancel a run that still
