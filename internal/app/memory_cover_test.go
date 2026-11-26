@@ -20,6 +20,7 @@ func TestMemoryArgvPassthroughAndEscape(t *testing.T) {
 		"-p", "MemoryMax=1G",
 		"-p", "MemorySwapMax=0",
 		"-p", "OOMPolicy=continue",
+		"-p", "CPUWeight=20",
 		"--expand-environment=no",
 		"--",
 		"true",

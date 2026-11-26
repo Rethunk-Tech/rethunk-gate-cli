@@ -639,7 +639,7 @@ The whole run sits under one memory ceiling so callers do not wrap `gate` in
 On Linux with a user systemd, gate re-execs itself once, before the lock and
 any install, as
 
-`systemd-run --user --scope -q --collect -p MemoryMax=<SIZE> -p MemorySwapMax=0 -p OOMPolicy=continue --`
+`systemd-run --user --scope -q --collect -p MemoryMax=<SIZE> -p MemorySwapMax=0 -p OOMPolicy=continue -p CPUWeight=20 --`
 followed by its own argv, so every parallel gate shares one cgroup. Display,
 logs and exit codes are the command's. `<SIZE>` is bytes or a number with an
 uppercase `K`, `M`, `G`, `T`, `P` or `E` (`24G`); systemd takes no `g` or
@@ -653,6 +653,11 @@ an explicit `--mem` or `[limits] memory` is looser than the cap in force (the
 default stays silent). Where no cgroup memory controller is
 visible (no cgroup v2, or a container that hides it) it prints `gate: memory
 cap <SIZE> unused: no cgroup memory controller visible`.
+
+The scope also carries `CPUWeight=20` (default 100): under contention the run
+yields to the desktop, and idle CPU is still used at full speed. Only scoped
+runs get it: with no user systemd, or under an existing cap, the run keeps its
+normal CPU priority.
 
 A command the cap kills (exit 137 and the cgroup's `oom_kill` count rose during
 the run) is reported `killed: memory cap <SIZE>`, not `FAIL exit 137`.

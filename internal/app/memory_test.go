@@ -16,20 +16,20 @@ func TestMemoryArgvDefaultTomlFlagZeroUnavailable(t *testing.T) {
 	cmd := []string{"make", "test"}
 	prefix := []string{
 		"systemd-run", "--user", "--scope", "-q", "--collect",
-		"-p", "MemoryMax=24G", "-p", "MemorySwapMax=0", "-p", "OOMPolicy=continue", "--expand-environment=no", "--",
+		"-p", "MemoryMax=24G", "-p", "MemorySwapMax=0", "-p", "OOMPolicy=continue", "-p", "CPUWeight=20", "--expand-environment=no", "--",
 	}
 
 	qt.Check(t, qt.DeepEquals(memoryArgv(defaultMemory, true, true, cmd), append(prefix, cmd...)))
 
 	tomlPrefix := []string{
 		"systemd-run", "--user", "--scope", "-q", "--collect",
-		"-p", "MemoryMax=16G", "-p", "MemorySwapMax=0", "-p", "OOMPolicy=continue", "--expand-environment=no", "--",
+		"-p", "MemoryMax=16G", "-p", "MemorySwapMax=0", "-p", "OOMPolicy=continue", "-p", "CPUWeight=20", "--expand-environment=no", "--",
 	}
 	qt.Check(t, qt.DeepEquals(memoryArgv("16G", true, true, cmd), append(tomlPrefix, cmd...)))
 
 	flagPrefix := []string{
 		"systemd-run", "--user", "--scope", "-q", "--collect",
-		"-p", "MemoryMax=8G", "-p", "MemorySwapMax=0", "-p", "OOMPolicy=continue", "--expand-environment=no", "--",
+		"-p", "MemoryMax=8G", "-p", "MemorySwapMax=0", "-p", "OOMPolicy=continue", "-p", "CPUWeight=20", "--expand-environment=no", "--",
 	}
 	qt.Check(t, qt.DeepEquals(memoryArgv("8G", true, true, cmd), append(flagPrefix, cmd...)))
 
@@ -48,7 +48,7 @@ func TestMemoryArgvOnSystemdWithoutExpandFlag(t *testing.T) {
 	got := memoryArgv("24G", true, false, []string{"sh", "-c", "echo $$"})
 	qt.Check(t, qt.DeepEquals(got, []string{
 		"systemd-run", "--user", "--scope", "-q", "--collect",
-		"-p", "MemoryMax=24G", "-p", "MemorySwapMax=0", "-p", "OOMPolicy=continue",
+		"-p", "MemoryMax=24G", "-p", "MemorySwapMax=0", "-p", "OOMPolicy=continue", "-p", "CPUWeight=20",
 		"--", "sh", "-c", "echo $$",
 	}))
 }

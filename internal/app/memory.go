@@ -30,6 +30,11 @@ var systemdAvailable = userSystemdAvailable
 // execReplace swaps the process image; it returns only on failure.
 var execReplace = execProcess
 
+// cpuWeight is the scope's share against the default 100: a run yields to the
+// desktop under contention (about 1/6 of a default-weight peer) and still gets
+// idle CPU in full, since a weight is never a ceiling.
+const cpuWeight = "20"
+
 func memoryOn(size string) bool {
 	return size != "" && size != "0"
 }
@@ -50,6 +55,7 @@ func memoryArgv(size string, available, noExpand bool, argv []string) []string {
 		"-p", "MemoryMax="+size,
 		"-p", "MemorySwapMax=0",
 		"-p", "OOMPolicy=continue",
+		"-p", "CPUWeight="+cpuWeight,
 	)
 	if noExpand {
 		out = append(out, "--expand-environment=no")
