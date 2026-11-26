@@ -3,7 +3,9 @@ package app
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -51,10 +53,10 @@ func TestUserStopRecordsInterruptedNotCancelled(t *testing.T) {
 	committedRepo(t, root)
 
 	ctx, cancel := context.WithCancel(t.Context())
-	var out, errBuf bytes.Buffer
+	var errBuf, ndjson bytes.Buffer
 	done := make(chan Code, 1)
 	go func() {
-		done <- Run(ctx, "v0.0.0-test", []string{"-C", root, "--timeout", "0", "--fail-fast"}, &out, &errBuf)
+		done <- Run(ctx, "v0.0.0-test", []string{"-C", root, "--timeout", "0", "--fail-fast", "--ndjson"}, &ndjson, &errBuf)
 	}()
 	waitFor(t, failed)
 	time.Sleep(20 * time.Millisecond)
@@ -66,6 +68,23 @@ func TestUserStopRecordsInterruptedNotCancelled(t *testing.T) {
 			qt.Check(t, qt.Equals(g.Status, "interrupted"))
 		}
 	}
+	qt.Check(t, qt.Equals(ndjsonStatus(t, ndjson.String(), "slow"), "interrupted"))
+}
+
+func ndjsonStatus(t *testing.T, stream, name string) string {
+	t.Helper()
+	for line := range strings.SplitSeq(strings.TrimSpace(stream), "\n") {
+		var r struct {
+			Name   string `json:"name"`
+			Status string `json:"status"`
+		}
+		qt.Assert(t, qt.IsNil(json.Unmarshal([]byte(line), &r)), qt.Commentf("line = %q", line))
+		if r.Name == name {
+			return r.Status
+		}
+	}
+	t.Fatalf("no ndjson line for %s in %q", name, stream)
+	return ""
 }
 
 // Fail-fast interrupts the others for a command's own non-allowed failure.

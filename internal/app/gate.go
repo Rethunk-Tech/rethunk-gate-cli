@@ -565,7 +565,7 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 		// The goroutine gets its own copy: opts is written again once the gates finish.
 		go func(o options) { tree <- startState{stored.ReadTree(ctx, o.root), gatesFingerprint(ctx, o)} }(opts)
 	}
-	sc := groupRun{loads: newLoadWaiter(opts, stderr), opts: opts, results: results, stream: stream, needed: resolveNeeds(opts.gates), done: make([]chan struct{}, len(opts.gates))}
+	sc := groupRun{userStopped: func() bool { return ctx.Err() != nil }, loads: newLoadWaiter(opts, stderr), opts: opts, results: results, stream: stream, needed: resolveNeeds(opts.gates), done: make([]chan struct{}, len(opts.gates))}
 	for i := range sc.done {
 		sc.done[i] = make(chan struct{})
 	}
@@ -707,8 +707,11 @@ func freshFullPass(root string, state stored.State) bool {
 
 // groupRun is what running one schedule group needs from the run around it.
 type groupRun struct {
-	opts    options
-	results []gateResult
+	// userStopped reports a stop that reached the caller's context, where
+	// runCtx also ends for fail-fast.
+	userStopped func() bool
+	opts        options
+	results     []gateResult
 	// done[i] closes when gate i has a final result or will never get one;
 	// needed[i] lists the gates i waits on.
 	done     []chan struct{}
@@ -755,6 +758,9 @@ func (g *groupRun) run(ctx context.Context, group []int) {
 		}
 		g.loads.wait(ctx)
 		g.results[i] = runOne(ctx, g.opts.gates[i], g.opts)
+		if g.userStopped() {
+			g.results[i].cancelled = false
+		}
 		releaseJob(g.slots)
 		close(g.done[i])
 		closed[i] = true
