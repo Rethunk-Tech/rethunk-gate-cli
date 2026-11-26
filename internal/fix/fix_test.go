@@ -959,3 +959,72 @@ func TestPinLeavesAnotherActionAtTheSameRef(t *testing.T) {
 	qt.Check(t, qt.StringContains(string(body), other))
 	qt.Check(t, qt.StringContains(string(body), "setup-go@"+testSHA))
 }
+
+func TestSetSerialRefusesUnparseableToml(t *testing.T) {
+	t.Parallel()
+	_, ok := setSerial("[gates.build\nserial =", []string{"build"})
+	qt.Check(t, qt.IsFalse(ok))
+}
+
+func TestSerialReplacesFalseAfterAnArrayValue(t *testing.T) {
+	t.Parallel()
+	out, ok := setSerial("[gates.build]\nneeds = [\"x\"]\nserial = false\n", []string{"build"})
+	qt.Assert(t, qt.IsTrue(ok))
+	qt.Check(t, qt.StringContains(out, "serial = true"))
+	qt.Check(t, qt.Not(qt.StringContains(out, "serial = false")))
+	_, valid := decodeGateTOML(out)
+	qt.Check(t, qt.IsTrue(valid), qt.Commentf("out = %q", out))
+}
+
+func TestNpxRewritesEveryScriptBesideNonNpxOnes(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	const body = `{"scripts":{"a":"true","b":"true","c":"true","d":"true","e":"true","f":"true","g":"true","h":"true","i":"true","j":"true","lint":"npx eslint .","test":"npx vitest"}}`
+	testutil.Write(t, dir, "package.json", body)
+	out, reason := replaceNpxInScripts(filepath.Join(dir, "package.json"), body)
+	qt.Assert(t, qt.Equals(reason, ""))
+	qt.Check(t, qt.StringContains(out, `"bunx eslint ."`))
+	qt.Check(t, qt.StringContains(out, `"bunx vitest"`))
+	qt.Check(t, qt.Not(qt.StringContains(out, "npx ")))
+}
+
+func TestDropCorepackKeepsTheNextStepIntact(t *testing.T) {
+	t.Parallel()
+	body := strings.Join([]string{
+		"jobs:",
+		"  a:",
+		"    steps:",
+		"      - run: corepack enable",
+		"      - run: echo next",
+		"        shell: bash",
+	}, "\n")
+	out, reason := dropCorepack(body)
+	qt.Assert(t, qt.Equals(reason, ""))
+	qt.Check(t, qt.Equals(out, "jobs:\n  a:\n    steps:\n      - run: echo next\n        shell: bash"))
+}
+
+func TestPinFindsTheUsesLineAfterLeadingLines(t *testing.T) {
+	t.Parallel()
+	const old = "v1.0"
+	apply := pinSharedAction(doctor.Finding{
+		What: "shared action pinned to a moving ref (" + old + ")",
+		Fix:  "bump to " + doctor.KnownGoodActionsTag,
+	})
+	body := "name: ci\non: push\njobs:\n  a:\n    steps:\n      - uses: Rethunk-Tech/gh-actions/setup-go@" + old + "\n"
+	out, reason := apply(body)
+	qt.Assert(t, qt.Equals(reason, ""))
+	qt.Check(t, qt.StringContains(out, "setup-go@"+testSHA+" # "+doctor.KnownGoodActionsTag))
+}
+
+func TestBunAuditAppendsToAnExistingGateToml(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	const existing = "[gates.build]\nrun = \"make\"\n"
+	testutil.Write(t, dir, ".gate.toml", existing)
+	r, err := applyBunAudit(doctor.Finding{Check: "bun-no-audit", Path: filepath.Join(dir, "ci.yml")}, false)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Assert(t, qt.Equals(r.Outcome, Applied), qt.Commentf("reason = %q", r.Reason))
+	body, err := os.ReadFile(filepath.Clean(filepath.Join(dir, ".gate.toml")))
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.Equals(string(body), existing+bunAuditGate))
+}
