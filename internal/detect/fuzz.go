@@ -12,8 +12,6 @@ import (
 	"strings"
 )
 
-const fuzzSource = FuzzSource
-
 // FuzzSource is the source label of the convention fuzz gate.
 const FuzzSource = "convention: go (Fuzz targets)"
 
@@ -84,7 +82,7 @@ func fuzzGates(root string) []Gate {
 			argv = append(argv, d+":"+t)
 		}
 	}
-	return []Gate{{Name: "fuzz", Argv: argv, Source: fuzzSource, Summary: fmt.Sprintf("go test -fuzz (%d targets)", len(argv)-4)}}
+	return []Gate{{Name: "fuzz", Argv: argv, Source: FuzzSource, Summary: fmt.Sprintf("go test -fuzz (%d targets)", len(argv)-4)}}
 }
 
 // FuzzParallel is each target's -parallel. Four targets run at once, so the

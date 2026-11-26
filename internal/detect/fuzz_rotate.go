@@ -1,6 +1,7 @@
 package detect
 
 import (
+	"cmp"
 	"fmt"
 	"maps"
 	"os"
@@ -68,18 +69,12 @@ func LoadFuzzState(path string) map[string]FuzzStat {
 // the busiest of the four lanes. At least one target always runs. A budget of zero
 // keeps every target and records nothing.
 func RotateFuzz(g Gate, budget, fuzztime time.Duration, state map[string]FuzzStat, statePath string) Gate {
-	if g.Source != fuzzSource || budget <= 0 {
+	if g.Source != FuzzSource || budget <= 0 {
 		return g
 	}
 	head, targets := g.Argv[:4], slices.Clone(g.Argv[4:])
 	slices.SortStableFunc(targets, func(a, b string) int {
-		if d := state[a].At - state[b].At; d != 0 {
-			if d < 0 {
-				return -1
-			}
-			return 1
-		}
-		return strings.Compare(a, b)
+		return cmp.Or(cmp.Compare(state[a].At, state[b].At), strings.Compare(a, b))
 	})
 	var lanes [fuzzLanes]time.Duration
 	n := 0

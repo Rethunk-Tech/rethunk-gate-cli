@@ -37,28 +37,24 @@ func rotateFuzz(g detect.Gate, cfg config.Config, root string, jobs int, getenv 
 	if d, err := config.ParseTimeout(getenv("GATE_FUZZTIME")); err == nil && d > 0 {
 		fuzztime = d
 	}
-	if ciEnv(getenv) {
-		g.Timeout = detect.FuzzTimeout(len(g.Argv[4:]), fuzztime, defaultTimeout)
-		return g, nil
-	}
-	budget := defaultFuzzBudget
-	if cfg.HasFuzzBudget {
-		budget = cfg.FuzzBudget
-	}
-	if v := getenv("GATE_FUZZ_BUDGET"); v != "" {
-		d, err := config.ParseTimeout(v)
-		if err != nil {
-			return g, fmt.Errorf("GATE_FUZZ_BUDGET %w", err)
+	if !ciEnv(getenv) {
+		budget := defaultFuzzBudget
+		if cfg.HasFuzzBudget {
+			budget = cfg.FuzzBudget
 		}
-		budget = d
+		if v := getenv("GATE_FUZZ_BUDGET"); v != "" {
+			d, err := config.ParseTimeout(v)
+			if err != nil {
+				return g, fmt.Errorf("GATE_FUZZ_BUDGET %w", err)
+			}
+			budget = d
+		}
+		// No state directory: fuzz everything, record nothing.
+		if path, err := stored.Path(stored.Canonical(root)); err == nil {
+			path = strings.TrimSuffix(path, ".json") + ".fuzz.tsv"
+			g = detect.RotateFuzz(g, budget, fuzztime, detect.LoadFuzzState(path), path)
+		}
 	}
-	path, err := stored.Path(stored.Canonical(root))
-	if err != nil {
-		g.Timeout = detect.FuzzTimeout(len(g.Argv[4:]), fuzztime, defaultTimeout)
-		return g, nil //nolint:nilerr // no state directory: fuzz everything, record nothing
-	}
-	path = strings.TrimSuffix(path, ".json") + ".fuzz.tsv"
-	g = detect.RotateFuzz(g, budget, fuzztime, detect.LoadFuzzState(path), path)
 	g.Timeout = detect.FuzzTimeout(len(g.Argv[4:]), fuzztime, defaultTimeout)
 	return g, nil
 }

@@ -33,7 +33,7 @@ func rotationGate(n int) Gate {
 	for i := range n {
 		argv = append(argv, "./p:Fuzz"+string(rune('A'+i)))
 	}
-	return Gate{Name: "fuzz", Argv: argv, Source: fuzzSource}
+	return Gate{Name: "fuzz", Argv: argv, Source: FuzzSource}
 }
 
 func TestRotateFuzzTakesLeastRecentFirstWithinTheBudget(t *testing.T) {
