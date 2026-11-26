@@ -418,7 +418,7 @@ func dotenvFiles(ctx context.Context, gates []gateSpec, root string) map[string]
 	}
 	if root != "" {
 		// --directory keeps an ignored node_modules one entry instead of a walk.
-		cmd := exec.CommandContext(ctx, "git", "-C", root, "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory") //nolint:gosec // fixed argv, root is the detected project
+		cmd := exec.CommandContext(ctx, "git", "-C", root, "-c", "core.fsmonitor=", "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory") //nolint:gosec // fixed argv, root is the detected project
 		if b, err := cmd.Output(); err == nil {
 			for rel := range strings.SplitSeq(string(b), "\x00") {
 				if rel != "" && !strings.HasSuffix(rel, "/") && fingerprintedFile(filepath.Base(rel)) {
