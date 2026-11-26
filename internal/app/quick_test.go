@@ -366,6 +366,8 @@ func TestQuickPrefixesDashNamedFilesForScopedTools(t *testing.T) {
 	t.Parallel()
 	qt.Check(t, qt.DeepEquals(scopedArgv([]string{"ruff", "check", "."}, "--force-exclude", []string{"-d.py", "a.py"}),
 		[]string{"ruff", "check", "--force-exclude", "./-d.py", "a.py"}))
+	qt.Check(t, qt.DeepEquals(scopedArgv([]string{"ruff", "check", "--force-exclude", "."}, "--force-exclude", []string{"a.py"}),
+		[]string{"ruff", "check", "--force-exclude", "a.py"}))
 }
 
 // Before the first commit HEAD does not exist: that is a git failure, not an

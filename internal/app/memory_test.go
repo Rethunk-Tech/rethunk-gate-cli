@@ -235,6 +235,8 @@ func TestScopeRunUnderEnclosingCap(t *testing.T) {
 			qt.Check(t, qt.Equals(enclosingLowerNote(tc.size), tc.note))
 		})
 	}
+	cgroupLimit = func() (uint64, bool) { return 40 * g, true }
+	qt.Check(t, qt.IsFalse(shouldScopeRun("4G", false)))
 }
 
 func TestMemoryNoteNamesWhyTheCapIsNotTheRequestedOne(t *testing.T) {
@@ -384,8 +386,8 @@ func TestCgroupQuotaWalksToTheTightestAncestor(t *testing.T) {
 	write := func(dir, name, v string) {
 		qt.Assert(t, qt.IsNil(os.WriteFile(filepath.Join(dir, name), []byte(v), 0o600)))
 	}
-	write(leaf, "cpu.max", "max 100000\n")
-	write(leaf, "pids.max", "max\n")
+	write(leaf, "cpu.max", "50000 100000\n")
+	write(leaf, "pids.max", "1024\n")
 	write(filepath.Dir(leaf), "cpu.max", "10000 100000\n")
 	write(filepath.Dir(leaf), "pids.max", "256\n")
 	cpu, pids := cgroupQuota()
