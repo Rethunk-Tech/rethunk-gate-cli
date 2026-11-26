@@ -878,7 +878,6 @@ func (st *runState) detectGates(ctx context.Context, dir string, roles []string,
 			return project, cfg, Success, false
 		}
 		st.opts.gates = applyQuick(ctx, st.opts.gates, cfg, project.Root, st.opts.quickAll)
-		st.opts.serial = true
 		if had > 0 && len(st.opts.gates) == 0 {
 			fmt.Fprintln(stderr, "gate: nothing changed vs HEAD that a quick gate covers")
 			return project, cfg, Success, false
