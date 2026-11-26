@@ -133,6 +133,24 @@ func TestProcessWalkerReadsThisTestFromProc(t *testing.T) {
 	qt.Check(t, qt.IsFalse(ok))
 }
 
+// A ")" in the executable's name must not end the comm field early.
+func TestProcArgvReadsTheParentOfAProcessNamedWithAParenthesis(t *testing.T) {
+	t.Parallel()
+	sleep, err := exec.LookPath("sleep")
+	qt.Assert(t, qt.IsNil(err))
+	raw, err := os.ReadFile(sleep) //nolint:gosec // the host sleep binary
+	qt.Assert(t, qt.IsNil(err))
+	bin := filepath.Join(t.TempDir(), "a) S 7 x")
+	qt.Assert(t, qt.IsNil(os.WriteFile(bin, raw, 0o700))) //nolint:gosec // fixture must be executable
+	cmd := exec.CommandContext(t.Context(), bin, "30")    //nolint:gosec // fixture binary
+	qt.Assert(t, qt.IsNil(cmd.Start()))
+	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
+
+	_, ppid, ok := procArgv(cmd.Process.Pid)
+	qt.Check(t, qt.IsTrue(ok))
+	qt.Check(t, qt.Equals(ppid, os.Getpid()))
+}
+
 // The shapes measured from the real programs: git runs the hook, and lefthook
 // runs the hook's jobs, and neither exports a hook name in the environment.
 func TestPrePushHookIsRecognisedFromItsAncestry(t *testing.T) {

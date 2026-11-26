@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"os/exec"
@@ -131,11 +132,11 @@ func procArgv(pid int) (argv []string, ppid int, ok bool) {
 		}
 		// The command name is parenthesised and may itself hold spaces or
 		// parentheses, so the fields after it start at the last ")".
-		_, rest, found := strings.Cut(string(stat), ")")
+		_, rest, found := bytes.CutLast(stat, []byte(")"))
 		if !found {
 			return nil, 0, false
 		}
-		fields := strings.Fields(rest)
+		fields := strings.Fields(string(rest))
 		if len(fields) < 2 {
 			return nil, 0, false
 		}
