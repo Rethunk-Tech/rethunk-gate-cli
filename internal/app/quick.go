@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -303,6 +304,17 @@ func filterExt(files, exts []string) []string {
 	return out
 }
 
+// gitReason is a failed git command's own first stderr line, which says why
+// (not a repository, safe.directory); the bare exit status does not.
+func gitReason(err error) error {
+	if ee, ok := errors.AsType[*exec.ExitError](err); ok {
+		if why, _, _ := strings.Cut(strings.TrimSpace(string(ee.Stderr)), "\n"); why != "" {
+			return errors.New(why)
+		}
+	}
+	return err
+}
+
 func changedFiles(ctx context.Context, root string) ([]string, error) {
 	if root == "" {
 		return nil, nil
@@ -317,7 +329,7 @@ func changedFiles(ctx context.Context, root string) ([]string, error) {
 		cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
 		out, err := cmd.Output()
 		if err != nil {
-			return nil, err
+			return nil, gitReason(err)
 		}
 		var files []string
 		for name := range strings.SplitSeq(string(out), "\x00") {
