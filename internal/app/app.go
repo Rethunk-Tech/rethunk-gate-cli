@@ -605,6 +605,8 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 		if !ok {
 			return code
 		}
+	} else {
+		configured = wrappedConfig(dir)
 	}
 
 	st.prepareGates(&project, roles)
@@ -747,6 +749,21 @@ func wholeCIRoot(ctx context.Context, dir string, command []string) string {
 		return ""
 	}
 	return root
+}
+
+// wrappedConfig is the .gate.toml of the project root above dir, for a run
+// that names its command and so never detects one. A missing or unreadable
+// file leaves the defaults; a bad one is reported by the runs that detect.
+func wrappedConfig(dir string) config.Config {
+	root, err := detect.ProjectRoot(dir)
+	if err != nil {
+		return config.Config{}
+	}
+	cfg, err := config.Load(root)
+	if err != nil {
+		return config.Config{}
+	}
+	return cfg
 }
 
 // setBudget records the project root and the wall-time budget for the run.

@@ -94,6 +94,32 @@ func TestWorktreesDoNotShareALock(t *testing.T) {
 	qt.Check(t, qt.IsFalse(strings.Contains(stderr.String(), "waiting")))
 }
 
+func TestWrappedCommandTakesTheConfiguredRepoLock(t *testing.T) {
+	t.Setenv(activeRootsVar, "")
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
+	testutil.Write(t, root, ".gate.toml", "[lock]\nscope = \"repo\"\n")
+	committedRepo(t, root)
+	other := filepath.Join(t.TempDir(), "wt")
+	if out, err := exec.CommandContext(t.Context(), "git", "-C", root, "worktree", "add", "--quiet", "--detach", other).CombinedOutput(); err != nil { //nolint:gosec // fixed git argv in a test
+		t.Skipf("git worktree: %v: %s", err, out)
+	}
+	release, ok := acquireWorkspaceLock(t.Context(), root, "repo", &bytes.Buffer{})
+	qt.Assert(t, qt.IsTrue(ok))
+
+	done := make(chan Code, 1)
+	go func() {
+		done <- Run(t.Context(), "v", []string{"-C", other, "--", "true"}, &bytes.Buffer{}, &bytes.Buffer{})
+	}()
+	select {
+	case <-done:
+		t.Fatal("a wrapped command ran while the repo lock was held")
+	case <-time.After(150 * time.Millisecond):
+	}
+	release()
+	qt.Check(t, qt.Equals(<-done, Success))
+}
+
 func TestWaitingForTheLockEndsOnInterrupt(t *testing.T) {
 	root := lockTestRepo(t, "true")
 	release := holdLock(t, t.Context(), root)

@@ -235,6 +235,16 @@ func detectOne(ctx context.Context, dir string) (Project, error) {
 	return proj, nil
 }
 
+// ProjectRoot is the project root gate finds above dir, without detecting
+// any gates.
+func ProjectRoot(dir string) (string, error) {
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return "", err
+	}
+	return locateProject(abs).Root, nil
+}
+
 // locateProject finds the project root and workspace above abs, and the
 // installs their lockfiles call for.
 func locateProject(abs string) Project {
