@@ -136,6 +136,7 @@ func TestActiveRootsOnlyExemptsItsOwnWorkspace(t *testing.T) {
 // A parent gate records its detected project root, which can sit below the
 // worktree top or be reached through a symlink, while the lock is keyed on the
 // resolved top. Its child must still recognise the lock as its parent's.
+// An exempt call returns at once, so the generous timeout only bounds git.
 func TestActiveRootsExemptsTheParentBelowTopOrThroughASymlink(t *testing.T) {
 	root := lockTestRepo(t, "true")
 	testutil.Write(t, root, "pkg/Makefile", "help:\n\t@true\n")
@@ -146,7 +147,7 @@ func TestActiveRootsExemptsTheParentBelowTopOrThroughASymlink(t *testing.T) {
 
 	for _, parent := range []string{filepath.Join(root, "pkg"), link} {
 		t.Setenv(activeRootsVar, activeRootsValue(parent))
-		ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 		_, ok := acquireWorkspaceLock(ctx, link, "", &bytes.Buffer{})
 		cancel()
 		qt.Check(t, qt.IsTrue(ok), qt.Commentf("parent root %s", parent))
@@ -165,7 +166,7 @@ func TestActiveRootsExemptsTheParentsRepoLockFromAnotherWorktree(t *testing.T) {
 	defer release()
 
 	t.Setenv(activeRootsVar, activeRootsValue(root))
-	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	_, ok = acquireWorkspaceLock(ctx, other, "repo", &bytes.Buffer{})
 	qt.Check(t, qt.IsTrue(ok), qt.Commentf("a child in another worktree waited on its parent's repo lock"))
