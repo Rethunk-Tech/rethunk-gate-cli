@@ -1515,16 +1515,7 @@ func mkdirLogDir(dir string) error {
 	if err == nil || !os.IsNotExist(err) {
 		return err
 	}
-	if err := os.Mkdir(dir, 0o700); err == nil || os.IsExist(err) {
-		return nil
-	}
-	if err := os.MkdirAll(filepath.Dir(dir), 0o700); err != nil {
-		return err
-	}
-	if err := os.Mkdir(dir, 0o700); err != nil && !os.IsExist(err) {
-		return err
-	}
-	return nil
+	return os.MkdirAll(dir, 0o700)
 }
 
 // pruneLogs removes gate's own logs once they are older than pruneAge, and

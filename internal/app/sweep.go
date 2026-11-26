@@ -163,7 +163,7 @@ func sweepTemp(base string) (runs, builds int) {
 		case isRun:
 			// A name this sweep cannot read a pid from is not something it
 			// made, so it is left alone rather than guessed at.
-			if pid, ok := runTempPID(name); !ok || pidAlive(pid) {
+			if pid, ok := pidFromName(name, runTempPrefix); !ok || pidAlive(pid) {
 				continue
 			}
 		case !strings.HasPrefix(name, goBuildPrefix):
@@ -188,9 +188,6 @@ func sweepTemp(base string) (runs, builds int) {
 	}
 	return runs, builds
 }
-
-// runTempPID reads the pid out of a gr-<base-36 pid>-<random> name.
-func runTempPID(name string) (int, bool) { return pidFromName(name, runTempPrefix) }
 
 // pidFromName reads the pid out of a <prefix><base-36 pid>-<random> name.
 func pidFromName(name, prefix string) (int, bool) {
