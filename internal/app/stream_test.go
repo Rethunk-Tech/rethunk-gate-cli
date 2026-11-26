@@ -93,3 +93,31 @@ func TestPrefixWriterCRLFAfterAFullChunkIsNotABlankLine(t *testing.T) {
 	pw.close()
 	qt.Check(t, qt.Equals(out.String(), "[x] "+strings.Repeat("a", maxTrackedLine)+"\n[x] end\n"))
 }
+
+func TestPrefixWriterChunkState(t *testing.T) {
+	t.Parallel()
+	full := strings.Repeat("a", maxTrackedLine)
+	tests := []struct {
+		name   string
+		writes []string
+		want   string
+	}{
+		{"blank line is kept", []string{"a\n\nb\n"}, "[x] a\n[x] \n[x] b\n"},
+		{"long line continues", []string{full + "aaaaaaaaaa\n"}, "[x] " + full + "\n[x] aaaaaaaaaa\n"},
+		{"chunk and CRLF in separate writes", []string{full, "\r\n"}, "[x] " + full + "\n"},
+		{"blank line after a long line", []string{full + "aa\n\nb\n"}, "[x] " + full + "\n[x] aa\n[x] \n[x] b\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var out bytes.Buffer
+			pw := newPrefixWriter(&lockedWriter{w: &out}, "x")
+			for _, w := range tt.writes {
+				_, err := pw.Write([]byte(w))
+				qt.Assert(t, qt.IsNil(err))
+			}
+			pw.close()
+			qt.Check(t, qt.Equals(out.String(), tt.want))
+		})
+	}
+}

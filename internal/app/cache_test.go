@@ -191,6 +191,15 @@ func TestApplyForceCacheDoesNotDuplicateAlwaysMake(t *testing.T) {
 func TestTwoTurboRunsAccumulateTheirSummaries(t *testing.T) {
 	t.Parallel()
 	s := &cacheScanner{}
-	feed(s, "Cached:    0 cached, 3 total", "Cached:    2 cached, 2 total")
+	feed(s, "Cached:    2 cached, 2 total", "Cached:    0 cached, 3 total")
 	qt.Assert(t, qt.Equals(s.verdict().label(), "2/5 cached"))
+}
+
+// Turbo's summary is the exact count: a go (cached) line beside a 0/1 summary
+// must not read as cached.
+func TestTurboSummaryOutranksGoCachedLines(t *testing.T) {
+	t.Parallel()
+	s := &cacheScanner{}
+	feed(s, "ok  \texample.com/p\t(cached)", "Cached:    0 cached, 1 total")
+	qt.Assert(t, qt.Equals(s.verdict().label(), ""))
 }

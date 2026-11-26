@@ -68,13 +68,14 @@ func memoryArgv(size string, available, noExpand bool, argv []string) []string {
 // later, the first with --expand-environment.
 var systemdRunNoExpand = sync.OnceValue(func() bool {
 	out, err := exec.Command("systemd-run", "--version").Output()
-	if err != nil {
-		return false
-	}
-	var ver int
-	_, _ = fmt.Sscanf(string(out), "systemd %d", &ver)
-	return ver >= 254
+	return err == nil && versionHasNoExpand(string(out))
 })
+
+func versionHasNoExpand(versionOutput string) bool {
+	var ver int
+	_, _ = fmt.Sscanf(versionOutput, "systemd %d", &ver)
+	return ver >= 254
+}
 
 func memoryUnusedNote(size string, available bool) string {
 	if !memoryOn(size) || available {

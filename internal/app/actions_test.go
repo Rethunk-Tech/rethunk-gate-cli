@@ -159,3 +159,17 @@ func TestActionsAllowedFromASubdirectoryReadsTheRepoWorkflows(t *testing.T) {
 	code := runActionsAllowedWith(t.Context(), sub, []string{"--json"}, fetch, &stdout, &stderr)
 	qt.Check(t, qt.Equals(code, Code(1)), qt.Commentf("stdout = %s", stdout.String()))
 }
+
+func TestActionsAllowedFailsWhenAWorkflowCannotBeRead(t *testing.T) {
+	dir := actionsRepo(t, "git@github.com:o/r.git")
+	wf := filepath.Join(dir, ".github/workflows/ci.yml")
+	qt.Assert(t, qt.IsNil(os.Chmod(wf, 0o000)))
+	t.Cleanup(func() { _ = os.Chmod(wf, 0o600) })
+	if f, err := os.Open(wf); err == nil { //nolint:gosec // test fixture path
+		_ = f.Close()
+		t.Skip("file permissions are not enforced")
+	}
+	var stdout, stderr bytes.Buffer
+	code := runActionsAllowedWith(t.Context(), dir, []string{"--json"}, func(string) ([]byte, error) { return nil, errors.New("unused") }, &stdout, &stderr)
+	qt.Check(t, qt.Equals(code, Fatal), qt.Commentf("stderr = %s", stderr.String()))
+}

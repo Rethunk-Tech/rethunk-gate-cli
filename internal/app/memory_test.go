@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -147,6 +148,8 @@ func TestScopeRunDecision(t *testing.T) {
 			qt.Check(t, qt.Equals(gotArgv != nil, tc.wantWrapp))
 			if tc.wantWrapp {
 				qt.Check(t, qt.Equals(gotArgv[6], "MemoryMax="+tc.size))
+				unit := slices.IndexFunc(gotArgv, func(a string) bool { return strings.HasPrefix(a, "--unit=gate-") })
+				qt.Check(t, qt.IsTrue(unit > 0 && unit < slices.Index(gotArgv, "--")))
 			}
 		})
 	}
@@ -388,4 +391,16 @@ func TestCgroupQuotaWalksToTheTightestAncestor(t *testing.T) {
 	cpu, pids := cgroupQuota()
 	qt.Check(t, qt.Equals(cpu, "10%"))
 	qt.Check(t, qt.Equals(pids, "256"))
+}
+
+func TestVersionHasNoExpand(t *testing.T) {
+	t.Parallel()
+	for out, want := range map[string]bool{
+		"systemd 253 (253.1-1.fc38)\n": false,
+		"systemd 254 (254.1-1.fc39)\n": true,
+		"systemd 258 (258-1)\n":        true,
+		"unparseable":                  false,
+	} {
+		qt.Check(t, qt.Equals(versionHasNoExpand(out), want), qt.Commentf("%q", out))
+	}
 }

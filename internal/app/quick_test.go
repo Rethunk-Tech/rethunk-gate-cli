@@ -285,6 +285,15 @@ func TestQuickScopesADirGateToItsOwnFiles(t *testing.T) {
 
 	_, skip = scopeGate(g, []string{"other/b.ts"})
 	qt.Check(t, qt.IsTrue(skip))
+
+	// A tool quick cannot scope still has nothing to do when nothing under
+	// its directory changed.
+	tsc := gateSpec{
+		role: "typecheck", argv: []string{"tsc", "--noEmit"}, root: root,
+		dir: filepath.Join(root, "web"), hasDir: true,
+	}
+	_, skip = scopeGate(tsc, []string{"api/x.go"})
+	qt.Check(t, qt.IsTrue(skip))
 }
 
 // A package CI runs in a subdirectory is one gate named for the directory, but
@@ -357,6 +366,45 @@ func TestQuickPrefixesDashNamedFilesForScopedTools(t *testing.T) {
 	t.Parallel()
 	qt.Check(t, qt.DeepEquals(scopedArgv([]string{"ruff", "check", "."}, "--force-exclude", []string{"-d.py", "a.py"}),
 		[]string{"ruff", "check", "--force-exclude", "./-d.py", "a.py"}))
+}
+
+// Before the first commit HEAD does not exist: that is a git failure, not an
+// empty change set that would scope every gate to nothing.
+func TestChangedFilesErrorsOnAnUnbornHead(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, "a.go", "package a\n")
+	cmd := exec.CommandContext(t.Context(), "git", "-C", root, "init", "--quiet") //nolint:gosec // fixed fixture argv
+	qt.Assert(t, qt.IsNil(cmd.Run()))
+	cmd = exec.CommandContext(t.Context(), "git", "-C", root, "add", "a.go") //nolint:gosec // fixed fixture argv
+	qt.Assert(t, qt.IsNil(cmd.Run()))
+	_, err := changedFiles(t.Context(), root)
+	qt.Check(t, qt.IsNotNil(err))
+}
+
+// A gitlink whose directory is absent is skipped; one whose recorded commit
+// it lacks cannot be read, so quick falls back to the full run.
+func TestChangedFilesSkipsUninitialisedAndFailsOnBrokenSubmodules(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, "main.go", "package a\n")
+	head := committedRepo(t, root)
+	link := func(path string) {
+		t.Helper()
+		cmd := exec.CommandContext(t.Context(), "git", "-C", root, "update-index", "--add", "--cacheinfo", "160000,"+head+","+path) //nolint:gosec // fixed fixture argv
+		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
+		out, err := cmd.CombinedOutput()
+		qt.Assert(t, qt.IsNil(err), qt.Commentf("%s", out))
+	}
+	link("gone")
+	_, err := changedFiles(t.Context(), root)
+	qt.Check(t, qt.IsNil(err))
+
+	link("broken")
+	testutil.Write(t, root, "broken/a.ts", "export {}\n")
+	committedRepo(t, filepath.Join(root, "broken"))
+	_, err = changedFiles(t.Context(), root)
+	qt.Check(t, qt.IsNotNil(err))
 }
 
 func TestChangedFilesErrorNamesGitsReason(t *testing.T) {
