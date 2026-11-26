@@ -1,6 +1,8 @@
 package app
 
 import (
+	"bytes"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -277,4 +279,21 @@ func TestIsolatedEnvDropsGitConfigInjectedThroughTheEnvironment(t *testing.T) {
 	qt.Check(t, qt.IsTrue(slices.Contains(env, "GIT_CONFIG_NOSYSTEM=1")), qt.Commentf("the system gitconfig must stay out"))
 	qt.Check(t, qt.IsTrue(slices.Contains(env, "XDG_RUNTIME_DIR=/run/user/1")), qt.Commentf("only the _HOME directories are dropped"))
 	qt.Check(t, qt.IsFalse(slices.Contains(env, "XDG_CONFIG_HOME=/x")))
+}
+
+// The sandbox that binds gate's caches reads them from this verb, so it must
+// name exactly what isolatedEnv passes through.
+func TestIsolateEnvVerbListsTheCachesIsolatedEnvKeeps(t *testing.T) {
+	t.Setenv("HOME", "/home/u")
+	t.Setenv("GOLANGCI_LINT_CACHE", "/lint")
+	var out, errBuf bytes.Buffer
+	qt.Assert(t, qt.Equals(Run(t.Context(), "v0.0.0-test", []string{"isolate-env"}, &out, &errBuf), Success), qt.Commentf("stderr = %q", errBuf.String()))
+	var got map[string]string
+	qt.Assert(t, qt.IsNil(json.Unmarshal(out.Bytes(), &got)))
+	qt.Check(t, qt.Equals(got["GOLANGCI_LINT_CACHE"], "/lint"))
+	qt.Check(t, qt.Equals(got["RUSTUP_HOME"], "/home/u/.rustup"))
+	env := isolatedEnv(os.Environ(), "/tmp/fresh")
+	for k, v := range got {
+		qt.Check(t, qt.IsTrue(slices.Contains(env, k+"="+v)), qt.Commentf("%s=%s", k, v))
+	}
 }

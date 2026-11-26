@@ -3,6 +3,9 @@ package app
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -165,13 +168,61 @@ func procArgv(pid int) (argv []string, ppid int, ok bool) {
 	return strings.Fields(rest), ppid, true
 }
 
+// isolateCaches is the one list of variables an isolated gate passes through
+// to its fresh HOME, each resolved from the caller's environment before HOME
+// is replaced: after the swap nothing can tell where the warm cache lives.
+// `gate isolate-env` prints it for sandboxes that must bind the same paths.
+func isolateCaches(lookup func(string) string, callerHome string) [][2]string {
+	pick := func(key, fallback string) string {
+		if v := lookup(key); v != "" {
+			return v
+		}
+		return fallback
+	}
+	xdgCache := pick("XDG_CACHE_HOME", filepath.Join(callerHome, ".cache"))
+	xdgData := pick("XDG_DATA_HOME", filepath.Join(callerHome, ".local/share"))
+	gopath := pick("GOPATH", filepath.Join(callerHome, "go"))
+	return [][2]string{
+		{"GOPATH", gopath},
+		{"GOMODCACHE", pick("GOMODCACHE", filepath.Join(gopath, "pkg/mod"))},
+		{"GOCACHE", pick("GOCACHE", filepath.Join(xdgCache, "go-build"))},
+		{"npm_config_cache", pick("npm_config_cache", filepath.Join(callerHome, ".npm"))},
+		{"PNPM_CONFIG_STORE_DIR", pick("PNPM_CONFIG_STORE_DIR", filepath.Join(xdgData, "pnpm/store"))},
+		{"BUN_INSTALL_CACHE_DIR", pick("BUN_INSTALL_CACHE_DIR", filepath.Join(callerHome, ".bun/install/cache"))},
+		{"UV_CACHE_DIR", pick("UV_CACHE_DIR", filepath.Join(xdgCache, "uv"))},
+		{"GOLANGCI_LINT_CACHE", pick("GOLANGCI_LINT_CACHE", filepath.Join(xdgCache, "golangci-lint"))},
+		{"PLAYWRIGHT_BROWSERS_PATH", pick("PLAYWRIGHT_BROWSERS_PATH", filepath.Join(xdgCache, "ms-playwright"))},
+		// rustup finds its toolchains and default through these; under the fresh HOME it would report none.
+		{"RUSTUP_HOME", pick("RUSTUP_HOME", filepath.Join(callerHome, ".rustup"))},
+		{"CARGO_HOME", pick("CARGO_HOME", filepath.Join(callerHome, ".cargo"))},
+		// the CLI stores global tools under $DOTNET_CLI_HOME/.dotnet; under the fresh HOME the list is empty.
+		{"DOTNET_CLI_HOME", pick("DOTNET_CLI_HOME", callerHome)},
+	}
+}
+
+// runIsolateEnv prints isolateCaches for this process's environment as one
+// JSON object, variable to path.
+func runIsolateEnv(stdout, stderr io.Writer) Code {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(stderr, "gate: %v\n", err)
+		return Fatal
+	}
+	caches := map[string]string{}
+	for _, kv := range isolateCaches(os.Getenv, home) {
+		caches[kv[0]] = kv[1]
+	}
+	if err := json.NewEncoder(stdout).Encode(caches); err != nil {
+		fmt.Fprintf(stderr, "gate: %v\n", err)
+		return Fatal
+	}
+	return Success
+}
+
 // isolatedEnv is the environment an isolated gate runs with. A fresh HOME
 // hides the global git identity, signing files and dotfiles a developer's
 // machine has and CI never will; the caches are passed through explicitly
 // because losing them would make every push a cold build.
-//
-// The paths are resolved from the caller's own environment before HOME is
-// replaced: after the swap nothing can tell where the warm cache lives.
 func isolatedEnv(env []string, home string) []string {
 	lookup := func(key string) string {
 		for _, e := range slices.Backward(env) {
@@ -185,15 +236,6 @@ func isolatedEnv(env []string, home string) []string {
 	if callerHome == "" {
 		callerHome = home
 	}
-	pick := func(key, fallback string) string {
-		if v := lookup(key); v != "" {
-			return v
-		}
-		return fallback
-	}
-	xdgCache := pick("XDG_CACHE_HOME", filepath.Join(callerHome, ".cache"))
-	xdgData := pick("XDG_DATA_HOME", filepath.Join(callerHome, ".local/share"))
-	gopath := pick("GOPATH", filepath.Join(callerHome, "go"))
 	// callerHome is never empty here, so StateDirFrom cannot fail.
 	state, _ := stored.StateDirFrom(lookup, callerHome)
 
@@ -214,24 +256,13 @@ func isolatedEnv(env []string, home string) []string {
 		}
 		out = append(out, e)
 	}
+	for _, kv := range isolateCaches(lookup, callerHome) {
+		out = append(out, kv[0]+"="+kv[1])
+	}
 	return append(out,
 		"HOME="+home,
 		"GIT_CONFIG_GLOBAL="+os.DevNull,
 		"GIT_CONFIG_NOSYSTEM=1",
 		stored.StateDirEnv+"="+state,
-		"GOPATH="+gopath,
-		"GOMODCACHE="+pick("GOMODCACHE", filepath.Join(gopath, "pkg/mod")),
-		"GOCACHE="+pick("GOCACHE", filepath.Join(xdgCache, "go-build")),
-		"npm_config_cache="+pick("npm_config_cache", filepath.Join(callerHome, ".npm")),
-		"PNPM_CONFIG_STORE_DIR="+pick("PNPM_CONFIG_STORE_DIR", filepath.Join(xdgData, "pnpm/store")),
-		"BUN_INSTALL_CACHE_DIR="+pick("BUN_INSTALL_CACHE_DIR", filepath.Join(callerHome, ".bun/install/cache")),
-		"UV_CACHE_DIR="+pick("UV_CACHE_DIR", filepath.Join(xdgCache, "uv")),
-		"GOLANGCI_LINT_CACHE="+pick("GOLANGCI_LINT_CACHE", filepath.Join(xdgCache, "golangci-lint")),
-		"PLAYWRIGHT_BROWSERS_PATH="+pick("PLAYWRIGHT_BROWSERS_PATH", filepath.Join(xdgCache, "ms-playwright")),
-		// rustup finds its toolchains and default through these; under the fresh HOME it would report none.
-		"RUSTUP_HOME="+pick("RUSTUP_HOME", filepath.Join(callerHome, ".rustup")),
-		"CARGO_HOME="+pick("CARGO_HOME", filepath.Join(callerHome, ".cargo")),
-		// the CLI stores global tools under $DOTNET_CLI_HOME/.dotnet; under the fresh HOME the list is empty.
-		"DOTNET_CLI_HOME="+pick("DOTNET_CLI_HOME", callerHome),
 	)
 }

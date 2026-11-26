@@ -21,7 +21,7 @@ reads the log's bytes for turbo / `go test` / `make` markers, then a label and
 an NDJSON `cache` field. It never sets a `Code`, never moves the aggregate, and
 is silent on unrecognised output. See cache.go's doc comment.
 
-Reserved words: **`doctor`**, **`run`**, **`fix`**, **`record`**, **`quick`**, **`completion`**, **`man`**, and the hidden **`actions-allowed`** (the workflows gate's body: actionlint, then every `uses:` against the repo's allowed-actions settings). A bare word
+Reserved words: **`doctor`**, **`run`**, **`fix`**, **`record`**, **`quick`**, **`completion`**, **`man`**, the hidden **`actions-allowed`** (the workflows gate's body: actionlint, then every `uses:` against the repo's allowed-actions settings), and the hidden **`isolate-env`** (the cache variables `--isolate` passes through, as JSON, for sandboxes that bind the same paths). A bare word
 cannot name a gate. Those programs: `gate -- run x` (and the same for the
 others). An unknown `gate run` name fails the whole run. `completion` and `man`
 are hidden: they are not in `--help`.

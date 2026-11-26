@@ -430,13 +430,18 @@ gates = ["format", "lint", "typecheck"]
 ```
 
 A program named like one of gate's own words (`doctor`, `run`, `fix`, `record`,
-`quick`, `completion`, `man`, and the hidden `actions-allowed`) is run as
+`quick`, `completion`, `man`, the hidden `actions-allowed` and the hidden `isolate-env`) is run as
 `gate -- <word>`, for example `gate -- quick`.
 
 `gate actions-allowed --json` takes no linter: it prints a JSON array with one
 object per `uses:` the repository's allowed-actions settings refuse or cannot
 judge (`ref`, `file`, `line`, `level` `fail` or `warn`, `reason`), and exits 1
 when any is `fail`. An unreadable setting prints `[]` and a note on stderr.
+
+`gate isolate-env` prints one JSON object, variable to path: the toolchain
+caches `--isolate` keeps visible under its fresh HOME, resolved from the
+caller's environment. A sandbox that runs gate binds these paths writable
+instead of keeping its own list.
 
 ## Configuration
 
