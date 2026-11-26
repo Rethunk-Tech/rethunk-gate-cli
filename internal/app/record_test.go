@@ -1081,3 +1081,26 @@ func TestFailedRerunsTheNeedsOfAFailedGate(t *testing.T) {
 	_, stderr, code = runGateTest(t, "-C", root, "--failed")
 	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
 }
+
+// A failing partial run on the tree a full pass covered replaces that pass:
+// keeping it would leave `gate record` vouching for a tree that just failed.
+func TestFailingPartialRunReplacesAFreshFullPass(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	root, scratch := t.TempDir(), t.TempDir()
+	state := filepath.Join(scratch, "state")
+	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
+	testutil.Write(t, root, ".gate.toml", "[gates.check]\nrun = "+strconvQuote("grep -q ok "+state)+"\n")
+	committedRepo(t, root)
+
+	qt.Assert(t, qt.IsNil(os.WriteFile(state, []byte("ok"), 0o600)))
+	_, _, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Success))
+	_, _, code = runGateTest(t, "-C", root, "record")
+	qt.Assert(t, qt.Equals(code, Success))
+
+	qt.Assert(t, qt.IsNil(os.WriteFile(state, []byte("bad"), 0o600)))
+	_, _, code = runGateTest(t, "-C", root, "run", "check")
+	qt.Assert(t, qt.Equals(code, Code(1)))
+	_, _, code = runGateTest(t, "-C", root, "record")
+	qt.Check(t, qt.Not(qt.Equals(code, Success)))
+}
