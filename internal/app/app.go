@@ -393,19 +393,19 @@ func (st *runState) runVerb(ctx context.Context, dir string, args []string, stdo
 		}
 		return false
 	}
+	refuseNotRun := func(verb string) bool {
+		return refuse([]string{"--ndjson streams a run; " + verb + " is not a run"}, "--profile reports a run; "+verb+" is not a run")
+	}
 	word := args[0]
+	if slices.Contains([]string{"completion", "man", "isolate-env"}, word) && (word != "isolate-env" || len(args) == 1) && refuseNotRun(word) {
+		return InvalidUsage, true
+	}
 	switch {
 	case word == "completion":
-		if refuse([]string{"--ndjson streams a run; completion is not a run"}, "--profile reports a run; completion is not a run") {
-			return InvalidUsage, true
-		}
 		return runCompletion(args[1:], stdout, stderr), true
 	case word == "man":
-		if refuse([]string{"--ndjson streams a run; man is not a run"}, "--profile reports a run; man is not a run") {
-			return InvalidUsage, true
-		}
 		return runMan(args[1:], stdout, stderr), true
-	case word == "isolate-env":
+	case word == "isolate-env" && len(args) == 1:
 		return runIsolateEnv(stdout, stderr), true
 	case word == "actions-allowed":
 		return runActionsAllowed(ctx, dir, args[1:], stdout, stderr), true

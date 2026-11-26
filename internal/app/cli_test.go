@@ -106,3 +106,11 @@ func TestFailedWithRunPointsAtBareFailed(t *testing.T) {
 	qt.Check(t, qt.Equals(code, InvalidUsage))
 	qt.Check(t, qt.StringContains(stderr, "run gate --failed"))
 }
+
+func TestIsolateEnvRefusesArgumentsAndRunFlags(t *testing.T) {
+	t.Parallel()
+	_, stderr, code := runGateTest(t, "--ndjson", "isolate-env")
+	qt.Check(t, qt.Equals(code, InvalidUsage), qt.Commentf("stderr = %q", stderr))
+	_, stderr, code = runGateTest(t, "--profile", "isolate-env")
+	qt.Check(t, qt.Equals(code, InvalidUsage), qt.Commentf("stderr = %q", stderr))
+}
