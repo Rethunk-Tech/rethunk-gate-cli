@@ -1070,16 +1070,17 @@ func TestNamedWholeCIWithAConfigGateWritesAPartialRecord(t *testing.T) {
 func TestFailedRerunsTheNeedsOfAFailedGate(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	root, scratch := t.TempDir(), t.TempDir()
-	out, state := filepath.Join(scratch, "out.txt"), filepath.Join(scratch, "state")
+	out, dep, state := filepath.Join(scratch, "out.txt"), filepath.Join(scratch, "dep.txt"), filepath.Join(scratch, "state")
 	qt.Assert(t, qt.IsNil(os.WriteFile(state, []byte("fail"), 0o600)))
 	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
 	testutil.Write(t, root, ".gate.toml",
-		"[gates.build]\nrun = "+strconvQuote("touch "+out)+"\n\n[gates.check]\nrun = "+strconvQuote("test -f "+out+" && grep -q ok "+state)+"\nneeds = [\"build\"]\n")
+		"[gates.deps]\nrun = "+strconvQuote("touch "+dep)+"\n\n[gates.build]\nrun = "+strconvQuote("test -f "+dep+" && touch "+out)+"\nneeds = [\"deps\"]\n\n[gates.check]\nrun = "+strconvQuote("test -f "+out+" && grep -q ok "+state)+"\nneeds = [\"build\"]\n")
 	committedRepo(t, root)
 
 	_, stderr, code := runGateTest(t, "-C", root)
 	qt.Assert(t, qt.Equals(code, Code(1)), qt.Commentf("stderr = %q", stderr))
 	qt.Assert(t, qt.IsNil(os.Remove(out)))
+	qt.Assert(t, qt.IsNil(os.Remove(dep)))
 	qt.Assert(t, qt.IsNil(os.WriteFile(state, []byte("ok"), 0o600)))
 
 	_, stderr, code = runGateTest(t, "-C", root, "--failed")
