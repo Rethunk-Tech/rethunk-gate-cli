@@ -140,10 +140,19 @@ func TestApplyForceCacheLeavesNonTestGoCommandsAlone(t *testing.T) {
 
 func TestApplyForceCacheInsertsMakeAlwaysMake(t *testing.T) {
 	t.Parallel()
-	spec := gateSpec{argv: []string{"make", "test"}, display: "make test"}
+	for _, tool := range []string{"make", "gmake"} {
+		spec := gateSpec{argv: []string{tool, "test"}, display: tool + " test"}
+		applyForceCache(&spec)
+		qt.Assert(t, qt.DeepEquals(spec.argv, []string{tool, "-B", "test"}))
+		qt.Assert(t, qt.Equals(spec.display, tool+" -B test"))
+	}
+}
+
+func TestApplyForceCacheKeepsAGatesOwnGoFlags(t *testing.T) {
+	t.Parallel()
+	spec := gateSpec{env: map[string]string{"GOFLAGS": "-tags=x"}, argv: []string{"sh", "-c", "go test ./..."}}
 	applyForceCache(&spec)
-	qt.Assert(t, qt.DeepEquals(spec.argv, []string{"make", "-B", "test"}))
-	qt.Assert(t, qt.Equals(spec.display, "make -B test"))
+	qt.Assert(t, qt.Equals(spec.env["GOFLAGS"], "-tags=x -count=1"))
 }
 
 func TestApplyForceCacheOnAShellStringLeavesArgvAlone(t *testing.T) {
