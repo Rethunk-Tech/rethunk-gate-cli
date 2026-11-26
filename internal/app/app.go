@@ -615,7 +615,9 @@ func Run(ctx context.Context, version string, args []string, stdout, stderr io.W
 			return code
 		}
 	} else {
-		configured = wrappedConfig(dir)
+		// Only the lock scope applies to a named command; the listing of
+		// config files and the gates stay those of a detected run.
+		configured.LockScope = wrappedConfig(dir).LockScope
 	}
 
 	st.prepareGates(&project, roles)
