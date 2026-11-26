@@ -1060,3 +1060,24 @@ func TestNamedWholeCIWithAConfigGateWritesAPartialRecord(t *testing.T) {
 	_, _, code = runGateTest(t, "-C", root, "record")
 	qt.Check(t, qt.Not(qt.Equals(code, Success)))
 }
+
+// --failed keeps the needs of a failed gate, so a gate on a shared build never
+// runs against a build that was not made.
+func TestFailedRerunsTheNeedsOfAFailedGate(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	root, scratch := t.TempDir(), t.TempDir()
+	out, state := filepath.Join(scratch, "out.txt"), filepath.Join(scratch, "state")
+	qt.Assert(t, qt.IsNil(os.WriteFile(state, []byte("fail"), 0o600)))
+	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
+	testutil.Write(t, root, ".gate.toml",
+		"[gates.build]\nrun = "+strconvQuote("touch "+out)+"\n\n[gates.check]\nrun = "+strconvQuote("test -f "+out+" && grep -q ok "+state)+"\nneeds = [\"build\"]\n")
+	committedRepo(t, root)
+
+	_, stderr, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Code(1)), qt.Commentf("stderr = %q", stderr))
+	qt.Assert(t, qt.IsNil(os.Remove(out)))
+	qt.Assert(t, qt.IsNil(os.WriteFile(state, []byte("ok"), 0o600)))
+
+	_, stderr, code = runGateTest(t, "-C", root, "--failed")
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+}

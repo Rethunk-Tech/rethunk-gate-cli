@@ -573,6 +573,20 @@ func selectFailed(ctx context.Context, root string, opts *options, stderr io.Wri
 		fmt.Fprintln(stderr, "gate: no failed gates")
 		return InvalidUsage
 	}
+	// A kept gate reads what its needs build, so they run again with it.
+	for changed := true; changed; {
+		changed = false
+		for _, g := range opts.gates {
+			if _, ok := want[g.role]; !ok {
+				continue
+			}
+			for _, n := range g.needs {
+				if _, ok := want[n]; !ok {
+					want[n], changed = struct{}{}, true
+				}
+			}
+		}
+	}
 	opts.gates = slices.DeleteFunc(opts.gates, func(g gateSpec) bool {
 		_, ok := want[g.role]
 		return !ok
