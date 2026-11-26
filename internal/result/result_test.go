@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-quicktest/qt"
 )
@@ -660,4 +661,24 @@ func TestReadTreeFollowsAnUntrackedNestedRepo(t *testing.T) {
 	qt.Assert(t, qt.IsTrue(before.OK))
 	testutilWrite(t, lib, "in.txt", "b\n")
 	qt.Check(t, qt.Not(qt.Equals(ReadTree(t.Context(), repo).Status, before.Status)), qt.Commentf("an edit inside the nested repo did not move the hash"))
+}
+
+func TestReadTreeIgnoresAStatOnlyChange(t *testing.T) {
+	t.Parallel()
+	repo := t.TempDir()
+	git := gitFixture(t, repo)
+	testutilWrite(t, repo, "f", "a\n")
+	git("add", "f")
+	git("commit", "--quiet", "-m", "first")
+	clean := ReadTree(t.Context(), repo)
+	qt.Assert(t, qt.IsTrue(clean.OK))
+
+	future := time.Now().Add(time.Hour)
+	qt.Assert(t, qt.IsNil(os.Chtimes(filepath.Join(repo, "f"), future, future)))
+	touched := ReadTree(t.Context(), repo)
+	qt.Check(t, qt.Equals(touched.Status, clean.Status))
+	qt.Check(t, qt.IsFalse(touched.Dirty))
+
+	testutilWrite(t, repo, "f", "b\n")
+	qt.Check(t, qt.Not(qt.Equals(ReadTree(t.Context(), repo).Status, clean.Status)))
 }

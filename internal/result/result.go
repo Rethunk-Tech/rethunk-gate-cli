@@ -105,6 +105,10 @@ func ReadTree(ctx context.Context, root string) State {
 	if !ok {
 		return State{Unreadable: true}
 	}
+	worktree, ok = dropStatOnly(root, worktree, git)
+	if !ok {
+		return State{Unreadable: true}
+	}
 	untracked, ok := git(nil, "ls-files", "-z", "--others", "--exclude-standard")
 	if !ok {
 		return State{Unreadable: true}
@@ -391,6 +395,67 @@ func hashChanged(root string, paths []string, git gitRead) ([]byte, bool) {
 		buf.Write(out)
 	}
 	return buf.Bytes(), true
+}
+
+// dropStatOnly removes the raw diff-files records of regular files whose bytes
+// still hash to the index id. A touch or an identical rewrite leaves such a
+// record until something refreshes the index, and git is read here without
+// optional locks, so the tree would otherwise read as dirty.
+func dropStatOnly(root string, worktree []byte, git gitRead) ([]byte, bool) {
+	type rec struct {
+		raw  []byte // header, NUL, path, NUL
+		id   string
+		path string
+		keep bool
+	}
+	var recs []rec
+	var stdin []byte
+	var cand []int
+	rest := worktree
+	for len(rest) > 0 {
+		i := bytes.IndexByte(rest, 0)
+		if i < 0 {
+			return worktree, true
+		}
+		header := rest[:i]
+		j := bytes.IndexByte(rest[i+1:], 0)
+		if j < 0 {
+			return worktree, true
+		}
+		r := rec{raw: rest[:i+1+j+1], path: string(rest[i+1 : i+1+j]), keep: true}
+		rest = rest[i+1+j+1:]
+		f := strings.Fields(string(header))
+		unchangedMode := len(f) == 5 && f[4] == "M" && f[0] == ":"+f[1] && (f[1] == "100644" || f[1] == "100755")
+		if unchangedMode {
+			if worktreePath(r.path) && !strings.ContainsRune(r.path, '\n') && !blocksHash(root, r.path) {
+				r.id = f[2]
+				stdin = append(append(stdin, r.path...), '\n')
+				cand = append(cand, len(recs))
+			}
+		}
+		recs = append(recs, r)
+	}
+	if len(cand) == 0 {
+		return worktree, true
+	}
+	out, ok := git(stdin, "hash-object", "--no-filters", "--stdin-paths")
+	if !ok {
+		return nil, false
+	}
+	ids := strings.Fields(string(out))
+	if len(ids) != len(cand) {
+		return nil, false
+	}
+	var kept []byte
+	for n, i := range cand {
+		recs[i].keep = ids[n] != recs[i].id
+	}
+	for _, r := range recs {
+		if r.keep {
+			kept = append(kept, r.raw...)
+		}
+	}
+	return kept, true
 }
 
 // hashlessEntry covers the entries hash-object cannot read. It cannot open a
