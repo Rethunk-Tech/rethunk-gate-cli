@@ -536,7 +536,7 @@ func lastFailedName(g result) string {
 }
 
 // selectFailed keeps only the detected gates whose last record status was
-// fail, timeout, error, or cancelled, plus those skipped because a need did
+// fail, timeout, error, cancelled, interrupted, or not-found, plus those skipped because a need did
 // not pass. Missing or stale records, and a last run with none of those
 // statuses, are a no-op: 129, with the reason on stderr.
 func selectFailed(ctx context.Context, root string, opts *options, stderr io.Writer) Code {
