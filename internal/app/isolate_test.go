@@ -22,6 +22,7 @@ func personalHome(t *testing.T) string {
 	testutil.Write(t, home, ".gitconfig", "[user]\n\tname = Personal Person\n")
 	testutil.Write(t, home, ".marker", "present\n")
 	t.Setenv("HOME", home)
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(home, ".cache"))
 	// Under an isolated gate (a pre-push run) this is /dev/null and would hide the identity above.
 	t.Setenv("GIT_CONFIG_GLOBAL", "")
 	_ = os.Unsetenv("GIT_CONFIG_GLOBAL")
