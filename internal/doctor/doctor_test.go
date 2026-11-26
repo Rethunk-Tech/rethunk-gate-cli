@@ -957,6 +957,7 @@ func TestCorepackBesideSetupBunIsFlaggedOnlyForBunProjects(t *testing.T) {
 
 	qt.Check(t, qt.IsFalse(corepackFightsBun("jobs:\n  a:\n    steps:\n      - uses: x/setup-bun@v1\n  b:\n    steps:\n      - run: corepack enable\n")))
 	qt.Check(t, qt.IsTrue(corepackFightsBun("jobs:\n  a:\n    steps:\n      - uses: x/setup-bun@v1\n      - run: corepack enable\n")))
+	qt.Check(t, qt.IsFalse(corepackFightsBun("jobs:\n  a:\n    steps:\n      - uses: x/setup-bun@v1\n      - run: corepack enable\n      - run: pnpm install\n")))
 }
 
 // A direct cargo clippy step is clippy running, and when the opt-in input is
@@ -1001,4 +1002,34 @@ func TestAWorkflowsDirectoryWithoutYAMLIsNoCI(t *testing.T) {
 	findings, err := Run(t.Context(), repo)
 	qt.Assert(t, qt.IsNil(err))
 	qt.Check(t, qt.IsTrue(reported(findings, "no-ci")), qt.Commentf("findings = %v", checkNames(findings)))
+}
+
+// A CI step that runs gate runs the project's own gates, so it stands in for
+// any command a check looks for; a step merely named like it does not.
+func TestRunGateStepCountsAsRunningEveryCommand(t *testing.T) {
+	t.Parallel()
+	qt.Check(t, qt.IsTrue(runsCommand("steps:\n  - run: gate\n", "govulncheck")))
+	qt.Check(t, qt.IsFalse(runsCommand("steps:\n  - run: gateway\n", "govulncheck")))
+}
+
+func TestMatrixPullRequestWorkflowWithAnAggregatingJobHasNoFinalGateFinding(t *testing.T) {
+	isolatePath(t)
+	dir := t.TempDir()
+	testutil.Write(t, dir, ".github/workflows/w.yml",
+		"on:\n  pull_request:\njobs:\n  build:\n    strategy:\n      matrix:\n        os: [a, b]\n    steps: []\n  done:\n    if: always()\n    needs: build\n    steps: []\n")
+	findings, err := Run(t.Context(), dir)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.IsFalse(reported(findings, "ci-no-final-gate")), qt.Commentf("%v", checkNames(findings)))
+}
+
+func TestGoRaceInTheRepoRootMakefileClearsAModuleInASubdirectory(t *testing.T) {
+	repo := t.TempDir()
+	testutil.Write(t, repo, ".git/HEAD", "ref: refs/heads/main\n")
+	testutil.Write(t, repo, "Makefile", "test:\n\tgo test -race ./...\n")
+	mod := filepath.Join(repo, "svc")
+	testutil.Write(t, mod, "go.mod", "module demo\n\ngo 1.26\n")
+	testutil.Write(t, mod, "Makefile", "build:\n\tgo build ./...\n")
+	var findings []Finding
+	checkGoRace(mod, detect.Project{}, config.Config{}, func(f Finding) { findings = append(findings, f) })
+	qt.Check(t, qt.IsFalse(reported(findings, "go-test-no-race")), qt.Commentf("%v", checkNames(findings)))
 }
