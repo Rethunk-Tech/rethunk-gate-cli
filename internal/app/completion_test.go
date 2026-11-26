@@ -6,6 +6,11 @@ import (
 	"github.com/go-quicktest/qt"
 )
 
+func TestHelpCommandsAreOnlyTheCommandLines(t *testing.T) {
+	t.Parallel()
+	qt.Check(t, qt.DeepEquals(helpCommands(gateHelp), []string{"run", "quick", "doctor", "fix", "record"}))
+}
+
 func TestCompletionAndManGeneration(t *testing.T) {
 	t.Parallel()
 	commands := helpCommands(gateHelp)

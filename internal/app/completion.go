@@ -99,7 +99,8 @@ func helpCommands(help string) []string {
 	var names []string
 	for line := range strings.SplitSeq(rest, "\n") {
 		fields := strings.Fields(line)
-		if len(fields) == 0 || strings.HasPrefix(fields[0], "<") {
+		if len(fields) == 0 || strings.HasPrefix(fields[0], "<") ||
+			len(line)-len(strings.TrimLeft(line, " ")) != 2 {
 			continue
 		}
 		names = append(names, fields[0])
