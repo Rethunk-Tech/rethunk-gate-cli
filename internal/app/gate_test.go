@@ -3693,7 +3693,7 @@ func TestNeedsOrdersAGateAfterItsNeed(t *testing.T) {
 
 	order := filepath.Join(t.TempDir(), "order")
 	root := needsProject(t, fmt.Sprintf(`[gates.a]
-run = "sleep 0.05; echo tools >> %[1]s"
+run = "i=0; while ! grep -qx c %[1]s 2>/dev/null && [ $i -lt 500 ]; do sleep 0.02; i=$((i+1)); done; echo tools >> %[1]s"
 
 [gates.b]
 run = "echo b >> %[1]s"
