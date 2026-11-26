@@ -692,6 +692,7 @@ func TestNpxInPackageScriptsFiresOnlyOnInvocations(t *testing.T) {
 }
 
 func TestStaleResultIsAFindingAndAFreshOneIsNot(t *testing.T) {
+	t.Setenv(result.StateDirEnv, "")
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	dir := t.TempDir()
 	testutil.Write(t, dir, "Makefile", "test:\n\ttrue\n")
