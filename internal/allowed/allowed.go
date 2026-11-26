@@ -10,8 +10,9 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
+
+	"github.com/Rethunk-Tech/rethunk-gate-cli/internal/detect"
 )
 
 // Settings is what the two settings endpoints return, merged.
@@ -51,11 +52,7 @@ var usesLine = regexp.MustCompile(`^\s*(?:-\s+)?uses:\s*['"]?([^\s'"#]+)`)
 // composite actions they call, transitively. Paths in the result are relative
 // to root.
 func Collect(root string) ([]Use, error) {
-	files, err := filepath.Glob(filepath.Join(root, ".github", "workflows", "*.y*ml"))
-	if err != nil {
-		return nil, err
-	}
-	sort.Strings(files)
+	files := detect.WorkflowFiles(root)
 	var uses []Use
 	seen := map[string]bool{}
 	for len(files) > 0 {

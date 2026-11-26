@@ -444,7 +444,7 @@ func checkGoRace(root string, proj detect.Project, cfg config.Config, add func(F
 		for _, wd := range []string{".github/workflows", ".azuredevops/pipelines"} {
 			entries, _ := os.ReadDir(filepath.Join(dir, wd))
 			for _, e := range entries {
-				if !e.IsDir() && isYAML(e.Name()) {
+				if !e.IsDir() && detect.IsYAML(e.Name()) {
 					take(readFile(filepath.Join(dir, wd, e.Name())))
 				}
 			}
@@ -565,11 +565,6 @@ func checkWorkflows(proj detect.Project, add func(Finding)) {
 	if !ok {
 		root = proj.Root
 	}
-	dir := filepath.Join(root, ".github", "workflows")
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return
-	}
 
 	// govulncheck is judged across the whole repository, not per file. A
 	// release workflow that omits it while CI enables it is not a gap, and
@@ -610,11 +605,7 @@ func checkWorkflows(proj detect.Project, add func(Finding)) {
 		},
 	}
 
-	for _, entry := range entries {
-		if entry.IsDir() || !isYAML(entry.Name()) {
-			continue
-		}
-		path := filepath.Join(dir, entry.Name())
+	for _, path := range detect.WorkflowFiles(root) {
 		body := readFile(path)
 		if body == "" {
 			continue
@@ -938,10 +929,6 @@ func yamlDash(line string) (int, bool) {
 		return 0, false
 	}
 	return len(line) - len(s), true
-}
-
-func isYAML(name string) bool {
-	return strings.HasSuffix(name, ".yml") || strings.HasSuffix(name, ".yaml")
 }
 
 // actionRef is one Rethunk-Tech/gh-actions use: the ref exactly as written,

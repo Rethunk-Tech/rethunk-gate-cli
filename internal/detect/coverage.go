@@ -98,7 +98,7 @@ func ciInvocations(root string) []ciInvocation {
 // holds, and where it sits. A block scalar yields its body lines; a one-line
 // step yields its command.
 func eachCIRunLine(root string, visit func(file string, number int, line string)) {
-	files, _ := filepath.Glob(filepath.Join(root, ".github", "workflows", "*.y*ml"))
+	files := WorkflowFiles(root)
 	slices.Sort(files)
 	for _, file := range files {
 		rel, _ := filepath.Rel(root, file)

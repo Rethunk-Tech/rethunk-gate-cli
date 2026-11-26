@@ -269,7 +269,7 @@ func (b *ciGateBuilder) finish() {
 // one package script at the repository root. Textual, like every other
 // manifest read here: indentation is all a workflow's structure needs.
 func ciScriptSteps(root string) []ciStep {
-	files, _ := filepath.Glob(filepath.Join(root, ".github", "workflows", "*.y*ml"))
+	files := WorkflowFiles(root)
 	var steps []ciStep
 	for _, file := range files {
 		data, err := os.ReadFile(filepath.Clean(file))
@@ -554,4 +554,21 @@ func stripComment(v string) string {
 		v = v[:i]
 	}
 	return strings.TrimSpace(v)
+}
+
+// IsYAML reports whether name is a .yml or .yaml file name.
+func IsYAML(name string) bool {
+	return strings.HasSuffix(name, ".yml") || strings.HasSuffix(name, ".yaml")
+}
+
+// WorkflowFiles are the paths of root's .github/workflows YAML files, sorted.
+func WorkflowFiles(root string) []string {
+	entries, _ := os.ReadDir(filepath.Join(root, ".github", "workflows"))
+	var files []string
+	for _, e := range entries {
+		if !e.IsDir() && IsYAML(e.Name()) {
+			files = append(files, filepath.Join(root, ".github", "workflows", e.Name()))
+		}
+	}
+	return files
 }

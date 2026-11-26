@@ -239,7 +239,7 @@ func embedsGenerated(root string) bool {
 // or script holds, so that text is read too. A project without workflows has
 // nothing to contradict.
 func ciRunsToolchain(root, chain string) bool {
-	files, _ := filepath.Glob(filepath.Join(root, ".github", "workflows", "*.y*ml"))
+	files := WorkflowFiles(root)
 	if len(files) == 0 || !slices.ContainsFunc(ciTools, func(t ciTool) bool { return t.toolchain == chain }) {
 		return true
 	}

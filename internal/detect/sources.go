@@ -1250,7 +1250,7 @@ func declaresPytest(root string) bool {
 // ciPackageDirs lists the subdirectories the repository's CI workflows run
 // commands in, relative to root and sorted.
 func ciPackageDirs(root string) []string {
-	files, _ := filepath.Glob(filepath.Join(root, ".github", "workflows", "*.y*ml"))
+	files := WorkflowFiles(root)
 	var dirs []string
 	for _, file := range files {
 		data, err := os.ReadFile(filepath.Clean(file))
