@@ -1123,3 +1123,22 @@ func TestFailingPartialRunReplacesAFreshFullPass(t *testing.T) {
 	_, _, code = runGateTest(t, "-C", root, "record")
 	qt.Check(t, qt.Not(qt.Equals(code, Success)))
 }
+
+func TestRecordIsStaleWhenAGateEditsTheTree(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	testutil.Write(t, root, "src.txt", "good")
+	testutil.Write(t, root, "Makefile", "test:\n\tgrep -q good src.txt && printf bad > src.txt\n")
+	committedRepo(t, root)
+
+	_, stderr, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Success), qt.Commentf("stderr = %q", stderr))
+
+	js, _, code := runGateTest(t, "-C", root, "--json", "record")
+	qt.Check(t, qt.Not(qt.Equals(code, Success)))
+	var got struct {
+		Fresh bool `json:"fresh"`
+	}
+	qt.Assert(t, qt.IsNil(json.Unmarshal([]byte(js), &got)), qt.Commentf("stdout = %q", js))
+	qt.Check(t, qt.IsFalse(got.Fresh))
+}

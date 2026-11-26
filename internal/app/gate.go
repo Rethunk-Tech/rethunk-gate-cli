@@ -554,18 +554,15 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 	stream := newResultStream(stdout, stderr, opts.ndjson)
 
 	started := time.Now()
-	// Read beside the gates rather than before them: it costs a git spawn or
-	// two, and the median run is short enough for that to show. A gate that
-	// rewrites the tree within those milliseconds is the ceiling. The
-	// fingerprint is read with it, so both describe what the run started on.
-	type startState struct {
+	// Read before the first gate starts: a gate that edits the tree must read
+	// as stale afterwards, not as the state the run began on. The fingerprint
+	// is read with it, so both describe what the run started on.
+	var start struct {
 		tree        stored.State
 		fingerprint string
 	}
-	tree := make(chan startState, 1)
 	if opts.root != "" {
-		// The goroutine gets its own copy: opts is written again once the gates finish.
-		go func(o options) { tree <- startState{stored.ReadTree(ctx, o.root), gatesFingerprint(ctx, o)} }(opts)
+		start.tree, start.fingerprint = stored.ReadTree(ctx, opts.root), gatesFingerprint(ctx, opts)
 	}
 	sc := groupRun{userStopped: func() bool { return ctx.Err() != nil }, loads: newLoadWaiter(opts, stderr), opts: opts, results: results, stream: stream, needed: resolveNeeds(opts.gates), done: make([]chan struct{}, len(opts.gates))}
 	for i := range sc.done {
@@ -649,10 +646,9 @@ func runGates(ctx context.Context, opts options, stdout, stderr io.Writer) Code 
 			busy.Round(time.Millisecond), opts.budget, slowest, waitedNote(waited))
 	}
 	if opts.root != "" {
-		at := <-tree
-		if at.tree.OK {
-			saveRecord(stderr, opts, results, at.tree, at.fingerprint, started, wall, waited, code)
-		} else if at.tree.Unreadable {
+		if start.tree.OK {
+			saveRecord(stderr, opts, results, start.tree, start.fingerprint, started, wall, waited, code)
+		} else if start.tree.Unreadable {
 			warnUnreadableTree(stderr, opts)
 		}
 	}
