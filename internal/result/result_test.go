@@ -710,19 +710,32 @@ func TestReadTreeIgnoresAStatOnlyChange(t *testing.T) {
 	repo := t.TempDir()
 	git := gitFixture(t, repo)
 	testutilWrite(t, repo, "f", "a\n")
-	git("add", "f")
+	testutilWrite(t, repo, "x.sh", "a\n")
+	qt.Assert(t, qt.IsNil(os.Chmod(filepath.Join(repo, "x.sh"), 0o755))) //nolint:gosec // an executable file is the case under test
+	git("add", "f", "x.sh")
 	git("commit", "--quiet", "-m", "first")
 	clean := ReadTree(t.Context(), repo)
 	qt.Assert(t, qt.IsTrue(clean.OK))
 
 	future := time.Now().Add(time.Hour)
 	qt.Assert(t, qt.IsNil(os.Chtimes(filepath.Join(repo, "f"), future, future)))
+	qt.Assert(t, qt.IsNil(os.Chtimes(filepath.Join(repo, "x.sh"), future, future)))
 	touched := ReadTree(t.Context(), repo)
 	qt.Check(t, qt.Equals(touched.Status, clean.Status))
 	qt.Check(t, qt.IsFalse(touched.Dirty))
 
 	testutilWrite(t, repo, "f", "b\n")
 	qt.Check(t, qt.Not(qt.Equals(ReadTree(t.Context(), repo).Status, clean.Status)))
+}
+
+func TestStateDirIgnoresARelativeStateDirEnv(t *testing.T) {
+	t.Parallel()
+	lookup := func(k string) string {
+		return map[string]string{StateDirEnv: "rel", "XDG_STATE_HOME": "/x"}[k]
+	}
+	dir, err := StateDirFrom(lookup, "/home/u")
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.Equals(dir, "/x"))
 }
 
 func TestReadTreeCountsAChmodWithUnchangedBytes(t *testing.T) {
