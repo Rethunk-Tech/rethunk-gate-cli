@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/go-quicktest/qt"
+
+	stored "github.com/Rethunk-Tech/rethunk-gate-cli/internal/result"
 )
 
 // deadPID is a pid no process holds, so a test can make a directory whose
@@ -162,10 +164,55 @@ func TestSweepReportsItsCounts(t *testing.T) {
 	qt.Check(t, qt.StringContains(out.String(), "1 go-build dir(s)"), qt.Commentf("line = %q", out.String()))
 	qt.Check(t, qt.StringContains(out.String(), "7 days"), qt.Commentf("line = %q", out.String()))
 
-	// --quiet's contract is that a passing run prints nothing at all.
+	// --quiet's contract is that a passing run prints nothing at all, even
+	// when the sweep removed something.
 	out.Reset()
+	qt.Assert(t, qt.IsNil(os.Mkdir(stale, 0o750)))
+	aged(t, stale, 48*time.Hour)
 	reportSweep(&out, true)
 	qt.Check(t, qt.Equals(out.String(), ""))
+	_, err := os.Stat(stale)
+	qt.Check(t, qt.IsTrue(os.IsNotExist(err)), qt.Commentf("--quiet kept the sweep from removing"))
+}
+
+// The log and lock walk and the result prune are paced: the first sweep does
+// both and stamps them, and a sweep inside the interval walks nothing.
+func TestSweepPrunesResultsAndLocksOnceThenPaces(t *testing.T) {
+	t.Setenv("GATE_TMPDIR", t.TempDir())
+	t.Setenv("TMPDIR", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	qt.Assert(t, qt.IsNil(os.MkdirAll(logDir(), 0o750)))
+	state, err := stored.StateDir()
+	qt.Assert(t, qt.IsNil(err))
+	results := filepath.Join(state, "gate", "results")
+	qt.Assert(t, qt.IsNil(os.MkdirAll(results, 0o750)))
+	locks, err := lockDir()
+	qt.Assert(t, qt.IsNil(err))
+	qt.Assert(t, qt.IsNil(os.MkdirAll(locks, 0o750)))
+	record := filepath.Join(results, "gone.json")
+	lock := filepath.Join(locks, "idle.lock")
+	seed := func() {
+		qt.Assert(t, qt.IsNil(os.WriteFile(record, []byte(`{"root":"/nonexistent/gate-sweep-test"}`), 0o600)))
+		aged(t, record, 2*resultMaxAge)
+		qt.Assert(t, qt.IsNil(os.WriteFile(lock, nil, 0o600)))
+		aged(t, lock, 2*pruneAge)
+	}
+	exists := func(p string) bool { _, err := os.Stat(p); return err == nil }
+
+	seed()
+	_, _, _, _, removedLocks := sweepOrphans() //nolint:dogsled // only the lock count is under test
+	qt.Check(t, qt.Equals(removedLocks, 1))
+	qt.Check(t, qt.IsFalse(exists(record)), qt.Commentf("the sweep left an old record of a gone root"))
+	qt.Check(t, qt.IsFalse(exists(lock)))
+	qt.Check(t, qt.IsTrue(exists(filepath.Join(logDir(), ".pruned"))))
+	qt.Check(t, qt.IsTrue(exists(filepath.Join(logDir(), ".pruned-results"))))
+
+	seed()
+	_, _, _, _, removedLocks = sweepOrphans() //nolint:dogsled // only the lock count is under test
+	qt.Check(t, qt.Equals(removedLocks, 0))
+	qt.Check(t, qt.IsTrue(exists(record)), qt.Commentf("the results prune ran again inside its interval"))
+	qt.Check(t, qt.IsTrue(exists(lock)), qt.Commentf("the lock walk ran again inside its interval"))
 }
 
 // A killed run never removes its throwaway HOME, so the sweep does, once it
