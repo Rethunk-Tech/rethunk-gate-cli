@@ -315,6 +315,23 @@ func gitReason(err error) error {
 	return err
 }
 
+// initialisedGitlinks is the (path, recorded commit) of every submodule in
+// the `ls-files --stage` entries that is checked out under dir.
+func initialisedGitlinks(dir string, entries []string) [][2]string {
+	var out [][2]string
+	for _, entry := range entries {
+		meta, path, ok := strings.Cut(entry, "\t")
+		fields := strings.Fields(meta)
+		if !ok || len(fields) < 2 || fields[0] != "160000" {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(path), ".git")); err == nil {
+			out = append(out, [2]string{path, fields[1]})
+		}
+	}
+	return out
+}
+
 func changedFiles(ctx context.Context, root string) ([]string, error) {
 	if root == "" {
 		return nil, nil
@@ -349,8 +366,12 @@ func changedFiles(ctx context.Context, root string) ([]string, error) {
 			}
 		}
 	}
-	list := func(dir, prefix string) error {
-		changed, err := git(dir, "diff-index", "-z", "--name-only", "--diff-filter=d", "--relative", "HEAD")
+	// base is what dir's changes are measured against: HEAD for the project,
+	// the commit the parent records for a submodule, so commits the parent has
+	// not picked up yet count as changes.
+	var list func(dir, prefix, base string) error
+	list = func(dir, prefix, base string) error {
+		changed, err := git(dir, "diff-index", "-z", "--name-only", "--diff-filter=d", "--relative", base)
 		if err != nil {
 			return err
 		}
@@ -360,27 +381,20 @@ func changedFiles(ctx context.Context, root string) ([]string, error) {
 		}
 		add(prefix, changed)
 		add(prefix, untracked)
+		// The superproject sees an edit inside a submodule only as its gitlink.
+		gitlinks, err := git(dir, "ls-files", "-z", "--stage")
+		if err != nil {
+			return err
+		}
+		for _, sm := range initialisedGitlinks(dir, gitlinks) {
+			if err := list(filepath.Join(dir, filepath.FromSlash(sm[0])), prefix+sm[0]+"/", sm[1]); err != nil {
+				return err
+			}
+		}
 		return nil
 	}
-	if err := list(root, ""); err != nil {
+	if err := list(root, "", "HEAD"); err != nil {
 		return nil, err
-	}
-	// The superproject sees an edit inside a submodule only as its gitlink.
-	gitlinks, err := git(root, "ls-files", "-z", "--stage")
-	if err != nil {
-		return nil, err
-	}
-	for _, entry := range gitlinks {
-		meta, path, ok := strings.Cut(entry, "\t")
-		if !ok || !strings.HasPrefix(meta, "160000 ") {
-			continue
-		}
-		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(path), ".git")); err != nil {
-			continue // not initialised
-		}
-		if err := list(filepath.Join(root, filepath.FromSlash(path)), path+"/"); err != nil {
-			return nil, err
-		}
 	}
 	return files, nil
 }
