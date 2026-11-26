@@ -642,3 +642,22 @@ func TestReadTreeSurvivesNestedReposAndDanglingSymlinks(t *testing.T) {
 		t.Fatal("a symlink retargeted without changing the tree hash")
 	}
 }
+
+func TestReadTreeFollowsAnUntrackedNestedRepo(t *testing.T) {
+	t.Parallel()
+	repo := t.TempDir()
+	git := gitFixture(t, repo)
+	testutilWrite(t, repo, "f", "a\n")
+	git("add", "f")
+	git("commit", "--quiet", "-m", "first")
+	lib := filepath.Join(repo, "lib")
+	libGit := gitFixture(t, lib)
+	testutilWrite(t, lib, "in.txt", "a\n")
+	libGit("add", "in.txt")
+	libGit("commit", "--quiet", "-m", "lib")
+
+	before := ReadTree(t.Context(), repo)
+	qt.Assert(t, qt.IsTrue(before.OK))
+	testutilWrite(t, lib, "in.txt", "b\n")
+	qt.Check(t, qt.Not(qt.Equals(ReadTree(t.Context(), repo).Status, before.Status)), qt.Commentf("an edit inside the nested repo did not move the hash"))
+}

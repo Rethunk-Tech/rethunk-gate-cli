@@ -142,8 +142,12 @@ func ReadTree(ctx context.Context, root string) State {
 			return State{Unreadable: true}
 		}
 		inner := ReadTree(ctx, filepath.Join(root, sub))
-		if !inner.OK {
+		if inner.Unreadable {
 			return State{Unreadable: true}
+		}
+		// A repository with no commit has no head to hash and stays readable.
+		if !inner.OK {
+			continue
 		}
 		blobs = fmt.Appendf(blobs, "%s %s %s\n", sub, inner.Head, inner.Status)
 	}
@@ -325,7 +329,13 @@ func readPaths(worktree, untracked []byte) (paths, submodules []string) {
 		}
 	}
 	for p := range bytes.SplitSeq(untracked, []byte{0}) {
-		if len(p) > 0 {
+		switch {
+		case len(p) == 0:
+		case p[len(p)-1] == '/':
+			// An untracked nested repository lists as one directory entry;
+			// its own tree is read like a submodule's.
+			submodules = append(submodules, string(p[:len(p)-1]))
+		default:
 			paths = append(paths, string(p))
 		}
 	}
