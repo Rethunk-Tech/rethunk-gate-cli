@@ -53,7 +53,7 @@ func TestSaveRecordKeepsCachedPassesOutOfTheDurationHistory(t *testing.T) {
 	hit := gateSpec{argv: []string{"go", "test", "./a"}, display: "go test ./a"}
 	cold := gateSpec{argv: []string{"go", "test", "./b"}, display: "go test ./b"}
 	results := []gateResult{
-		{spec: hit, started: true, elapsed: 20 * time.Millisecond, cache: cacheVerdict{source: cacheGoTest, cached: 1, total: 1}},
+		{spec: hit, started: true, elapsed: 20 * time.Millisecond, cache: cacheVerdict{cached: 1, total: 1}},
 		{spec: cold, started: true, elapsed: 3 * time.Second},
 	}
 	saveRecord(io.Discard, options{root: root}, results, stored.State{OK: true, Head: "h"}, "fp", time.Now(), time.Second, 0, Success)

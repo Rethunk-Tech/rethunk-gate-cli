@@ -42,31 +42,20 @@ var goTestLineRe = regexp.MustCompile(`^(ok|FAIL)\s+\S+\s+(\(cached\)|[0-9.]+s)$
 // to agree.
 var makeUpToDateRe = regexp.MustCompile(`^make: [\x60'].* is up to date\.$`)
 
-// cacheSource names which tool's own marker cacheScanner recognised.
-type cacheSource int
-
-const (
-	cacheNone cacheSource = iota
-	cacheTurbo
-	cacheGoTest
-	cacheMake
-)
-
 // cacheVerdict is what a gate's own output said about whether it did the
 // work or a cache answered for it. It never reaches gateResult.code: the
 // exit status is still the only verdict, and this is display alongside it,
 // the same way --profile's timing is.
 type cacheVerdict struct {
-	source        cacheSource
 	cached, total int
 }
 
 func (v cacheVerdict) full() bool {
-	return v.source != cacheNone && v.total > 0 && v.cached == v.total
+	return v.total > 0 && v.cached == v.total
 }
 
 func (v cacheVerdict) partial() bool {
-	return v.source != cacheNone && v.cached > 0 && v.cached < v.total
+	return v.cached > 0 && v.cached < v.total
 }
 
 // label is what the one-line verdict and the NDJSON record both append, or
@@ -98,7 +87,7 @@ func (v cacheVerdict) label() string {
 // today's behaviour. Over-reporting would be worse -- it would tell an
 // operator a gate ran fresh, or was cached, when it does not actually know
 // that. So every pattern matches a whole trimmed line rather than a
-// substring, and an unrecognised shape resolves to cacheNone rather than the
+// substring, and an unrecognised shape resolves to an empty verdict rather than the
 // closest guess.
 //
 // It sits in the same MultiWriter as the log and the failure-tail tracker,
@@ -108,10 +97,8 @@ func (v cacheVerdict) label() string {
 type cacheScanner struct {
 	partial bytes.Buffer
 
-	turboSeen               bool
 	turboCached, turboTotal int
 
-	goSeen            bool
 	goCached, goTotal int
 	makeUpToDateLines int
 	nonBlankLines     int
@@ -167,14 +154,12 @@ func (s *cacheScanner) observe(line string) {
 		cached, err1 := strconv.Atoi(m[1])
 		total, err2 := strconv.Atoi(m[2])
 		if err1 == nil && err2 == nil && total > 0 {
-			s.turboSeen = true
 			s.turboCached += cached
 			s.turboTotal += total
 		}
 		return
 	}
 	if m := goTestLineRe.FindStringSubmatch(line); m != nil {
-		s.goSeen = true
 		s.goTotal++
 		if m[2] == "(cached)" {
 			s.goCached++
@@ -192,15 +177,15 @@ func (s *cacheScanner) observe(line string) {
 // make gets no count of its own, so a "cached" verdict there requires every
 // line the gate produced to be one of make's own up-to-date lines: the
 // moment something else was printed, make did real work this scanner cannot
-// separate from the skipped part, and the honest answer is cacheNone.
+// separate from the skipped part, and the honest answer is an empty verdict.
 func (s *cacheScanner) verdict() cacheVerdict {
 	switch {
-	case s.turboSeen:
-		return cacheVerdict{source: cacheTurbo, cached: s.turboCached, total: s.turboTotal}
-	case s.goSeen:
-		return cacheVerdict{source: cacheGoTest, cached: s.goCached, total: s.goTotal}
+	case s.turboTotal > 0:
+		return cacheVerdict{cached: s.turboCached, total: s.turboTotal}
+	case s.goTotal > 0:
+		return cacheVerdict{cached: s.goCached, total: s.goTotal}
 	case s.makeUpToDateLines > 0 && s.makeUpToDateLines == s.nonBlankLines:
-		return cacheVerdict{source: cacheMake, cached: 1, total: 1}
+		return cacheVerdict{cached: 1, total: 1}
 	}
 	return cacheVerdict{}
 }

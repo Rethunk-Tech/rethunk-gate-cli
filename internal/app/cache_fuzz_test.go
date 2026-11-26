@@ -55,14 +55,14 @@ func checkCacheVerdict(t *testing.T, v cacheVerdict) {
 	}
 	switch {
 	case v.full():
-		if v.source == cacheNone || v.total <= 0 || v.cached != v.total {
+		if v.total <= 0 || v.cached != v.total {
 			t.Fatalf("full() does not match counts: %+v", v)
 		}
 		if v.label() != "cached" {
 			t.Fatalf("full label %q, want cached", v.label())
 		}
 	case v.partial():
-		if v.source == cacheNone || v.cached <= 0 || v.cached >= v.total {
+		if v.cached <= 0 || v.cached >= v.total {
 			t.Fatalf("partial() does not match counts: %+v", v)
 		}
 		want := fmt.Sprintf("%d/%d cached", v.cached, v.total)
