@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -215,6 +216,7 @@ func TestMemoryNoteNamesWhyTheCapIsNotTheRequestedOne(t *testing.T) {
 	}{
 		{"same cap in force", "24G", 24 * g, true, "", true, ""},
 		{"smaller request under a larger cap", "8G", 30 * g, true, "", true, "memory cap 8G not applied: already under a 30G cap"},
+		{"default under a larger cap stays silent", "8G", 30 * g, true, "", true, ""},
 		{"larger request under a smaller cap", "24G", 8 * g, true, "", true, ""},
 		{"no memory controller visible", "8G", 0, true, "", true, "memory cap 8G unused: no cgroup memory controller visible"},
 		{"started by a unit", "24G", 0, false, "abc", true, "memory cap 24G unused: started by a systemd unit, whose own limits apply"},
@@ -225,7 +227,7 @@ func TestMemoryNoteNamesWhyTheCapIsNotTheRequestedOne(t *testing.T) {
 			stubUnit(t, tc.unit != "")
 			systemdAvailable = func() bool { return tc.systemd }
 			cgroupLimit = func() (uint64, bool) { return tc.limit, tc.capped }
-			qt.Check(t, qt.Equals(memoryNote(tc.size), tc.want))
+			qt.Check(t, qt.Equals(memoryNote(tc.size, !strings.HasPrefix(tc.name, "default")), tc.want))
 		})
 	}
 }

@@ -104,8 +104,10 @@ func userSystemdAvailable() bool {
 }
 
 // memoryNote says why the requested cap will not be the one in force, or ""
-// when it will be (or none was asked for).
-func memoryNote(size string) string {
+// when it will be (or none was asked for). A looser-than-enclosing cap is
+// only worth saying for an explicit request: the default would repeat it on
+// every run under a small cap, with no remedy for the caller.
+func memoryNote(size string, explicit bool) string {
 	if !memoryOn(size) {
 		return ""
 	}
@@ -114,7 +116,7 @@ func memoryNote(size string) string {
 			return "memory cap " + size + " unused: no cgroup memory controller visible"
 		}
 		// Only a looser cap in force loses protection; a stricter one is noise.
-		if want, ok := parseSizeBytes(size); ok && limit > 0 && want < limit {
+		if want, ok := parseSizeBytes(size); ok && explicit && limit > 0 && want < limit {
 			return "memory cap " + size + " not applied: already under a " + formatSize(limit) + " cap"
 		}
 		return ""
@@ -138,7 +140,7 @@ func announceMemoryCap(stderr io.Writer, opts options) {
 	if !applyMemoryWrap || opts.quiet {
 		return
 	}
-	note := memoryNote(opts.memory)
+	note := memoryNote(opts.memory, opts.memExplicit)
 	if note == "" && opts.memExplicit {
 		note = enclosingLowerNote(opts.memory)
 	}
