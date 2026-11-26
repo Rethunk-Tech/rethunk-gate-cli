@@ -352,6 +352,12 @@ func TestQuickPrefixesDashNamedFiles(t *testing.T) {
 	qt.Check(t, qt.DeepEquals(got.argv, []string{"gofmt", "-w", "./-s.go", "a.go"}))
 }
 
+func TestQuickPrefixesDashNamedFilesForScopedTools(t *testing.T) {
+	t.Parallel()
+	qt.Check(t, qt.DeepEquals(scopedArgv([]string{"ruff", "check", "."}, "--force-exclude", []string{"-d.py", "a.py"}),
+		[]string{"ruff", "check", "--force-exclude", "./-d.py", "a.py"}))
+}
+
 // An edit inside an initialised submodule shows in the superproject only as
 // its gitlink; quick lists the submodule's own changes, named from the root.
 func TestChangedFilesListsInsideInitialisedSubmodules(t *testing.T) {

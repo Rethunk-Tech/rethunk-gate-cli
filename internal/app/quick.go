@@ -290,7 +290,7 @@ func scopedArgv(argv []string, flag string, files []string) []string {
 	if !slices.Contains(out, flag) {
 		out = append(out, flag)
 	}
-	return append(out, files...)
+	return replacePathArgs(out, files)
 }
 
 func filterExt(files, exts []string) []string {
