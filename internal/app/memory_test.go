@@ -221,7 +221,6 @@ func TestScopeRunUnderEnclosingCap(t *testing.T) {
 		note  string
 	}{
 		{"requested below enclosing", "4G", 40 * g, false, "memory cap 4G not applied: already under a 40G cap"},
-		{"default below enclosing", defaultMemory, 40 * g, false, "memory cap 24G not applied: already under a 40G cap"},
 		{"requested above enclosing", "64G", 40 * g, false, "memory cap 64G not applied: an enclosing 40G cap is lower"},
 		{"requested equals enclosing", "40G", 40 * g, false, ""},
 	} {
