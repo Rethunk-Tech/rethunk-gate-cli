@@ -286,6 +286,7 @@ func TestIsolatedEnvDropsGitConfigInjectedThroughTheEnvironment(t *testing.T) {
 func TestIsolateEnvVerbListsTheCachesIsolatedEnvKeeps(t *testing.T) {
 	t.Setenv("HOME", "/home/u")
 	t.Setenv("GOLANGCI_LINT_CACHE", "/lint")
+	t.Setenv("RUSTUP_HOME", "")
 	var out, errBuf bytes.Buffer
 	qt.Assert(t, qt.Equals(Run(t.Context(), "v0.0.0-test", []string{"isolate-env"}, &out, &errBuf), Success), qt.Commentf("stderr = %q", errBuf.String()))
 	var got map[string]string
