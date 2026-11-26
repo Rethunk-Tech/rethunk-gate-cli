@@ -78,7 +78,8 @@ different gate sets, so neither stands in for the other.
 ### `--failed`
 
 `gate --failed` still detects, then runs only the gates whose last result
-record for this root had status `fail`, `timeout`, or `error`, plus those
+record for this root had status `fail`, `timeout`, `error`, `cancelled`, `interrupted`, or
+`not-found`, plus those
 skipped because a `needs` gate did not pass. The record
 must name the current HEAD and this tree's status hash. Missing, stale, or
 no such gates: the reason on stderr, exit 129. The re-run is a subset, so
@@ -123,7 +124,8 @@ is the same object a result record stores under `gates`, so it has no
 
 `status` is a word, never a code: `ok`, `fail`, `timeout`, `interrupted`,
 `cancelled`, `not-found`, `error`, `skipped`. A command exiting 124 is not a timeout.
-`code` and `ms` are absent for a gate that never ran. `reason` is skip/timeout
+`code` and `ms` are absent for a gate that was skipped; a `not-found` gate
+carries code 127 and `ms` 0. `reason` is skip/timeout
 detail; `error` is gate's own failure beside the command's verdict. `cache` is
 `"cached"` or `"N/M cached"`, absent when unrecognised. `dir` and `timeout`
 are the listing's configured values (`off` for `0`), omitted where the listing
@@ -637,7 +639,8 @@ unused: systemd-run --user is unavailable` line; that is not a failure. A gate
 started directly in a systemd service's cgroup is not re-exec'd, so
 `systemctl stop` still reaches it, and says so. Under an existing memory cap on
 the process's cgroup or an ancestor, gate adds none, and prints a note when
-`<SIZE>` differs from the cap in force. Where no cgroup memory controller is
+an explicit `--mem` or `[limits] memory` is looser than the cap in force (the
+default stays silent). Where no cgroup memory controller is
 visible (no cgroup v2, or a container that hides it) it prints `gate: memory
 cap <SIZE> unused: no cgroup memory controller visible`.
 

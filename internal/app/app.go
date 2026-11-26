@@ -82,7 +82,8 @@ Flags:
   -j, --jobs N  run at most N gates at once (GATE_JOBS; default: no cap, or
                 nproc/2 when 1-minute loadavg exceeds nproc; N>=1;
                 .gate.toml: jobs = N; this flag wins)
-  --failed      re-run only the gates that failed, timed out, errored, or were cancelled last time
+  --failed      re-run only the gates that failed, timed out, errored, were cancelled or interrupted, or
+                were not found last time
                 (reads this root's result record; missing, stale, or none: exit 129)
   --e2e         also run the e2e gates a default run skips
   --fuzz        also run the fuzz gate a local run skips (GATE_FUZZ=1; a pre-push hook
@@ -106,9 +107,9 @@ Flags:
   --trust       run a bare or role gate in a repo that has no .gate.toml and
                 whose origin is not a trusted org (installs run dependency
                 scripts); orgs: trusted-orgs in ~/.config/gate/config.toml
-  --no-load-wait  run gates without first waiting (up to 2m, one "waiting for
-                load" line) for the 1-minute loadavg to fall to the CPU count
-                (also GATE_NO_LOAD_WAIT=1)
+  --no-load-wait  run gates without first waiting (up to 2m) while the
+                1-minute loadavg exceeds 3x the CPU count (GATE_MAX_LOAD sets
+                it), then one "waited for load" line (also GATE_NO_LOAD_WAIT=1)
   --isolate     give every gate a throwaway HOME, no global git config, and no
                 XDG directories, as CI has; on by itself inside a pre-push hook
                 (also .gate.toml: isolate = false for one gate)
