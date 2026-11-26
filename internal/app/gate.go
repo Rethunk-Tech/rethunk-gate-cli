@@ -1219,7 +1219,7 @@ func reportRan(res gateResult, opts options, quote func(io.Writer, *lineTracker)
 // the flag applies to it.
 func writeTimeoutRemedy(w io.Writer, role string, limit time.Duration, flagSet bool) {
 	if role == "" {
-		fmt.Fprintln(w, "gate: raise it with --timeout 5m, or --timeout 0 to run with no limit")
+		fmt.Fprintf(w, "gate: raise it with --timeout %s, or --timeout 0 to run with no limit\n", doubled(limit))
 		return
 	}
 	if flagSet {
@@ -1228,7 +1228,15 @@ func writeTimeoutRemedy(w io.Writer, role string, limit time.Duration, flagSet b
 	}
 	// A suggested --timeout gets passed on every later run and overrides the
 	// p95-based limit of gates that need none, so the advice stays per gate.
-	fmt.Fprintf(w, "gate: raise it for that gate alone: .gate.toml [gates.%s] timeout = %q\n", role, doubled(limit))
+	fmt.Fprintf(w, "gate: raise it for that gate alone: .gate.toml [gates.%s] timeout = %q\n", tomlKey(role), doubled(limit))
+}
+
+// tomlKey is name as a table key: bare when TOML allows it, else quoted.
+func tomlKey(name string) string {
+	if name != "" && strings.Trim(name, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-") == "" {
+		return name
+	}
+	return strconv.Quote(name)
 }
 
 // doubled is twice limit, rounded up to a whole second, in the config grammar.

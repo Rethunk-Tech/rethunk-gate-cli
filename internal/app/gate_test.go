@@ -2417,7 +2417,7 @@ func TestTimeoutRemedyForAWrappedCommandNamesOnlyTheFlag(t *testing.T) {
 		"sh", "-c", "sleep 10")
 
 	qt.Assert(t, qt.Equals(code, TimedOut))
-	qt.Check(t, qt.StringContains(stderr, "--timeout 5m"))
+	qt.Check(t, qt.StringContains(stderr, "--timeout 1s"))
 	qt.Check(t, qt.Not(qt.StringContains(stderr, ".gate.toml")),
 		qt.Commentf("a wrapped command was pointed at a config entry it has no place in: %q", stderr))
 }
