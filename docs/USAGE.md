@@ -90,7 +90,7 @@ command.
 
 A bare `gate` or `gate run` installs dependencies, which runs their lifecycle
 scripts. So when the repo has no `.gate.toml` and its `origin` is outside the
-trusted orgs, gate runs nothing and exits 2 with a one-line message naming
+trusted orgs, gate runs nothing and exits 129 with a one-line message naming
 `--trust`; `--trust` restores the normal run for that invocation. A repo with
 no `origin` is trusted. The origin host must be exactly `github.com`,
 `dev.azure.com` or `ssh.dev.azure.com`; the org is the first path segment
@@ -797,7 +797,7 @@ with the codes below**. These apply only when `gate` could not run it.
 | 124 | Timed out and was killed |
 | 127 | Could not be executed |
 | 128 | `gate` could not proceed (log, unresolved command line) |
-| 129 | Wrong invocation; also `--failed` when the record is missing, stale, or has no fail/timeout/error/skipped-by-a-need gates |
+| 129 | Wrong invocation; an untrusted origin without `--trust`; also `--failed` when the record is missing, stale, or has no fail/timeout/error/skipped-by-a-need gates |
 | 130 | Interrupted; generally 128+the signal that reached `gate` |
 
 Any other value is the command's own status.
