@@ -305,7 +305,7 @@ func (st *runState) parseFlags(args []string, stdout, stderr io.Writer) (rest []
 			msg = err.Error()
 		}
 		fmt.Fprintf(stderr, "gate: %s\n", msg)
-		fmt.Fprint(stderr, gateHelp)
+		fmt.Fprintln(stderr, "gate: run 'gate --help' for usage")
 		return nil, InvalidUsage, false
 	}
 	flags.Visit(func(f *flag.Flag) {
