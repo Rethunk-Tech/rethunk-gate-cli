@@ -2191,6 +2191,69 @@ func TestNDJSONKeepsStdoutMachineOnly(t *testing.T) {
 	qt.Check(t, qt.Equals(*r.Code, 0))
 }
 
+// An agent reads the stream's status and code, not the log: a Ctrl-C, a
+// fail-fast stop, a missing tool and a timeout each have their own word, and
+// none may read as plain "fail".
+func TestNDJSONNamesInterruptedCancelledNotFoundAndTimedOut(t *testing.T) {
+	t.Parallel()
+	ndjson := func(stdout string) map[string]result {
+		got := map[string]result{}
+		for line := range strings.Lines(strings.TrimSpace(stdout)) {
+			var r result
+			qt.Assert(t, qt.IsNil(json.Unmarshal([]byte(line), &r)), qt.Commentf("stdout line is not JSON: %q", line))
+			got[r.Name] = r
+		}
+		return got
+	}
+	check := func(r result, status string, code int) {
+		t.Helper()
+		qt.Check(t, qt.Equals(r.Status, status), qt.Commentf("gate %s", r.Name))
+		qt.Assert(t, qt.IsNotNil(r.Code), qt.Commentf("gate %s", r.Name))
+		qt.Check(t, qt.Equals(*r.Code, code), qt.Commentf("gate %s", r.Name))
+	}
+
+	// fail-fast stops the slow gate; the failing one reports its own status.
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "help:\n\t@echo nothing to do\n")
+	testutil.Write(t, root, ".gate.toml", detectNoCanon+"\n[gates.bad]\nrun = \"sleep 0.5; exit 1\"\n\n[gates.slow]\nrun = \"sleep 30\"\n")
+	stdout, stderr, _ := runGateTest(t, "-C", root, "--ndjson", "--fail-fast")
+	got := ndjson(stdout)
+	qt.Assert(t, qt.Equals(len(got), 2), qt.Commentf("stdout = %q stderr = %q", stdout, stderr))
+	check(got["bad"], "fail", 1)
+	check(got["slow"], "cancelled", int(Interrupted))
+
+	// A user stop reads "interrupted", never "cancelled".
+	marker := filepath.Join(t.TempDir(), "started")
+	solo := t.TempDir()
+	testutil.Write(t, solo, "Makefile", "help:\n\t@echo nothing to do\n")
+	testutil.Write(t, solo, ".gate.toml", detectNoCanon+"\n[gates.g]\nrun = \"touch "+marker+"; sleep 30\"\n")
+	ctx, cancel := context.WithCancel(t.Context())
+	var out, errBuf bytes.Buffer
+	done := make(chan Code, 1)
+	go func() {
+		done <- Run(ctx, "v0.0.0-test", []string{"-C", solo, "--ndjson", "--timeout", "0"}, &out, &errBuf)
+	}()
+	waitFor(t, marker)
+	cancel()
+	<-done
+	check(ndjson(out.String())["g"], "interrupted", int(Interrupted))
+
+	stdout, stderr, _ = runGateTest(t, "--ndjson", "--", "gate-no-such-binary-xyz")
+	nf := ndjson(stdout)
+	qt.Assert(t, qt.Equals(len(nf), 1), qt.Commentf("stdout = %q stderr = %q", stdout, stderr))
+	for _, r := range nf {
+		check(r, "not-found", int(NotFound))
+	}
+
+	stdout, stderr, _ = runGateTest(t, "--ndjson", "--timeout", "1s", "--", "sleep", "30")
+	to := ndjson(stdout)
+	qt.Assert(t, qt.Equals(len(to), 1), qt.Commentf("stdout = %q stderr = %q", stdout, stderr))
+	for _, r := range to {
+		check(r, "timeout", int(TimedOut))
+		qt.Check(t, qt.StringContains(r.Reason, "exceeded 1s"))
+	}
+}
+
 type failWriter struct{}
 
 func (failWriter) Write([]byte) (int, error) {
