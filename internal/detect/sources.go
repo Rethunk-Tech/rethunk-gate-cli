@@ -121,7 +121,6 @@ func fallbackTests(root string, fromPackage bool, runner []string) (plain, brows
 	if _, ok := pkg.Scripts["test"]; ok || targets["test"] {
 		return nil, nil
 	}
-	var recipes map[string]string
 	for _, n := range unreachedTests(root) {
 		if _, isScript := pkg.Scripts[n]; isScript != fromPackage && (fromPackage || !targets[n]) {
 			continue
@@ -134,10 +133,7 @@ func fallbackTests(root string, fromPackage bool, runner []string) (plain, brows
 		if fromPackage {
 			away = IsE2E(root, n, append(slices.Clone(runner), n))
 		} else {
-			if recipes == nil {
-				recipes = makefileRecipes(root)
-			}
-			away = runsE2E(recipes[n], pkg.Scripts, nil)
+			away = runsE2E(makeRecipes(root, n), pkg.Scripts, nil)
 		}
 		if away || slices.ContainsFunc(nameWords(n), func(w string) bool { return slices.Contains(nonDefaultTestWords, w) }) {
 			browser = append(browser, n)
@@ -188,33 +184,6 @@ func fallbackTestGate(name, what string, names, cmds []string) Gate {
 	g.Summary = strings.Join(cmds, " && ")
 	g.Argv = []string{"sh", "-c", g.Summary}
 	return g
-}
-
-// makefileRecipes is each target's recipe lines, joined, for the Makefile at
-// root: read as text, never run.
-func makefileRecipes(root string) map[string]string {
-	recipes := map[string]string{}
-	name, ok := makefileName(root)
-	if !ok {
-		return recipes
-	}
-	data, err := os.ReadFile(filepath.Clean(filepath.Join(root, name)))
-	if err != nil {
-		return recipes
-	}
-	var current []string
-	for line := range strings.SplitSeq(strings.ReplaceAll(string(data), "\\\n", " "), "\n") {
-		if strings.HasPrefix(line, "\t") {
-			for _, t := range current {
-				recipes[t] += strings.TrimSpace(line) + "\n"
-			}
-			continue
-		}
-		if targets, _, ok := makeRuleHead(line); ok {
-			current = targets
-		}
-	}
-	return recipes
 }
 
 // makefileTargets are the targets the Makefile at root declares.

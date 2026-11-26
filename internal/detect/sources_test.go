@@ -340,3 +340,14 @@ func TestFallbackTestsKeepBrowserScriptsOutOfTheDefaultGate(t *testing.T) {
 	qt.Check(t, qt.StringContains(gateNamed(t, proj, "test").Source, "Makefile targets unit-tests"))
 	qt.Check(t, qt.StringContains(gateNamed(t, proj, "test:e2e").Source, "frontend-test"))
 }
+
+// A test target that only reaches the browser suite through a prerequisite is
+// a browser target too.
+func TestFallbackTestsFollowMakefilePrerequisites(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	testutil.Write(t, dir, "Makefile", "lint:\n\tgo vet ./...\n\ntest-all: test-pw\n\ntest-pw:\n\tnpx playwright test\n")
+	plain, browser := fallbackTests(dir, false, nil)
+	qt.Check(t, qt.DeepEquals(plain, []string(nil)))
+	qt.Check(t, qt.ContentEquals(browser, []string{"test-all", "test-pw"}))
+}
