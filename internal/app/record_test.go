@@ -1054,6 +1054,26 @@ func TestLastFailedNameRerunsInterruptedAndNotFound(t *testing.T) {
 		qt.Check(t, qt.Equals(lastFailedName(result{Name: "g", Status: status}), "g"), qt.Commentf("%s", status))
 	}
 	qt.Check(t, qt.Equals(lastFailedName(result{Name: "g", Status: "ok"}), ""))
+	// A gate parked behind a failure in its group or by fail-fast was never judged.
+	qt.Check(t, qt.Equals(lastFailedName(result{Name: "g", Status: "skipped", Reason: "an earlier gate failed"}), "g"))
+	qt.Check(t, qt.Equals(lastFailedName(result{Name: "g", Status: "skipped", Reason: "the run was interrupted"}), ""))
+}
+
+// A record with failures the run's selection leaves out is not "no failed gates".
+func TestFailedNamesGatesTheSelectionDropped(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	root := t.TempDir()
+	testutil.Write(t, root, "Makefile", "build:\n\ttrue\n\ntest:\n\ttrue\n")
+	testutil.Write(t, root, ".gate.toml", detectNoCanon)
+	committedRepo(t, root)
+	_, _, code := runGateTest(t, "-C", root)
+	qt.Assert(t, qt.Equals(code, Success))
+	rec := readRecord(t, root)
+	rec.Gates[1].Status = "timeout"
+	qt.Assert(t, qt.IsNil(writeRecord(rec)))
+	_, stderr, code := runGateTest(t, "-C", root, "--failed", "quick")
+	qt.Check(t, qt.Equals(code, InvalidUsage))
+	qt.Check(t, qt.StringContains(stderr, "the failed gates (test) are not in this run"))
 }
 
 // A configured gate the wrapped aggregate never runs makes the pass partial:

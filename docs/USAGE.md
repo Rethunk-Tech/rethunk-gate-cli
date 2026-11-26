@@ -80,9 +80,10 @@ different gate sets, so neither stands in for the other.
 `gate --failed` still detects, then runs only the gates whose last result
 record for this root had status `fail`, `timeout`, `error`, `cancelled`, `interrupted`, or
 `not-found`, plus those
-skipped because a `needs` gate did not pass. The record
+skipped because a `needs` gate did not pass or an earlier gate failed (a serial
+group or fail-fast). The record
 must name the current HEAD and this tree's status hash. Missing, stale, or
-no such gates: the reason on stderr, exit 129. The re-run is a subset, so
+no such gates, or none of them in this run (`quick`): the reason on stderr, exit 129. The re-run is a subset, so
 the record it writes is `partial`. Not combined with `gate run` or a named
 command.
 

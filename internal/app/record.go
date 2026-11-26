@@ -528,7 +528,9 @@ func lastFailedName(g result) string {
 	case "skipped":
 		// A gate parked behind a need that did not pass was never judged;
 		// re-running only the need would park it again.
-		if strings.HasPrefix(g.Reason, "needs ") && strings.HasSuffix(g.Reason, ", which did not pass") {
+		// The same holds for one skipped behind a failure in its serial group
+		// or by fail-fast.
+		if g.Reason == "an earlier gate failed" || (strings.HasPrefix(g.Reason, "needs ") && strings.HasSuffix(g.Reason, ", which did not pass")) {
 			return g.Name
 		}
 	}
@@ -537,7 +539,7 @@ func lastFailedName(g result) string {
 
 // selectFailed keeps only the detected gates whose last record status was
 // fail, timeout, error, cancelled, interrupted, or not-found, plus those skipped because a need did
-// not pass. Missing or stale records, and a last run with none of those
+// not pass or an earlier gate failed. Missing or stale records, and a last run with none of those
 // statuses, are a no-op: 129, with the reason on stderr.
 func selectFailed(ctx context.Context, root string, opts *options, stderr io.Writer) Code {
 	rec, err := loadRecord(root)
@@ -592,7 +594,7 @@ func selectFailed(ctx context.Context, root string, opts *options, stderr io.Wri
 		return !ok
 	})
 	if len(opts.gates) == 0 {
-		fmt.Fprintln(stderr, "gate: no failed gates")
+		fmt.Fprintf(stderr, "gate: the failed gates (%s) are not in this run\n", strings.Join(names, ", "))
 		return InvalidUsage
 	}
 	return Success
