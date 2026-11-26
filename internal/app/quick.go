@@ -310,9 +310,9 @@ func changedFiles(ctx context.Context, root string) ([]string, error) {
 	// diff-index, not diff: git diff refreshes the index under .git/index.lock
 	// even with GIT_OPTIONAL_LOCKS=0, so it would block a sibling's commit. The
 	// price is that a stat-dirty file with unchanged content is listed too.
-	git := func(args ...string) ([]string, error) {
-		cmd := exec.CommandContext(ctx, "git", append([]string{ //nolint:gosec // fixed git argv, root is the detected project
-			"-C", root, "-c", "core.fsmonitor=",
+	git := func(dir string, args ...string) ([]string, error) {
+		cmd := exec.CommandContext(ctx, "git", append([]string{ //nolint:gosec // fixed git argv, dir is the detected project or one of its submodules
+			"-C", dir, "-c", "core.fsmonitor=",
 		}, args...)...)
 		cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
 		out, err := cmd.Output()
@@ -327,22 +327,48 @@ func changedFiles(ctx context.Context, root string) ([]string, error) {
 		}
 		return files, nil
 	}
-	changed, err := git("diff-index", "-z", "--name-only", "--diff-filter=d", "--relative", "HEAD")
-	if err != nil {
-		return nil, err
-	}
-	untracked, err := git("ls-files", "-z", "--others", "--exclude-standard")
-	if err != nil {
-		return nil, err
-	}
 	seen := map[string]bool{}
 	var files []string
-	for _, f := range append(changed, untracked...) {
-		if seen[f] {
+	add := func(prefix string, names []string) {
+		for _, f := range names {
+			if f = prefix + f; !seen[f] {
+				seen[f] = true
+				files = append(files, f)
+			}
+		}
+	}
+	list := func(dir, prefix string) error {
+		changed, err := git(dir, "diff-index", "-z", "--name-only", "--diff-filter=d", "--relative", "HEAD")
+		if err != nil {
+			return err
+		}
+		untracked, err := git(dir, "ls-files", "-z", "--others", "--exclude-standard")
+		if err != nil {
+			return err
+		}
+		add(prefix, changed)
+		add(prefix, untracked)
+		return nil
+	}
+	if err := list(root, ""); err != nil {
+		return nil, err
+	}
+	// The superproject sees an edit inside a submodule only as its gitlink.
+	gitlinks, err := git(root, "ls-files", "-z", "--stage")
+	if err != nil {
+		return nil, err
+	}
+	for _, entry := range gitlinks {
+		meta, path, ok := strings.Cut(entry, "\t")
+		if !ok || !strings.HasPrefix(meta, "160000 ") {
 			continue
 		}
-		seen[f] = true
-		files = append(files, f)
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(path), ".git")); err != nil {
+			continue // not initialised
+		}
+		if err := list(filepath.Join(root, filepath.FromSlash(path)), path+"/"); err != nil {
+			return nil, err
+		}
 	}
 	return files, nil
 }

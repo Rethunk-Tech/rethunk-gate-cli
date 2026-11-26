@@ -351,3 +351,31 @@ func TestQuickPrefixesDashNamedFiles(t *testing.T) {
 	qt.Assert(t, qt.IsFalse(skip))
 	qt.Check(t, qt.DeepEquals(got.argv, []string{"gofmt", "-w", "./-s.go", "a.go"}))
 }
+
+// An edit inside an initialised submodule shows in the superproject only as
+// its gitlink; quick lists the submodule's own changes, named from the root.
+func TestChangedFilesListsInsideInitialisedSubmodules(t *testing.T) {
+	t.Parallel()
+	base := t.TempDir()
+	sub := filepath.Join(base, "subsrc")
+	testutil.Write(t, sub, "a.ts", "export {}\n")
+	committedRepo(t, sub)
+	root := filepath.Join(base, "proj")
+	testutil.Write(t, root, "main.go", "package a\n")
+	committedRepo(t, root)
+	env := append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.CommandContext(t.Context(), "git", append([]string{"-c", "user.name=t", "-c", "user.email=t@t", "-c", "protocol.file.allow=always", "-C", root}, args...)...) //nolint:gosec // fixed fixture git argv
+		cmd.Env = env
+		out, err := cmd.CombinedOutput()
+		qt.Assert(t, qt.IsNil(err), qt.Commentf("git %v: %s", args, out))
+	}
+	run("submodule", "add", "--quiet", sub, "vendor/sub")
+	run("commit", "--quiet", "-m", "add sub")
+	testutil.Write(t, root, "vendor/sub/a.ts", "export const x = 1\n")
+	testutil.Write(t, root, "vendor/sub/new.ts", "export {}\n")
+	got, err := changedFiles(t.Context(), root)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Check(t, qt.ContentEquals(got, []string{"vendor/sub", "vendor/sub/a.ts", "vendor/sub/new.ts"}))
+}

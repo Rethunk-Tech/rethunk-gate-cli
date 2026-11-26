@@ -422,7 +422,8 @@ take paths: biome, ruff, gofmt, and golangci-lint (`--new-from-rev=HEAD`).
 tsc and go vet stay whole-project. `gate quick --all` drops the scoping.
 No changed files matching a scoped tool skips that gate. When git cannot list
 the changes (not a repository, a `safe.directory` refusal), quick prints why on
-stderr and runs the gates over the whole project.
+stderr and runs the gates over the whole project. Changes inside initialised
+submodules count too, named from the project root.
 
 Detection is the project's usual set. `.gate.toml` may name a different list:
 
