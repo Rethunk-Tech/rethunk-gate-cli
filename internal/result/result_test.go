@@ -56,13 +56,16 @@ func TestReadTreeRunsNothingTheRepositoryConfigured(t *testing.T) {
 	git("config", "filter.evil.clean", "touch -- "+marker+"; cat")
 	git("config", "filter.evil.smudge", "cat")
 	git("config", "diff.evil.textconv", "touch -- "+marker+"; cat")
+	hook := filepath.Join(t.TempDir(), "fsmonitor")
+	qt.Assert(t, qt.IsNil(os.WriteFile(hook, []byte("#!/bin/sh\ntouch -- "+marker+"\n"), 0o700))) //nolint:gosec // fixture must be executable
+	git("config", "core.fsmonitor", hook)
 	testutilWrite(t, root, "a.dat", "b\n")
 
 	state := ReadTree(t.Context(), root)
 	qt.Assert(t, qt.IsTrue(state.OK))
 	qt.Check(t, qt.IsTrue(state.Dirty))
 	_, err := os.Stat(marker)
-	qt.Assert(t, qt.IsTrue(os.IsNotExist(err)), qt.Commentf("a filter or textconv named by the repository ran"))
+	qt.Assert(t, qt.IsTrue(os.IsNotExist(err)), qt.Commentf("a filter, textconv or fsmonitor named by the repository ran"))
 }
 
 // git diff-files is silent about skip-worktree and assume-unchanged, so a
