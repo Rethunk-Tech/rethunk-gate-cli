@@ -188,10 +188,19 @@ func pruneLocks() (removed int) {
 		if err != nil {
 			continue
 		}
-		if locked, _ := tryLock(f); locked && os.Remove(path) == nil {
+		if removeIfIdle(f, path) {
 			removed++
 		}
 		_ = f.Close()
 	}
 	return removed
+}
+
+// removeIfIdle unlinks path when f, opened from it, can be locked and is still
+// the file there. Another pruner may have unlinked f and a run created and
+// locked a new file at path since the open; removing that one would let a
+// second run in. Holding f's flock keeps any other pruner from unlinking it.
+func removeIfIdle(f *os.File, path string) bool {
+	locked, _ := tryLock(f)
+	return locked && linked(f, path) && os.Remove(path) == nil
 }

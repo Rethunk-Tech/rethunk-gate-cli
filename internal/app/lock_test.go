@@ -235,3 +235,26 @@ func TestDueRunsOncePerInterval(t *testing.T) {
 	qt.Assert(t, qt.IsNil(os.Chtimes(stamp, past, past)))
 	qt.Check(t, qt.IsTrue(due(stamp, time.Hour)))
 }
+
+// A pruner that opened a lock file another pruner then unlinked must not
+// remove the file a run has since created and holds at the same path.
+func TestPruneDoesNotRemoveAHeldReplacement(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "k.lock")
+	qt.Assert(t, qt.IsNil(os.WriteFile(path, nil, 0o600)))
+	stale, err := os.Open(path) //nolint:gosec // a file this test just made
+	qt.Assert(t, qt.IsNil(err))
+	defer func() { _ = stale.Close() }()
+	qt.Assert(t, qt.IsNil(os.Remove(path)))
+	qt.Assert(t, qt.IsNil(os.WriteFile(path, nil, 0o600)))
+	held, err := os.Open(path) //nolint:gosec // a file this test just made
+	qt.Assert(t, qt.IsNil(err))
+	defer func() { _ = held.Close() }()
+	ok, err := tryLock(held)
+	qt.Assert(t, qt.IsNil(err))
+	qt.Assert(t, qt.IsTrue(ok))
+
+	qt.Check(t, qt.IsFalse(removeIfIdle(stale, path)))
+	_, err = os.Stat(path)
+	qt.Check(t, qt.IsNil(err), qt.Commentf("the held lock file was unlinked"))
+}
