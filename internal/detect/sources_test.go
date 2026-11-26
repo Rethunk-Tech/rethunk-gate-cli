@@ -351,3 +351,11 @@ func TestFallbackTestsFollowMakefilePrerequisites(t *testing.T) {
 	qt.Check(t, qt.DeepEquals(plain, []string(nil)))
 	qt.Check(t, qt.ContentEquals(browser, []string{"test-all", "test-pw"}))
 }
+
+func TestMakeRecipesSurvivesACycleAndStopsAtANonRuleLine(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	testutil.Write(t, dir, "Makefile", "check: test\ntest: check\n\tgo test ./...\n\na:\n\techo a\nX := y\n\techo orphan\n")
+	qt.Check(t, qt.StringContains(makeRecipes(dir, "check"), "go test"))
+	qt.Check(t, qt.Equals(makeRecipes(dir, "a"), "\techo a"))
+}
