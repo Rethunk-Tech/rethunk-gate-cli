@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -332,7 +333,8 @@ func replaceNpxInScripts(path, body string) (string, string) {
 	}
 	next := body
 	changed := false
-	for _, script := range pkg.Scripts {
+	for _, name := range slices.Sorted(maps.Keys(pkg.Scripts)) {
+		script := pkg.Scripts[name]
 		if !strings.Contains(script, "npx ") {
 			continue
 		}

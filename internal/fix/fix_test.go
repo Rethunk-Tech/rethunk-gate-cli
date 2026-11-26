@@ -979,7 +979,7 @@ func TestSerialReplacesFalseAfterAnArrayValue(t *testing.T) {
 func TestNpxRewritesEveryScriptBesideNonNpxOnes(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	const body = `{"scripts":{"a":"true","b":"true","c":"true","d":"true","e":"true","f":"true","g":"true","h":"true","i":"true","j":"true","lint":"npx eslint .","test":"npx vitest"}}`
+	const body = `{"scripts":{"a":"true","lint":"npx eslint .","test":"npx vitest"}}`
 	testutil.Write(t, dir, "package.json", body)
 	out, reason := replaceNpxInScripts(filepath.Join(dir, "package.json"), body)
 	qt.Assert(t, qt.Equals(reason, ""))
