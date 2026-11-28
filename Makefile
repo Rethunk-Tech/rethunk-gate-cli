@@ -26,6 +26,7 @@ build:
 
 install:
 	go install -ldflags "$(LDFLAGS)" ./cmd/gate
+	@mkdir -p "$$HOME/.local/state" && printf '{"repo":"rethunk-gate-cli","sha":"%s","at":"%s","target":"local-bin"}\n' "$$(git rev-parse HEAD)" "$$(date -u +%FT%TZ)" >>"$$HOME/.local/state/deploys.jsonl"
 
 test:
 	go test -race ./...
